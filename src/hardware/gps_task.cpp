@@ -7,20 +7,6 @@ QueueHandle_t g_gps_queue = NULL;
 static TinyGPSPlus gps;
 static HardwareSerial gpsSerial(1);
 
-struct GpsProbeConfig {
-  int rxPin;
-  int txPin;
-  uint32_t baud;
-};
-
-static const GpsProbeConfig PROBE_CONFIGS[] = {
-  {44, 43, 115200},
-  {43, 44, 115200},
-  {44, 43, 9600},
-  {43, 44, 9600}
-};
-static const size_t NUM_PROBES = sizeof(PROBE_CONFIGS) / sizeof(PROBE_CONFIGS[0]);
-
 void startGpsTask() {
   if (g_gps_queue == NULL) {
     g_gps_queue = xQueueCreate(10, sizeof(GpsFix));
@@ -38,16 +24,11 @@ void startGpsTask() {
 }
 
 void gpsTaskLoop(void* pvParameters) {
-  size_t currentProbeIdx = 0;
-  bool isLocked = false;
-
-  gpsSerial.begin(PROBE_CONFIGS[0].baud, SERIAL_8N1, PROBE_CONFIGS[0].rxPin, PROBE_CONFIGS[0].txPin);
-  Serial.printf("[GPS] Probing RX=%d, TX=%d @ %u baud...\n",
-                PROBE_CONFIGS[0].rxPin, PROBE_CONFIGS[0].txPin, PROBE_CONFIGS[0].baud);
+  gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+  Serial.printf("[GPS TASK] Started on RX=%d, TX=%d @ %u baud\n", PIN_GPS_RX, PIN_GPS_TX, GPS_BAUD_RATE);
 
   uint32_t lastPushMs = 0;
   uint32_t lastDebugLogMs = 0;
-  uint32_t probeStartMs = millis();
   uint32_t totalChars = 0;
 
   for (;;) {
@@ -55,42 +36,21 @@ void gpsTaskLoop(void* pvParameters) {
       char c = (char)gpsSerial.read();
       totalChars++;
       gps.encode(c);
-
-      if (!isLocked) {
-        isLocked = true;
-        Serial.printf("\n[GPS NMEA ARRIVED!] RxPin=%d TxPin=%d Baud=%u\n",
-                      PROBE_CONFIGS[currentProbeIdx].rxPin,
-                      PROBE_CONFIGS[currentProbeIdx].txPin,
-                      PROBE_CONFIGS[currentProbeIdx].baud);
-      }
     }
 
     uint32_t now = millis();
 
-    // If 0 characters received after 3 seconds, try next pin/baud combo
-    if (!isLocked && (now - probeStartMs >= 3000)) {
-      currentProbeIdx = (currentProbeIdx + 1) % NUM_PROBES;
-      probeStartMs = now;
-      gpsSerial.end();
-      gpsSerial.begin(PROBE_CONFIGS[currentProbeIdx].baud, SERIAL_8N1,
-                      PROBE_CONFIGS[currentProbeIdx].rxPin, PROBE_CONFIGS[currentProbeIdx].txPin);
-      Serial.printf("[GPS PROBE] Trying RX=%d, TX=%d @ %u baud...\n",
-                    PROBE_CONFIGS[currentProbeIdx].rxPin,
-                    PROBE_CONFIGS[currentProbeIdx].txPin,
-                    PROBE_CONFIGS[currentProbeIdx].baud);
-    }
-
     if (now - lastDebugLogMs >= 3000) {
       lastDebugLogMs = now;
       Serial.printf("[GPS STATUS] RX Pin:%d | Total Chars:%u | Sentences Passed:%u | Fix:%d | Sats:%u | HDOP:%.2f\n",
-                    PROBE_CONFIGS[currentProbeIdx].rxPin, totalChars,
+                    PIN_GPS_RX, totalChars,
                     (uint32_t)gps.passedChecksum(),
                     gps.location.isValid(),
                     gps.satellites.isValid() ? gps.satellites.value() : 0,
                     gps.hdop.isValid() ? gps.hdop.hdop() : 99.99);
     }
 
-    // Send GPS fix status to queue every 500ms or on updated location
+    // Send GPS fix status to queue
     if (now - lastPushMs >= 500 || gps.location.isUpdated()) {
       lastPushMs = now;
 
