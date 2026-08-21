@@ -3,6 +3,7 @@
 #include "core/telemetry_state.h"
 #include "hardware/gps_task.h"
 #include "hardware/baro_task.h"
+#include "storage/logger_task.h"
 #include "core/fusion_task.h"
 #include "ui/ui_task.h"
 
@@ -21,8 +22,11 @@ void setup() {
   Serial.println("[SYSTEM] Starting GPS Task on Core 0...");
   startGpsTask();
 
-  Serial.println("[SYSTEM] Starting Barometer BMP280 Task on Core 0...");
+  Serial.println("[SYSTEM] Starting Barometer BME280 Task on Core 0...");
   startBaroTask();
+
+  Serial.println("[SYSTEM] Starting microSD Logger Task on Core 0...");
+  startLoggerTask();
 
   Serial.println("[SYSTEM] Starting Telemetry Fusion Task on Core 0...");
   startFusionTask();
