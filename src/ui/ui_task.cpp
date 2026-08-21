@@ -2,6 +2,7 @@
 #include "hardware/display.h"
 #include "core/telemetry_state.h"
 #include "pages/ride_page.h"
+#include "pages/climb_page.h"
 #include "pages/sensors_page.h"
 
 static UiPage currentUiPage = PAGE_RIDE;
@@ -17,22 +18,31 @@ static void renderNavBar() {
   tft.fillRect(0, 280, 240, 40, COLOR_BG);
   tft.drawFastHLine(0, 280, 240, COLOR_CARD);
 
-  // Tab 0: RIDE
+  // Tab 0: RIDE (0..77)
   uint16_t tab0Bg = (currentUiPage == PAGE_RIDE) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab0Fg = (currentUiPage == PAGE_RIDE) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(4, 284, 112, 32, 6, tab0Bg);
+  tft.fillRoundRect(3, 284, 74, 32, 6, tab0Bg);
   tft.setTextColor(tab0Fg, tab0Bg);
   tft.setTextSize(1);
-  tft.setCursor(44, 296);
+  tft.setCursor(24, 296);
   tft.print("RIDE");
 
-  // Tab 1: GPS INFO
-  uint16_t tab1Bg = (currentUiPage == PAGE_GPS_INFO) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab1Fg = (currentUiPage == PAGE_GPS_INFO) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(124, 284, 112, 32, 6, tab1Bg);
+  // Tab 1: CLIMB (83..157)
+  uint16_t tab1Bg = (currentUiPage == PAGE_CLIMB) ? COLOR_CYAN : COLOR_CARD;
+  uint16_t tab1Fg = (currentUiPage == PAGE_CLIMB) ? TFT_BLACK : COLOR_TEXT_MUT;
+  tft.fillRoundRect(83, 284, 74, 32, 6, tab1Bg);
   tft.setTextColor(tab1Fg, tab1Bg);
   tft.setTextSize(1);
-  tft.setCursor(154, 296);
+  tft.setCursor(102, 296);
+  tft.print("CLIMB");
+
+  // Tab 2: GPS INFO (163..237)
+  uint16_t tab2Bg = (currentUiPage == PAGE_GPS_INFO) ? COLOR_CYAN : COLOR_CARD;
+  uint16_t tab2Fg = (currentUiPage == PAGE_GPS_INFO) ? TFT_BLACK : COLOR_TEXT_MUT;
+  tft.fillRoundRect(163, 284, 74, 32, 6, tab2Bg);
+  tft.setTextColor(tab2Fg, tab2Bg);
+  tft.setTextSize(1);
+  tft.setCursor(176, 296);
   tft.print("GPS INFO");
 }
 
@@ -76,13 +86,17 @@ void uiTaskLoop(void* pvParameters) {
 
       Serial.printf("[TOUCH] Pressed at X:%d, Y:%d\n", touchX, touchY);
 
-      // Handle Bottom Navigation Tab Taps
+      // Handle Bottom Navigation Tab Taps (y >= 280)
       if (touchY >= 280) {
-        if (touchX < 120 && currentUiPage != PAGE_RIDE) {
+        if (touchX < 80 && currentUiPage != PAGE_RIDE) {
           Serial.println("[UI] Switch to RIDE page");
           currentUiPage = PAGE_RIDE;
           forceRedraw = true;
-        } else if (touchX >= 120 && currentUiPage != PAGE_GPS_INFO) {
+        } else if (touchX >= 80 && touchX < 160 && currentUiPage != PAGE_CLIMB) {
+          Serial.println("[UI] Switch to CLIMB page");
+          currentUiPage = PAGE_CLIMB;
+          forceRedraw = true;
+        } else if (touchX >= 160 && currentUiPage != PAGE_GPS_INFO) {
           Serial.println("[UI] Switch to GPS INFO page");
           currentUiPage = PAGE_GPS_INFO;
           forceRedraw = true;
@@ -112,6 +126,8 @@ void uiTaskLoop(void* pvParameters) {
     // Render active UI page
     if (currentUiPage == PAGE_RIDE) {
       renderRidePage(state, forceRedraw);
+    } else if (currentUiPage == PAGE_CLIMB) {
+      renderClimbPage(state, forceRedraw);
     } else if (currentUiPage == PAGE_GPS_INFO) {
       renderGpsInfoPage(state, forceRedraw);
     }

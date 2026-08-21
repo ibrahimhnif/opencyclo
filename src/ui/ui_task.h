@@ -7,6 +7,7 @@
 
 enum UiPage {
   PAGE_RIDE = 0,
+  PAGE_CLIMB,
   PAGE_GPS_INFO,
   PAGE_COUNT
 };
