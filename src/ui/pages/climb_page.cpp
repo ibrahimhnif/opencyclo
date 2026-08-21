@@ -17,7 +17,6 @@ static uint8_t elevHead = 0;
 static bool elevFilled = false;
 
 void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
-  // Push sample to history
   elevHistory[elevHead] = state.altitude_m;
   elevHead = (elevHead + 1) % ELEV_SAMPLES;
   if (elevHead == 0) elevFilled = true;
@@ -33,12 +32,6 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setCursor(8, 7);
     tft.print("CLIMB & ELEVATION");
 
-    // Page Indicator Dots (Center: x: 104..136)
-    for (int i = 0; i < 5; i++) {
-      uint16_t dotColor = (i == 1) ? COLOR_CYAN : COLOR_CARD_ACC;
-      tft.fillCircle(104 + (i * 8), 12, (i == 1) ? 3 : 2, dotColor);
-    }
-
     // 2. HERO ALTITUDE CARD (x: 4, y: 28, w: 232, h: 74)
     tft.fillRoundRect(4, 28, 232, 74, 8, COLOR_HERO_BG);
     tft.drawRoundRect(4, 28, 232, 74, 8, COLOR_CYAN);
@@ -50,9 +43,15 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.fillRoundRect(122, 106, 114, 58, 6, COLOR_CARD);
     tft.drawRoundRect(122, 106, 114, 58, 6, COLOR_CARD_ACC);
 
-    // 4. EXPANDED ELEVATION PROFILE CARD (x: 4, y: 168, w: 232, h: 148, FULL HEIGHT!)
-    tft.fillRoundRect(4, 168, 232, 148, 8, COLOR_CARD);
-    tft.drawRoundRect(4, 168, 232, 148, 8, COLOR_CARD_ACC);
+    // 4. EXPANDED ELEVATION PROFILE CARD (x: 4, y: 168, w: 232, h: 134)
+    tft.fillRoundRect(4, 168, 232, 134, 8, COLOR_CARD);
+    tft.drawRoundRect(4, 168, 232, 134, 8, COLOR_CARD_ACC);
+
+    // 5. BOTTOM PAGE INDICATOR DOTS (y: 310)
+    for (int i = 0; i < 5; i++) {
+      uint16_t dotColor = (i == 1) ? COLOR_CYAN : COLOR_CARD_ACC;
+      tft.fillCircle(104 + (i * 8), 310, (i == 1) ? 3 : 2, dotColor);
+    }
   }
 
   // --- HERO ALTITUDE CARD ---
@@ -101,7 +100,7 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
   snprintf(ascBuf, sizeof(ascBuf), "%.0f", displayAsc);
   tft.print(ascBuf);
 
-  // --- EXPANDED ELEVATION PROFILE CHART (120px tall graph!) ---
+  // --- EXPANDED ELEVATION PROFILE CHART ---
   tft.setTextSize(1);
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(12, 174);
@@ -120,14 +119,13 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     maxAlt = minAlt + 5.0f;
   }
 
-  // Chart area: x: 12..228, y: 188..306 (height: 118px)
-  tft.fillRect(12, 188, 216, 120, COLOR_HERO_BG);
-  tft.drawRect(12, 188, 216, 120, COLOR_CARD_ACC);
+  tft.fillRect(12, 188, 216, 108, COLOR_HERO_BG);
+  tft.drawRect(12, 188, 216, 108, COLOR_CARD_ACC);
 
   int chartX = 14;
   int chartY = 190;
   int chartW = 212;
-  int chartH = 116;
+  int chartH = 104;
 
   int prevPx = -1, prevPy = -1;
   for (uint8_t i = 0; i < count; i++) {
@@ -139,7 +137,7 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
 
     if (prevPx != -1) {
       tft.drawLine(prevPx, prevPy, px, py, COLOR_GREEN);
-      tft.drawLine(prevPx, prevPy + 1, px, py + 1, COLOR_GREEN); // Thicker line
+      tft.drawLine(prevPx, prevPy + 1, px, py + 1, COLOR_GREEN);
     }
     prevPx = px;
     prevPy = py;

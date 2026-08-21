@@ -23,15 +23,15 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setCursor(8, 7);
     tft.print("SYSTEM PREFERENCES");
 
-    // Page Indicator Dots (Center: x: 104..136)
+    // 2. MAIN SETTINGS CONTAINER CARD (x: 4, y: 28, w: 232, h: 274)
+    tft.fillRoundRect(4, 28, 232, 274, 8, COLOR_CARD);
+    tft.drawRoundRect(4, 28, 232, 274, 8, COLOR_CARD_ACC);
+
+    // 3. BOTTOM PAGE INDICATOR DOTS (y: 310)
     for (int i = 0; i < 5; i++) {
       uint16_t dotColor = (i == 4) ? COLOR_CYAN : COLOR_CARD_ACC;
-      tft.fillCircle(104 + (i * 8), 12, (i == 4) ? 3 : 2, dotColor);
+      tft.fillCircle(104 + (i * 8), 310, (i == 4) ? 3 : 2, dotColor);
     }
-
-    // 2. MAIN SETTINGS CONTAINER CARD (x: 4, y: 28, w: 232, h: 288, FULL HEIGHT!)
-    tft.fillRoundRect(4, 28, 232, 288, 8, COLOR_CARD);
-    tft.drawRoundRect(4, 28, 232, 288, 8, COLOR_CARD_ACC);
   }
 
   int y = 42;
@@ -45,7 +45,7 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
   tft.setTextColor(TFT_BLACK, COLOR_CYAN);
   tft.setCursor(120, y + 3);
   tft.print(g_settings.units == 0 ? "METRIC (KM/H)" : "IMPERIAL (MPH)");
-  y += 38;
+  y += 36;
 
   // Row 2: Screen Brightness Control
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -57,7 +57,7 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
   char brightStr[16];
   snprintf(brightStr, sizeof(brightStr), "%u%%", (g_settings.brightness * 100) / 255);
   tft.print(brightStr);
-  y += 38;
+  y += 36;
 
   // Row 3: Wheel Size (700x25c)
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -68,7 +68,7 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
   char wheelStr[24];
   snprintf(wheelStr, sizeof(wheelStr), "%u mm (700x25c)", g_settings.wheel_circumference_mm);
   tft.print(wheelStr);
-  y += 38;
+  y += 36;
 
   // Row 4: SD Logging (GPX)
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -77,7 +77,7 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
   tft.setCursor(110, y);
   tft.setTextColor(g_settings.sd_logging_enabled ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
   tft.print(g_settings.sd_logging_enabled ? "ENABLED (GPX 1.1)" : "DISABLED");
-  y += 38;
+  y += 36;
 
   // Row 5: Battery Voltage & Percentage
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -89,7 +89,7 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
   float vBat = readBatteryVoltage();
   snprintf(batStr, sizeof(batStr), "%u%% (%.2f V)", state.battery_pct, vBat);
   tft.print(batStr);
-  y += 38;
+  y += 36;
 
   // Separator line
   tft.drawFastHLine(14, y - 8, 212, COLOR_CARD_ACC);
@@ -104,22 +104,19 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
 }
 
 bool handleSettingsPageTouch(int16_t x, int16_t y) {
-  // Row 1: Speed Units (y: 38..62)
   if (y >= 38 && y <= 62) {
     g_settings.units = (g_settings.units == 0) ? 1 : 0;
     saveSettings();
     return true;
   }
-  // Row 2: Brightness Cycle (y: 76..100)
-  if (y >= 76 && y <= 100) {
+  if (y >= 74 && y <= 98) {
     if (g_settings.brightness >= 250) g_settings.brightness = 50;
     else g_settings.brightness += 50;
     setDisplayBrightness(g_settings.brightness);
     saveSettings();
     return true;
   }
-  // Row 4: SD Logging Toggle (y: 152..176)
-  if (y >= 152 && y <= 176) {
+  if (y >= 146 && y <= 170) {
     g_settings.sd_logging_enabled = !g_settings.sd_logging_enabled;
     saveSettings();
     return true;
