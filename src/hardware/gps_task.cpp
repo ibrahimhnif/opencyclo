@@ -10,6 +10,26 @@ static HardwareSerial gpsSerial(1);
 static char nmeaLineBuf[80];
 static uint8_t nmeaLineIdx = 0;
 
+// u-blox M10 UBX Command: Set Navigation Refresh Rate to 5Hz (200ms)
+static const uint8_t UBX_CFG_RATE_5HZ[] = {
+  0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0xC8, 0x00, 0x01, 0x00, 0x01, 0x00, 0xDE, 0x6A
+};
+
+// u-blox UBX Command: Enable NAV-PVT High Accuracy Output
+static const uint8_t UBX_CFG_NAV5_PORTABLE[] = {
+  0xB5, 0x62, 0x06, 0x24, 0x24, 0x00, 0xFF, 0xFF, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0xDC
+};
+
+static void sendUbloxConfig() {
+  Serial.println("[GPS] Sending u-blox M10 5Hz & Multi-GNSS optimization commands...");
+  gpsSerial.write(UBX_CFG_RATE_5HZ, sizeof(UBX_CFG_RATE_5HZ));
+  delay(50);
+  gpsSerial.write(UBX_CFG_NAV5_PORTABLE, sizeof(UBX_CFG_NAV5_PORTABLE));
+  delay(50);
+}
+
 void startGpsTask() {
   if (g_gps_queue == NULL) {
     g_gps_queue = xQueueCreate(10, sizeof(GpsFix));
@@ -29,6 +49,8 @@ void startGpsTask() {
 void gpsTaskLoop(void* pvParameters) {
   gpsSerial.begin(GPS_BAUD_RATE, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
   Serial.printf("[GPS TASK] Started on RX=%d, TX=%d @ %u baud\n", PIN_GPS_RX, PIN_GPS_TX, GPS_BAUD_RATE);
+
+  sendUbloxConfig();
 
   uint32_t lastPushMs = 0;
   uint32_t lastDebugLogMs = 0;
