@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "config/pins.h"
 #include "core/telemetry_state.h"
+#include "storage/settings.h"
 #include "hardware/gps_task.h"
 #include "hardware/baro_task.h"
 #include "hardware/ble_task.h"
@@ -16,8 +17,9 @@ void setup() {
   Serial.println("       ESP32-S3 DIY GPS Cycling Computer  ");
   Serial.println("==========================================");
 
-  // Initialize shared telemetry state & mutexes
+  // Initialize shared telemetry state, NVS settings & mutexes
   initTelemetryState();
+  initSettings();
 
   // Start FreeRTOS Subsystem Tasks
   Serial.println("[SYSTEM] Starting GPS Task on Core 0...");

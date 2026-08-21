@@ -4,6 +4,8 @@
 #include "pages/ride_page.h"
 #include "pages/climb_page.h"
 #include "pages/sensors_page.h"
+#include "pages/settings_page.h"
+#include "storage/settings.h"
 
 static UiPage currentUiPage = PAGE_RIDE;
 static UiPage activePageDrawn = PAGE_RIDE;
@@ -18,32 +20,41 @@ static void renderNavBar() {
   tft.fillRect(0, 280, 240, 40, COLOR_BG);
   tft.drawFastHLine(0, 280, 240, COLOR_CARD);
 
-  // Tab 0: RIDE (0..77)
+  // Tab 0: RIDE (2..57)
   uint16_t tab0Bg = (currentUiPage == PAGE_RIDE) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab0Fg = (currentUiPage == PAGE_RIDE) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(3, 284, 74, 32, 6, tab0Bg);
+  tft.fillRoundRect(2, 284, 56, 32, 6, tab0Bg);
   tft.setTextColor(tab0Fg, tab0Bg);
   tft.setTextSize(1);
-  tft.setCursor(24, 296);
+  tft.setCursor(16, 296);
   tft.print("RIDE");
 
-  // Tab 1: CLIMB (83..157)
+  // Tab 1: CLIMB (60..115)
   uint16_t tab1Bg = (currentUiPage == PAGE_CLIMB) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab1Fg = (currentUiPage == PAGE_CLIMB) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(83, 284, 74, 32, 6, tab1Bg);
+  tft.fillRoundRect(60, 284, 56, 32, 6, tab1Bg);
   tft.setTextColor(tab1Fg, tab1Bg);
   tft.setTextSize(1);
-  tft.setCursor(102, 296);
+  tft.setCursor(72, 296);
   tft.print("CLIMB");
 
-  // Tab 2: GPS INFO (163..237)
+  // Tab 2: GPS (118..173)
   uint16_t tab2Bg = (currentUiPage == PAGE_GPS_INFO) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab2Fg = (currentUiPage == PAGE_GPS_INFO) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(163, 284, 74, 32, 6, tab2Bg);
+  tft.fillRoundRect(118, 284, 56, 32, 6, tab2Bg);
   tft.setTextColor(tab2Fg, tab2Bg);
   tft.setTextSize(1);
-  tft.setCursor(176, 296);
-  tft.print("GPS INFO");
+  tft.setCursor(134, 296);
+  tft.print("GPS");
+
+  // Tab 3: SETTINGS (176..238)
+  uint16_t tab3Bg = (currentUiPage == PAGE_SETTINGS) ? COLOR_CYAN : COLOR_CARD;
+  uint16_t tab3Fg = (currentUiPage == PAGE_SETTINGS) ? TFT_BLACK : COLOR_TEXT_MUT;
+  tft.fillRoundRect(176, 284, 60, 32, 6, tab3Bg);
+  tft.setTextColor(tab3Fg, tab3Bg);
+  tft.setTextSize(1);
+  tft.setCursor(182, 296);
+  tft.print("SETTING");
 }
 
 void startUiTask() {
@@ -60,6 +71,7 @@ void startUiTask() {
 
 void uiTaskLoop(void* pvParameters) {
   initDisplay();
+  setDisplayBrightness(g_settings.brightness);
   forceRedraw = true;
 
   int16_t touchX = 0, touchY = 0;
@@ -88,17 +100,21 @@ void uiTaskLoop(void* pvParameters) {
 
       // Handle Bottom Navigation Tab Taps (y >= 280)
       if (touchY >= 280) {
-        if (touchX < 80 && currentUiPage != PAGE_RIDE) {
+        if (touchX < 58 && currentUiPage != PAGE_RIDE) {
           Serial.println("[UI] Switch to RIDE page");
           currentUiPage = PAGE_RIDE;
           forceRedraw = true;
-        } else if (touchX >= 80 && touchX < 160 && currentUiPage != PAGE_CLIMB) {
+        } else if (touchX >= 58 && touchX < 117 && currentUiPage != PAGE_CLIMB) {
           Serial.println("[UI] Switch to CLIMB page");
           currentUiPage = PAGE_CLIMB;
           forceRedraw = true;
-        } else if (touchX >= 160 && currentUiPage != PAGE_GPS_INFO) {
+        } else if (touchX >= 117 && touchX < 175 && currentUiPage != PAGE_GPS_INFO) {
           Serial.println("[UI] Switch to GPS INFO page");
           currentUiPage = PAGE_GPS_INFO;
+          forceRedraw = true;
+        } else if (touchX >= 175 && currentUiPage != PAGE_SETTINGS) {
+          Serial.println("[UI] Switch to SETTINGS page");
+          currentUiPage = PAGE_SETTINGS;
           forceRedraw = true;
         }
       } else {
@@ -106,6 +122,11 @@ void uiTaskLoop(void* pvParameters) {
         if (currentUiPage == PAGE_RIDE) {
           if (handleRidePageTouch(touchX, touchY)) {
             Serial.println("[UI] Ride state toggled via touch");
+            forceRedraw = true;
+          }
+        } else if (currentUiPage == PAGE_SETTINGS) {
+          if (handleSettingsPageTouch(touchX, touchY)) {
+            Serial.println("[UI] Setting updated via touch");
             forceRedraw = true;
           }
         }
@@ -130,6 +151,8 @@ void uiTaskLoop(void* pvParameters) {
       renderClimbPage(state, forceRedraw);
     } else if (currentUiPage == PAGE_GPS_INFO) {
       renderGpsInfoPage(state, forceRedraw);
+    } else if (currentUiPage == PAGE_SETTINGS) {
+      renderSettingsPage(state, forceRedraw);
     }
 
     if (forceRedraw) {
