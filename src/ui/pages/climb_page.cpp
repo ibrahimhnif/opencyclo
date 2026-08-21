@@ -1,131 +1,144 @@
 #include "climb_page.h"
+#include "storage/settings.h"
 #include <stdio.h>
 
-static uint16_t COLOR_BG       = tft.color565(12, 16, 26);
-static uint16_t COLOR_CARD     = tft.color565(26, 34, 52);
-static uint16_t COLOR_CARD_ACC = tft.color565(36, 46, 68);
+static uint16_t COLOR_BG       = tft.color565(10, 14, 24);
+static uint16_t COLOR_CARD     = tft.color565(20, 28, 44);
+static uint16_t COLOR_CARD_ACC = tft.color565(32, 44, 68);
+static uint16_t COLOR_HERO_BG  = tft.color565(14, 22, 38);
 static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
 static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
 static uint16_t COLOR_AMBER    = tft.color565(255, 171, 0);
 static uint16_t COLOR_TEXT_MUT = tft.color565(140, 155, 180);
 
-static float altHistory[30] = {0};
-static uint8_t historyIdx = 0;
-static uint32_t lastHistoryPushMs = 0;
+#define ELEV_SAMPLES 30
+static float elevHistory[ELEV_SAMPLES];
+static uint8_t elevHead = 0;
+static bool elevFilled = false;
 
 void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
-  uint32_t now = millis();
-  if (now - lastHistoryPushMs >= 2000) {
-    lastHistoryPushMs = now;
-    altHistory[historyIdx] = state.altitude_m;
-    historyIdx = (historyIdx + 1) % 30;
-  }
+  // Push sample to history
+  elevHistory[elevHead] = state.altitude_m;
+  elevHead = (elevHead + 1) % ELEV_SAMPLES;
+  if (elevHead == 0) elevFilled = true;
 
   if (forceFullRedraw) {
     tft.fillScreen(COLOR_BG);
 
-    // Header Title
-    tft.setTextColor(TFT_WHITE, COLOR_BG);
-    tft.setTextSize(2);
-    tft.setCursor(8, 6);
-    tft.print("CLIMB & ELEVATION");
-
-    // Hero Altitude Card Container (x: 6, y: 28, w: 228, h: 80)
-    tft.fillRoundRect(6, 28, 228, 80, 8, COLOR_CARD);
-    tft.drawRoundRect(6, 28, 228, 80, 8, COLOR_CARD_ACC);
-
+    // 1. TOP HEADER (y: 0 .. 24)
+    tft.fillRect(0, 0, 240, 24, COLOR_CARD);
+    tft.drawFastHLine(0, 24, 240, COLOR_CARD_ACC);
     tft.setTextSize(1);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(14, 34);
-    tft.print("ALTITUDE");
-    tft.setCursor(200, 34);
-    tft.print("m");
+    tft.setTextColor(TFT_WHITE, COLOR_CARD);
+    tft.setCursor(8, 7);
+    tft.print("CLIMB & ELEVATION PROFILE");
 
-    // Metrics Grid Container (x: 6, y: 114, 228, 74)
-    // Tile 1: Total Ascent (6, 114, 111, 35)
-    tft.fillRoundRect(6, 114, 111, 35, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(12, 118);
-    tft.print("ASCENT");
+    // 2. HERO ALTITUDE CARD (x: 4, y: 28, w: 232, h: 74)
+    tft.fillRoundRect(4, 28, 232, 74, 8, COLOR_HERO_BG);
+    tft.drawRoundRect(4, 28, 232, 74, 8, COLOR_CYAN);
 
-    // Tile 2: Grade % (123, 114, 111, 35)
-    tft.fillRoundRect(123, 114, 111, 35, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(129, 118);
-    tft.print("GRADE %");
+    // 3. MIDDLE GRID (x: 4 & 122, y: 106, w: 114, h: 58)
+    tft.fillRoundRect(4, 106, 114, 58, 6, COLOR_CARD);
+    tft.drawRoundRect(4, 106, 114, 58, 6, COLOR_CARD_ACC);
 
-    // Tile 3: Temp (6, 153, 111, 35)
-    tft.fillRoundRect(6, 153, 111, 35, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(12, 157);
-    tft.print("TEMP");
+    tft.fillRoundRect(122, 106, 114, 58, 6, COLOR_CARD);
+    tft.drawRoundRect(122, 106, 114, 58, 6, COLOR_CARD_ACC);
 
-    // Tile 4: Humidity (123, 153, 111, 35)
-    tft.fillRoundRect(123, 153, 111, 35, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(129, 157);
-    tft.print("HUMIDITY");
-
-    // Sparkline Graph Container (x: 6, y: 194, w: 228, h: 80)
-    tft.fillRoundRect(6, 194, 228, 80, 6, COLOR_CARD);
-    tft.drawRoundRect(6, 194, 228, 80, 6, COLOR_CARD_ACC);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(12, 198);
-    tft.print("ELEVATION PROFILE");
+    // 4. SPARKLINE ELEVATION PROFILE CARD (x: 4, y: 168, w: 232, h: 108)
+    tft.fillRoundRect(4, 168, 232, 108, 8, COLOR_CARD);
+    tft.drawRoundRect(4, 168, 232, 108, 8, COLOR_CARD_ACC);
   }
 
-  // Hero Altitude Value
-  char altStr[16];
-  snprintf(altStr, sizeof(altStr), "%5.0f", state.altitude_m);
-  tft.setTextSize(4);
-  tft.setTextColor(COLOR_CYAN, COLOR_CARD);
-  tft.setCursor(14, 52);
-  tft.print(altStr);
-
-  // Tile 1 Value: Total Ascent
-  char ascStr[16];
-  snprintf(ascStr, sizeof(ascStr), "+%.0fm", state.total_ascent_m);
+  // --- HERO ALTITUDE CARD ---
   tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_HERO_BG);
+  tft.setCursor(12, 34);
+  tft.print("ALTITUDE");
+
+  tft.setTextColor(TFT_WHITE, COLOR_HERO_BG);
+  tft.setTextSize(3);
+  char altBuf[12];
+  float displayAlt = (g_settings.units == 1) ? (state.altitude_m * 3.28084f) : state.altitude_m;
+  snprintf(altBuf, sizeof(altBuf), "%4.0f", displayAlt);
+  tft.setCursor(12, 50);
+  tft.print(altBuf);
+
+  tft.setTextSize(2);
+  tft.setTextColor(COLOR_CYAN, COLOR_HERO_BG);
+  tft.setCursor(184, 58);
+  tft.print((g_settings.units == 1) ? "FT" : "M");
+
+  // --- MIDDLE GRID: GRADE % & TOTAL ASCENT ---
+  // Left: Grade %
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(10, 112);
+  tft.print("GRADE %");
+
+  tft.setTextSize(2);
+  uint16_t gradeColor = (state.grade_pct > 3.0f) ? COLOR_AMBER : ((state.grade_pct < -2.0f) ? COLOR_CYAN : COLOR_GREEN);
+  tft.setTextColor(gradeColor, COLOR_CARD);
+  tft.setCursor(10, 132);
+  char gradeBuf[12];
+  snprintf(gradeBuf, sizeof(gradeBuf), "%+4.1f%%", state.grade_pct);
+  tft.print(gradeBuf);
+
+  // Right: Total Ascent
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(128, 112);
+  tft.print(g_settings.units == 1 ? "ASCENT (FT)" : "ASCENT (M)");
+
+  tft.setTextSize(2);
   tft.setTextColor(COLOR_GREEN, COLOR_CARD);
-  tft.setCursor(12, 134);
-  tft.print(ascStr);
+  tft.setCursor(128, 132);
+  char ascBuf[12];
+  float displayAsc = (g_settings.units == 1) ? (state.total_ascent_m * 3.28084f) : state.total_ascent_m;
+  snprintf(ascBuf, sizeof(ascBuf), "%.0f", displayAsc);
+  tft.print(ascBuf);
 
-  // Tile 2 Value: Grade %
-  char gradeStr[16];
-  snprintf(gradeStr, sizeof(gradeStr), "%+.1f%%", state.grade_pct);
+  // --- SPARKLINE ELEVATION PROFILE CHART ---
   tft.setTextSize(1);
-  tft.setTextColor((state.grade_pct > 1.0f) ? COLOR_GREEN : ((state.grade_pct < -1.0f) ? COLOR_CYAN : TFT_WHITE), COLOR_CARD);
-  tft.setCursor(129, 134);
-  tft.print(gradeStr);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(12, 174);
+  tft.print("LIVE ELEVATION PROFILE (30s)");
 
-  // Tile 3 & 4 Values: Temp & Humidity (read via BaroSample or stored in TelemetryState)
-  // Display standard placeholder values if sensor details populated
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_WHITE, COLOR_CARD);
-  tft.setCursor(12, 173);
-  tft.print("BME280 OK");
+  // Find min and max altitude in buffer
+  float minAlt = 99999.0f, maxAlt = -99999.0f;
+  uint8_t count = elevFilled ? ELEV_SAMPLES : elevHead;
+  if (count < 2) count = 2;
 
-  tft.setCursor(129, 173);
-  tft.print("I2C 0x76/77");
-
-  // Sparkline Graph Drawing (x: 14 to 226, y: 215 to 265)
-  float minA = 99999.0f, maxA = -99999.0f;
-  for (int i = 0; i < 30; i++) {
-    if (altHistory[i] < minA) minA = altHistory[i];
-    if (altHistory[i] > maxA) maxA = altHistory[i];
+  for (uint8_t i = 0; i < count; i++) {
+    float val = elevHistory[i];
+    if (val < minAlt) minAlt = val;
+    if (val > maxAlt) maxAlt = val;
   }
-  if (maxA - minA < 10.0f) maxA = minA + 10.0f;
+  if (maxAlt - minAlt < 5.0f) {
+    maxAlt = minAlt + 5.0f;
+  }
 
-  tft.fillRect(14, 215, 212, 52, COLOR_CARD);
-  for (int i = 0; i < 29; i++) {
-    int idx1 = (historyIdx + i) % 30;
-    int idx2 = (historyIdx + i + 1) % 30;
+  // Chart bounds: x: 12..228, y: 190..264 (height: 74px)
+  tft.fillRect(12, 188, 216, 80, COLOR_HERO_BG);
+  tft.drawRect(12, 188, 216, 80, COLOR_CARD_ACC);
 
-    int x1 = 14 + (i * 7);
-    int y1 = 265 - (int)(((altHistory[idx1] - minA) / (maxA - minA)) * 48.0f);
-    int x2 = 14 + ((i + 1) * 7);
-    int y2 = 265 - (int)(((altHistory[idx2] - minA) / (maxA - minA)) * 48.0f);
+  int chartX = 14;
+  int chartY = 190;
+  int chartW = 212;
+  int chartH = 76;
 
-    tft.drawLine(x1, y1, x2, y2, COLOR_GREEN);
+  int prevPx = -1, prevPy = -1;
+  for (uint8_t i = 0; i < count; i++) {
+    uint8_t idx = elevFilled ? ((elevHead + i) % ELEV_SAMPLES) : i;
+    float val = elevHistory[idx];
+
+    int px = chartX + (i * chartW) / (ELEV_SAMPLES - 1);
+    int py = chartY + chartH - (int)(((val - minAlt) / (maxAlt - minAlt)) * (chartH - 4));
+
+    if (prevPx != -1) {
+      tft.drawLine(prevPx, prevPy, px, py, COLOR_GREEN);
+      tft.drawLine(prevPx, prevPy + 1, px, py + 1, COLOR_GREEN); // Thicker line
+    }
+    prevPx = px;
+    prevPy = py;
   }
 }

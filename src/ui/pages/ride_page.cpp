@@ -1,186 +1,209 @@
 #include "ride_page.h"
+#include "storage/settings.h"
 #include <stdio.h>
 
-static uint16_t COLOR_BG       = tft.color565(12, 16, 26);
-static uint16_t COLOR_CARD     = tft.color565(26, 34, 52);
-static uint16_t COLOR_CARD_ACC = tft.color565(36, 46, 68);
-static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
-static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
-static uint16_t COLOR_AMBER    = tft.color565(255, 171, 0);
-static uint16_t COLOR_RED      = tft.color565(255, 71, 87);
-static uint16_t COLOR_TEXT_MUT = tft.color565(140, 155, 180);
+// Garmin / iGPSPORT Inspired Premium Palette
+static uint16_t COLOR_BG        = tft.color565(10, 14, 24);    // Deep Garmin Dark Slate
+static uint16_t COLOR_CARD      = tft.color565(20, 28, 44);    // Card Surface Fill
+static uint16_t COLOR_CARD_ACC  = tft.color565(32, 44, 68);    // Subtle Card Border
+static uint16_t COLOR_HERO_BG   = tft.color565(14, 22, 38);    // Speed Hero Box
+static uint16_t COLOR_CYAN      = tft.color565(0, 210, 255);   // Primary Accent Cyan
+static uint16_t COLOR_GREEN     = tft.color565(46, 213, 115);  // Garmin Active Green
+static uint16_t COLOR_AMBER     = tft.color565(255, 171, 0);   // Paused Amber
+static uint16_t COLOR_RED       = tft.color565(255, 71, 87);   // Accent Red
+static uint16_t COLOR_TEXT_MUT  = tft.color565(140, 155, 180); // Muted Label Text
 
 void renderRidePage(const TelemetryState& state, bool forceFullRedraw) {
   if (forceFullRedraw) {
     tft.fillScreen(COLOR_BG);
 
-    // Header Title
-    tft.setTextColor(TFT_WHITE, COLOR_BG);
-    tft.setTextSize(2);
-    tft.setCursor(8, 6);
-    tft.print("OPENCYCLO");
+    // 1. TOP STATUS BAR (y: 0 .. 24)
+    tft.fillRect(0, 0, 240, 24, COLOR_CARD);
+    tft.drawFastHLine(0, 24, 240, COLOR_CARD_ACC);
 
-    // Hero Speed Card Container (x: 6, y: 28, w: 228, h: 98)
-    tft.fillRoundRect(6, 28, 228, 98, 8, COLOR_CARD);
-    tft.drawRoundRect(6, 28, 228, 98, 8, COLOR_CARD_ACC);
+    // 2. HERO SPEED BOX (x: 4, y: 28, w: 232, h: 96)
+    tft.fillRoundRect(4, 28, 232, 96, 8, COLOR_HERO_BG);
+    tft.drawRoundRect(4, 28, 232, 96, 8, COLOR_CYAN);
 
-    tft.setTextSize(1);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(14, 34);
-    tft.print("SPEED");
+    // 3. MIDDLE GRID CARDS (x: 4 & 122, y: 128, w: 114, h: 58)
+    tft.fillRoundRect(4, 128, 114, 58, 6, COLOR_CARD);
+    tft.drawRoundRect(4, 128, 114, 58, 6, COLOR_CARD_ACC);
 
-    tft.setCursor(180, 34);
-    tft.print("KM/H");
+    tft.fillRoundRect(122, 128, 114, 58, 6, COLOR_CARD);
+    tft.drawRoundRect(122, 128, 114, 58, 6, COLOR_CARD_ACC);
 
-    // Grid Container Tiles (4 tiles)
-    // Tile 1: Dist (6, 160, 111, 56)
-    tft.fillRoundRect(6, 160, 111, 56, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(12, 166);
-    tft.print("DISTANCE");
-    tft.setCursor(85, 166);
-    tft.print("km");
+    // 4. BOTTOM SENSOR TRIPLE CARDS (x: 4, 82, 160, y: 190, w: 76, h: 50)
+    tft.fillRoundRect(4, 190, 74, 50, 6, COLOR_CARD);
+    tft.drawRoundRect(4, 190, 74, 50, 6, COLOR_CARD_ACC);
 
-    // Tile 2: Time (123, 160, 111, 56)
-    tft.fillRoundRect(123, 160, 111, 56, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(129, 166);
-    tft.print("RIDE TIME");
+    tft.fillRoundRect(83, 190, 74, 50, 6, COLOR_CARD);
+    tft.drawRoundRect(83, 190, 74, 50, 6, COLOR_CARD_ACC);
 
-    // Tile 3: Avg Speed (6, 220, 111, 56)
-    tft.fillRoundRect(6, 220, 111, 56, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(12, 226);
-    tft.print("AVG SPEED");
-    tft.setCursor(80, 226);
-    tft.print("km/h");
-
-    // Tile 4: Altitude (123, 220, 111, 56)
-    tft.fillRoundRect(123, 220, 111, 56, 6, COLOR_CARD);
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(129, 226);
-    tft.print("ALTITUDE");
-    tft.setCursor(205, 226);
-    tft.print("m");
+    tft.fillRoundRect(162, 190, 74, 50, 6, COLOR_CARD);
+    tft.drawRoundRect(162, 190, 74, 50, 6, COLOR_CARD_ACC);
   }
 
-  // Header GPS Status Indicator
+  // --- TOP STATUS BAR UPDATES ---
+  tft.setTextSize(1);
+
+  // Left: GPS Fix Icon / Badge
+  tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
+  tft.setCursor(6, 7);
   if (state.gps_has_fix) {
-    tft.fillCircle(195, 12, 5, COLOR_GREEN);
-    tft.setTextColor(COLOR_GREEN, COLOR_BG);
-    tft.setTextSize(1);
-    tft.setCursor(204, 8);
-    tft.print("GPS");
+    tft.printf("GPS 3D (%u SAT)", state.satellites);
   } else {
-    tft.fillCircle(195, 12, 5, COLOR_AMBER);
-    tft.setTextColor(COLOR_AMBER, COLOR_BG);
-    tft.setTextSize(1);
-    tft.setCursor(204, 8);
-    tft.print("SEARCH");
+    tft.print("GPS SEARCHING");
   }
 
-  // Hero Speed Display Value
-  char speedStr[16];
-  snprintf(speedStr, sizeof(speedStr), "%4.1f", state.speed_kmh);
+  // Center: Ride State Indicator
+  uint16_t stateColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_GREEN :
+                        ((state.ride_state == RIDE_STATE_PAUSED) ? COLOR_AMBER : COLOR_TEXT_MUT);
+  tft.fillCircle(128, 12, 4, stateColor);
+  tft.setTextColor(stateColor, COLOR_CARD);
+  tft.setCursor(136, 7);
+  tft.print((state.ride_state == RIDE_STATE_ACTIVE) ? "REC" :
+            ((state.ride_state == RIDE_STATE_PAUSED) ? "PAUSE" : "READY"));
 
-  tft.setTextSize(5);
-  tft.setTextColor(state.gps_has_fix ? COLOR_CYAN : TFT_WHITE, COLOR_CARD);
+  // Right: Battery %
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(194, 7);
+  tft.printf("%u%%", state.battery_pct);
+
+  // --- 1. HERO SPEED SECTION ---
+  // Speed Label
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_HERO_BG);
+  tft.setTextSize(1);
+  tft.setCursor(12, 34);
+  tft.print("SPEED");
+
+  // Speed Source Badge (GPS vs BLE)
+  tft.setCursor(170, 34);
+  tft.setTextColor(state.speed_source == SPEED_SOURCE_BLE_CSC ? COLOR_CYAN : COLOR_TEXT_MUT, COLOR_HERO_BG);
+  tft.print(state.speed_source == SPEED_SOURCE_BLE_CSC ? "[BLE CSC]" : "[GPS]");
+
+  // Giant Speed Value (Font Size 4 in LovyanGFX = Garmin style giant numerals)
+  tft.setTextColor(TFT_WHITE, COLOR_HERO_BG);
+  tft.setTextSize(4);
+  char speedBuf[12];
+  float displaySpeed = (g_settings.units == 1) ? (state.speed_kmh * 0.621371f) : state.speed_kmh;
+  snprintf(speedBuf, sizeof(speedBuf), "%4.1f", displaySpeed);
   tft.setCursor(14, 52);
-  tft.print(speedStr);
+  tft.print(speedBuf);
 
-  // Speed source badge inside hero card
+  // Speed Unit
+  tft.setTextSize(2);
+  tft.setTextColor(COLOR_CYAN, COLOR_HERO_BG);
+  tft.setCursor(174, 82);
+  tft.print((g_settings.units == 1) ? "MPH" : "KM/H");
+
+  // --- 2. MIDDLE GRID: DISTANCE & RIDE TIME ---
+  // Left: Distance Card
   tft.setTextSize(1);
-  tft.setCursor(170, 102);
-  if (state.speed_source == SPEED_SOURCE_BLE_CSC) {
-    tft.setTextColor(COLOR_GREEN, COLOR_CARD);
-    tft.print("[CSC]");
-  } else if (state.speed_source == SPEED_SOURCE_GPS) {
-    tft.setTextColor(COLOR_CYAN, COLOR_CARD);
-    tft.print("[GPS]");
-  } else {
-    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.print("[---]");
-  }
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(10, 134);
+  tft.print(g_settings.units == 1 ? "DISTANCE (MI)" : "DISTANCE (KM)");
 
-  // Ride State Banner & Button (y: 130 .. 154)
-  uint16_t badgeColor = COLOR_CARD_ACC;
-  const char* stateText = "IDLE";
-  if (state.ride_state == RIDE_STATE_ACTIVE) {
-    badgeColor = COLOR_GREEN;
-    stateText = "RIDE ACTIVE";
-  } else if (state.ride_state == RIDE_STATE_PAUSED) {
-    badgeColor = COLOR_AMBER;
-    stateText = "PAUSED";
-  }
-
-  tft.fillRoundRect(6, 130, 110, 24, 12, badgeColor);
-  tft.setTextColor(TFT_WHITE, badgeColor);
-  tft.setTextSize(1);
-  tft.setCursor(16, 138);
-  tft.print(stateText);
-
-  // Manual Ride Control Button Target
-  tft.fillRoundRect(123, 130, 111, 24, 12, (state.ride_state == RIDE_STATE_IDLE) ? COLOR_CYAN : COLOR_RED);
-  tft.setTextColor(TFT_BLACK, (state.ride_state == RIDE_STATE_IDLE) ? COLOR_CYAN : COLOR_RED);
-  tft.setTextSize(1);
-  tft.setCursor(133, 138);
-  if (state.ride_state == RIDE_STATE_IDLE) {
-    tft.print("START RIDE");
-  } else {
-    tft.print("END RIDE");
-  }
-
-  // Tile 1 Value: Distance
-  char distStr[16];
-  snprintf(distStr, sizeof(distStr), "%.2f", state.trip_distance_km);
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
-  tft.setCursor(12, 186);
-  tft.print(distStr);
+  tft.setCursor(10, 154);
+  char distBuf[12];
+  float displayDist = (g_settings.units == 1) ? (state.trip_distance_km * 0.621371f) : state.trip_distance_km;
+  snprintf(distBuf, sizeof(distBuf), "%.2f", displayDist);
+  tft.print(distBuf);
 
-  // Tile 2 Value: Ride Time
+  // Right: Ride Time Card
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(128, 134);
+  tft.print("RIDE TIME");
+
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_WHITE, COLOR_CARD);
+  tft.setCursor(128, 154);
+  char timeBuf[12];
   uint32_t hrs = state.ride_time_s / 3600;
   uint32_t mins = (state.ride_time_s % 3600) / 60;
   uint32_t secs = state.ride_time_s % 60;
-  char timeStr[16];
   if (hrs > 0) {
-    snprintf(timeStr, sizeof(timeStr), "%02u:%02u:%02u", hrs, mins, secs);
+    snprintf(timeBuf, sizeof(timeBuf), "%02u:%02u:%02u", hrs, mins, secs);
   } else {
-    snprintf(timeStr, sizeof(timeStr), "%02u:%02u", mins, secs);
+    snprintf(timeBuf, sizeof(timeBuf), "%02u:%02u", mins, secs);
   }
-  tft.setTextSize(2);
-  tft.setCursor(129, 186);
-  tft.print(timeStr);
+  tft.print(timeBuf);
 
-  // Tile 3 Value: Avg Speed
-  char avgStr[16];
-  snprintf(avgStr, sizeof(avgStr), "%.1f", state.avg_speed_kmh);
+  // --- 3. BOTTOM SENSOR TRIPLE CARDS ---
+  // Card 1: Cadence
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(8, 196);
+  tft.print("CAD (RPM)");
   tft.setTextSize(2);
-  tft.setCursor(12, 246);
-  tft.print(avgStr);
+  tft.setCursor(8, 214);
+  if (state.cadence_rpm >= 0) {
+    tft.setTextColor(COLOR_CYAN, COLOR_CARD);
+    tft.printf("%d", state.cadence_rpm);
+  } else {
+    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+    tft.print("--");
+  }
 
-  // Tile 4 Value: Altitude
-  char altStr[16];
-  snprintf(altStr, sizeof(altStr), "%.0f", state.altitude_m);
+  // Card 2: Heart Rate
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(87, 196);
+  tft.print("HR (BPM)");
   tft.setTextSize(2);
-  tft.setCursor(129, 246);
-  tft.print(altStr);
+  tft.setCursor(87, 214);
+  if (state.heart_rate_bpm >= 0) {
+    tft.setTextColor(COLOR_RED, COLOR_CARD);
+    tft.printf("%d", state.heart_rate_bpm);
+  } else {
+    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+    tft.print("--");
+  }
+
+  // Card 3: Power
+  tft.setTextSize(1);
+  tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+  tft.setCursor(166, 196);
+  tft.print("PWR (W)");
+  tft.setTextSize(2);
+  tft.setCursor(166, 214);
+  if (state.power_watts >= 0) {
+    tft.setTextColor(COLOR_GREEN, COLOR_CARD);
+    tft.printf("%d", state.power_watts);
+  } else {
+    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+    tft.print("--");
+  }
+
+  // --- 4. ACTION RIDE CONTROL BUTTON (y: 246 .. 276) ---
+  uint16_t btnColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_AMBER : COLOR_GREEN;
+  tft.fillRoundRect(4, 246, 232, 28, 6, btnColor);
+  tft.setTextColor(TFT_BLACK, btnColor);
+  tft.setTextSize(2);
+  tft.setCursor(48, 252);
+  if (state.ride_state == RIDE_STATE_ACTIVE) {
+    tft.print("PAUSE RIDE");
+  } else if (state.ride_state == RIDE_STATE_PAUSED) {
+    tft.print("RESUME RIDE");
+  } else {
+    tft.print("START RIDE");
+  }
 }
 
 bool handleRidePageTouch(int16_t x, int16_t y) {
-  // Check Start/End Ride button tap (x: 123..234, y: 130..154)
-  if (x >= 123 && x <= 234 && y >= 130 && y <= 154) {
-    TelemetryState current = getTelemetrySnapshot();
-    if (current.ride_state == RIDE_STATE_IDLE) {
-      current.ride_state = RIDE_STATE_ACTIVE;
-      current.trip_distance_km = 0.0f;
-      current.ride_time_s = 0;
-      current.avg_speed_kmh = 0.0f;
-      current.max_speed_kmh = 0.0f;
+  // Touch Start / Pause / Resume Button (y: 246 .. 276)
+  if (y >= 246 && y <= 276) {
+    TelemetryState state = getTelemetrySnapshot();
+    if (state.ride_state == RIDE_STATE_ACTIVE) {
+      state.ride_state = RIDE_STATE_PAUSED;
+      Serial.println("[UI] Ride PAUSED via touchscreen");
     } else {
-      current.ride_state = RIDE_STATE_IDLE;
+      state.ride_state = RIDE_STATE_ACTIVE;
+      Serial.println("[UI] Ride STARTED/RESUMED via touchscreen");
     }
-    setTelemetryState(current);
+    setTelemetryState(state);
     return true;
   }
   return false;
