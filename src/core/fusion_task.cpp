@@ -34,8 +34,8 @@ void fusionTaskLoop(void* pvParameters) {
   BaroSample baro;
   TelemetryState state = getTelemetrySnapshot();
 
-  uint32_t speedAbove3StartMs = 0;
-  uint32_t speedZeroStartMs = 0;
+  uint32_t speedAbove4StartMs = 0;
+  uint32_t speedBelow1_5StartMs = 0;
   uint32_t lastSecondTickMs = millis();
   uint32_t lastBatCheckMs = 0;
   double prevLat = 0.0;
@@ -47,10 +47,12 @@ void fusionTaskLoop(void* pvParameters) {
   for (;;) {
     uint32_t now = millis();
 
+    // Check battery every 2 seconds
     if (now - lastBatCheckMs >= 2000) {
       lastBatCheckMs = now;
       state.battery_pct = readBatteryPercentage();
     }
+
     bool gotGpsFix = false;
     if (g_gps_queue != NULL && xQueueReceive(g_gps_queue, &fix, pdMS_TO_TICKS(50)) == pdTRUE) {
       gotGpsFix = true;
@@ -61,114 +63,120 @@ void fusionTaskLoop(void* pvParameters) {
       gotBaroSample = true;
     }
 
+    // Smooth Altitude with EMA filter
     if (gotBaroSample && baro.isValid) {
       if (smoothAlt == 0.0f) {
         smoothAlt = baro.altitudeM;
       } else {
-        smoothAlt = (smoothAlt * 0.85f) + (baro.altitudeM * 0.15f); // Low pass filter
+        smoothAlt = 0.85f * smoothAlt + 0.15f * baro.altitudeM;
       }
-
       state.altitude_m = smoothAlt;
-
-      if (prevAlt != 0.0f && state.ride_state == RIDE_STATE_ACTIVE) {
-        float altDiff = smoothAlt - prevAlt;
-        if (altDiff > 0.5f) { // Accumulate ascent above noise threshold
-          state.total_ascent_m += altDiff;
-          prevAlt = smoothAlt;
-        } else if (altDiff < -0.5f) {
-          prevAlt = smoothAlt;
-        }
-      } else if (prevAlt == 0.0f) {
-        prevAlt = smoothAlt;
-      }
     }
 
+    // Process GPS Telemetry Fix
     if (gotGpsFix) {
       state.gps_has_fix = fix.isValid;
       state.satellites = fix.satellites;
       state.hdop = fix.hdop;
-      state.gps_fix_quality = fix.isValid ? 1 : 0;
 
       if (fix.isValid) {
         state.lat = fix.latitude;
         state.lon = fix.longitude;
-        if (!gotBaroSample || !baro.isValid) {
-          state.altitude_m = fix.altitudeM;
-        }
 
+        // If no BLE CSC speed sensor is connected, use GPS speed
         if (state.speed_source != SPEED_SOURCE_BLE_CSC) {
           state.speed_kmh = fix.speedKmh;
           state.speed_source = SPEED_SOURCE_GPS;
         }
 
-        if (prevLat != 0.0 && prevLon != 0.0 && state.ride_state == RIDE_STATE_ACTIVE) {
-          double dist = haversineDistanceKm(prevLat, prevLon, fix.latitude, fix.longitude);
-          if (dist > 0.001 && dist < 0.1) {
-            state.trip_distance_km += (float)dist;
-            distForGradeKm += (float)dist;
-
-            // Grade % calculation over ~50m intervals
-            if (distForGradeKm >= 0.05f) {
-              float dAlt = smoothAlt - prevAlt;
-              float dDistM = distForGradeKm * 1000.0f;
-              state.grade_pct = (dAlt / dDistM) * 100.0f;
-              distForGradeKm = 0.0f;
-            }
-          }
-        }
-        prevLat = fix.latitude;
-        prevLon = fix.longitude;
-      } else {
-        if (state.speed_source == SPEED_SOURCE_GPS) {
+        // Noise floor suppression: clamp GPS speed noise < 2.5 km/h to 0.0 km/h
+        if (state.speed_source == SPEED_SOURCE_GPS && state.speed_kmh < 2.5f) {
           state.speed_kmh = 0.0f;
         }
+
+        // Accumulate trip distance when ride is ACTIVE
+        if (state.ride_state == RIDE_STATE_ACTIVE) {
+          if (prevLat != 0.0 && prevLon != 0.0) {
+            double deltaKm = haversineDistanceKm(prevLat, prevLon, fix.latitude, fix.longitude);
+            // Ignore unrealistic teleports (> 150 km/h equivalent per sample)
+            if (deltaKm > 0.0005 && deltaKm < 0.05) {
+              state.trip_distance_km += (float)deltaKm;
+              distForGradeKm += (float)deltaKm;
+
+              // Calculate Grade % every 50 meters
+              if (distForGradeKm >= 0.05f) {
+                float dAlt = smoothAlt - prevAlt;
+                if (smoothAlt > prevAlt) {
+                  state.total_ascent_m += dAlt;
+                }
+                state.grade_pct = (dAlt / (distForGradeKm * 1000.0f)) * 100.0f;
+                // Clamp grade between -30% and +30%
+                if (state.grade_pct < -30.0f) state.grade_pct = -30.0f;
+                if (state.grade_pct > 30.0f) state.grade_pct = 30.0f;
+
+                distForGradeKm = 0.0f;
+                prevAlt = smoothAlt;
+              }
+            }
+          }
+          prevLat = fix.latitude;
+          prevLon = fix.longitude;
+
+          // Track Max Speed
+          if (state.speed_kmh > state.max_speed_kmh) {
+            state.max_speed_kmh = state.speed_kmh;
+          }
+        }
       }
     }
 
-    // Ride Auto Start/Stop State Machine
-    float currentSpeed = state.speed_kmh;
+    // Enforce 0.0 km/h when stationary
+    if (state.speed_source == SPEED_SOURCE_GPS && state.speed_kmh < 2.5f) {
+      state.speed_kmh = 0.0f;
+    }
 
-    if (state.ride_state == RIDE_STATE_IDLE) {
-      if (currentSpeed > 3.0f && state.gps_has_fix) {
-        if (speedAbove3StartMs == 0) speedAbove3StartMs = now;
-        if (now - speedAbove3StartMs >= 5000) {
+    // Movement Detection & Auto Start / Pause State Machine
+    float effectiveSpeed = state.speed_kmh;
+
+    if (effectiveSpeed >= 4.0f) {
+      speedBelow1_5StartMs = 0;
+      if (speedAbove4StartMs == 0) {
+        speedAbove4StartMs = now;
+      } else if (now - speedAbove4StartMs >= 3000) { // Speed >= 4.0 km/h for 3 continuous seconds
+        if (state.ride_state != RIDE_STATE_ACTIVE) {
           state.ride_state = RIDE_STATE_ACTIVE;
-          speedAbove3StartMs = 0;
+          Serial.println("[STATE MACHINE] Auto-started ride! Speed >= 4.0 km/h for 3s.");
         }
-      } else {
-        speedAbove3StartMs = 0;
       }
-    } else if (state.ride_state == RIDE_STATE_ACTIVE) {
-      if (currentSpeed > state.max_speed_kmh) {
-        state.max_speed_kmh = currentSpeed;
-      }
-
-      if (currentSpeed < 1.0f) {
-        if (speedZeroStartMs == 0) speedZeroStartMs = now;
-        if (now - speedZeroStartMs >= 30000) {
+    } else if (effectiveSpeed < 1.5f) {
+      speedAbove4StartMs = 0;
+      if (state.ride_state == RIDE_STATE_ACTIVE) {
+        if (speedBelow1_5StartMs == 0) {
+          speedBelow1_5StartMs = now;
+        } else if (now - speedBelow1_5StartMs >= 5000) { // Speed < 1.5 km/h for 5 continuous seconds
           state.ride_state = RIDE_STATE_PAUSED;
-          speedZeroStartMs = 0;
+          Serial.println("[STATE MACHINE] Auto-paused ride. Speed < 1.5 km/h for 5s.");
         }
-      } else {
-        speedZeroStartMs = 0;
       }
-    } else if (state.ride_state == RIDE_STATE_PAUSED) {
-      if (currentSpeed > 3.0f) {
-        state.ride_state = RIDE_STATE_ACTIVE;
-      }
+    } else {
+      // In hysteresis zone (1.5 km/h <= speed < 4.0 km/h)
+      speedAbove4StartMs = 0;
+      speedBelow1_5StartMs = 0;
     }
 
-    // 1Hz Ride Time and Average Speed updates
+    // Increment Ride Timer (1 Hz tick) when ACTIVE
     if (now - lastSecondTickMs >= 1000) {
       lastSecondTickMs = now;
       if (state.ride_state == RIDE_STATE_ACTIVE) {
         state.ride_time_s++;
         if (state.ride_time_s > 0) {
-          state.avg_speed_kmh = (state.trip_distance_km / (float)state.ride_time_s) * 3600.0f;
+          state.avg_speed_kmh = state.trip_distance_km / (state.ride_time_s / 3600.0f);
         }
       }
     }
 
     setTelemetryState(state);
+
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
