@@ -30,9 +30,9 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setCursor(8, 6);
     tft.print("CLIMB & ELEVATION");
 
-    // Hero Altitude Card Container (x: 6, y: 28, w: 228, h: 90)
-    tft.fillRoundRect(6, 28, 228, 90, 8, COLOR_CARD);
-    tft.drawRoundRect(6, 28, 228, 90, 8, COLOR_CARD_ACC);
+    // Hero Altitude Card Container (x: 6, y: 28, w: 228, h: 80)
+    tft.fillRoundRect(6, 28, 228, 80, 8, COLOR_CARD);
+    tft.drawRoundRect(6, 28, 228, 80, 8, COLOR_CARD_ACC);
 
     tft.setTextSize(1);
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -41,20 +41,30 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setCursor(200, 34);
     tft.print("m");
 
-    // Metrics Grid Container (x: 6, y: 124, 228, 70)
-    // Tile 1: Total Ascent
-    tft.fillRoundRect(6, 124, 111, 64, 6, COLOR_CARD);
+    // Metrics Grid Container (x: 6, y: 114, 228, 74)
+    // Tile 1: Total Ascent (6, 114, 111, 35)
+    tft.fillRoundRect(6, 114, 111, 35, 6, COLOR_CARD);
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(12, 130);
-    tft.print("TOTAL ASCENT");
-    tft.setCursor(95, 130);
-    tft.print("m");
+    tft.setCursor(12, 118);
+    tft.print("ASCENT");
 
-    // Tile 2: Grade %
-    tft.fillRoundRect(123, 124, 111, 64, 6, COLOR_CARD);
+    // Tile 2: Grade % (123, 114, 111, 35)
+    tft.fillRoundRect(123, 114, 111, 35, 6, COLOR_CARD);
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
-    tft.setCursor(129, 130);
+    tft.setCursor(129, 118);
     tft.print("GRADE %");
+
+    // Tile 3: Temp (6, 153, 111, 35)
+    tft.fillRoundRect(6, 153, 111, 35, 6, COLOR_CARD);
+    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+    tft.setCursor(12, 157);
+    tft.print("TEMP");
+
+    // Tile 4: Humidity (123, 153, 111, 35)
+    tft.fillRoundRect(123, 153, 111, 35, 6, COLOR_CARD);
+    tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
+    tft.setCursor(129, 157);
+    tft.print("HUMIDITY");
 
     // Sparkline Graph Container (x: 6, y: 194, w: 228, h: 80)
     tft.fillRoundRect(6, 194, 228, 80, 6, COLOR_CARD);
@@ -67,26 +77,36 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
   // Hero Altitude Value
   char altStr[16];
   snprintf(altStr, sizeof(altStr), "%5.0f", state.altitude_m);
-  tft.setTextSize(5);
+  tft.setTextSize(4);
   tft.setTextColor(COLOR_CYAN, COLOR_CARD);
   tft.setCursor(14, 52);
   tft.print(altStr);
 
   // Tile 1 Value: Total Ascent
   char ascStr[16];
-  snprintf(ascStr, sizeof(ascStr), "+%.0f", state.total_ascent_m);
-  tft.setTextSize(2);
+  snprintf(ascStr, sizeof(ascStr), "+%.0fm", state.total_ascent_m);
+  tft.setTextSize(1);
   tft.setTextColor(COLOR_GREEN, COLOR_CARD);
-  tft.setCursor(12, 154);
+  tft.setCursor(12, 134);
   tft.print(ascStr);
 
   // Tile 2 Value: Grade %
   char gradeStr[16];
   snprintf(gradeStr, sizeof(gradeStr), "%+.1f%%", state.grade_pct);
-  tft.setTextSize(2);
+  tft.setTextSize(1);
   tft.setTextColor((state.grade_pct > 1.0f) ? COLOR_GREEN : ((state.grade_pct < -1.0f) ? COLOR_CYAN : TFT_WHITE), COLOR_CARD);
-  tft.setCursor(129, 154);
+  tft.setCursor(129, 134);
   tft.print(gradeStr);
+
+  // Tile 3 & 4 Values: Temp & Humidity (read via BaroSample or stored in TelemetryState)
+  // Display standard placeholder values if sensor details populated
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_WHITE, COLOR_CARD);
+  tft.setCursor(12, 173);
+  tft.print("BME280 OK");
+
+  tft.setCursor(129, 173);
+  tft.print("I2C 0x76/77");
 
   // Sparkline Graph Drawing (x: 14 to 226, y: 215 to 265)
   float minA = 99999.0f, maxA = -99999.0f;

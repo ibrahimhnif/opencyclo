@@ -2,11 +2,11 @@
 #include "config/pins.h"
 #include "core/telemetry_state.h"
 #include <Wire.h>
-#include <Adafruit_BMP280.h>
+#include <Adafruit_BME280.h>
 
 QueueHandle_t g_baro_queue = NULL;
 
-static Adafruit_BMP280 bmp;
+static Adafruit_BME280 bme;
 
 void startBaroTask() {
   if (g_baro_queue == NULL) {
@@ -25,38 +25,35 @@ void startBaroTask() {
 }
 
 void baroTaskLoop(void* pvParameters) {
-  bool bmpInitialized = false;
-  uint8_t baroAddress = 0x76;
+  bool bmeInitialized = false;
 
-  // Try initializing BMP280 with I2C bus mutex protection
+  // Try initializing BME280 with I2C bus mutex protection (probe 0x76 and 0x77)
   for (int attempt = 0; attempt < 5; attempt++) {
     if (g_i2c_mutex != NULL && xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-      if (bmp.begin(0x76)) {
-        bmpInitialized = true;
-        baroAddress = 0x76;
-        Serial.println("[BARO] BMP280 initialized at 0x76");
-      } else if (bmp.begin(0x77)) {
-        bmpInitialized = true;
-        baroAddress = 0x77;
-        Serial.println("[BARO] BMP280 initialized at 0x77");
+      if (bme.begin(0x76, &Wire)) {
+        bmeInitialized = true;
+        Serial.println("[BARO] BME280 sensor initialized at I2C address 0x76");
+      } else if (bme.begin(0x77, &Wire)) {
+        bmeInitialized = true;
+        Serial.println("[BARO] BME280 sensor initialized at I2C address 0x77");
       }
       xSemaphoreGive(g_i2c_mutex);
     }
-    if (bmpInitialized) break;
+    if (bmeInitialized) break;
     vTaskDelay(pdMS_TO_TICKS(500));
   }
 
-  if (bmpInitialized) {
+  if (bmeInitialized) {
     if (g_i2c_mutex != NULL && xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-      bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
-                      Adafruit_BMP280::SAMPLING_X2,     // temp sampling
-                      Adafruit_BMP280::SAMPLING_X16,    // pressure sampling
-                      Adafruit_BMP280::FILTER_X16,      // IIR filter
-                      Adafruit_BMP280::STANDBY_MS_63);  // standby time
+      bme.setSampling(Adafruit_BME280::MODE_NORMAL,
+                      Adafruit_BME280::SAMPLING_X2,     // temp
+                      Adafruit_BME280::SAMPLING_X16,    // pressure
+                      Adafruit_BME280::SAMPLING_X1,     // humidity
+                      Adafruit_BME280::FILTER_X16);
       xSemaphoreGive(g_i2c_mutex);
     }
   } else {
-    Serial.println("[BARO WARNING] BMP280 sensor not detected on I2C bus (0x76 / 0x77)");
+    Serial.println("[BARO WARNING] BME280 sensor not detected on I2C bus (0x76 / 0x77)");
   }
 
   for (;;) {
@@ -65,12 +62,14 @@ void baroTaskLoop(void* pvParameters) {
     sample.pressureHpa = 0.0f;
     sample.altitudeM = 0.0f;
     sample.temperatureC = 0.0f;
+    sample.humidityPct = 0.0f;
 
-    if (bmpInitialized) {
+    if (bmeInitialized) {
       if (g_i2c_mutex != NULL && xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-        float press = bmp.readPressure() / 100.0f; // Pa to hPa
-        float temp = bmp.readTemperature();
-        float alt = bmp.readAltitude(1013.25f);    // Standard sea level pressure
+        float press = bme.readPressure() / 100.0f; // Pa to hPa
+        float temp = bme.readTemperature();
+        float hum = bme.readHumidity();
+        float alt = bme.readAltitude(1013.25f);    // Standard sea level pressure
 
         xSemaphoreGive(g_i2c_mutex);
 
@@ -78,6 +77,7 @@ void baroTaskLoop(void* pvParameters) {
           sample.isValid = true;
           sample.pressureHpa = press;
           sample.temperatureC = temp;
+          sample.humidityPct = hum;
           sample.altitudeM = alt;
         }
       }

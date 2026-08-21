@@ -10,6 +10,7 @@ struct BaroSample {
   float pressureHpa;
   float altitudeM;
   float temperatureC;
+  float humidityPct;
 };
 
 extern QueueHandle_t g_baro_queue;
