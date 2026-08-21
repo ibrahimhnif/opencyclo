@@ -1,9 +1,9 @@
 #include "debug_page.h"
 #include <stdio.h>
 
-static uint16_t COLOR_BG       = tft.color565(12, 16, 26);
-static uint16_t COLOR_CARD     = tft.color565(26, 34, 52);
-static uint16_t COLOR_CARD_ACC = tft.color565(36, 46, 68);
+static uint16_t COLOR_BG       = tft.color565(10, 14, 24);
+static uint16_t COLOR_CARD     = tft.color565(20, 28, 44);
+static uint16_t COLOR_CARD_ACC = tft.color565(32, 44, 68);
 static uint16_t COLOR_CONSOLE  = tft.color565(5, 10, 15);
 static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
 static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
@@ -14,19 +14,27 @@ void renderDebugPage(const TelemetryState& state, bool forceFullRedraw) {
   if (forceFullRedraw) {
     tft.fillScreen(COLOR_BG);
 
-    // Header Title
-    tft.setTextColor(TFT_WHITE, COLOR_BG);
-    tft.setTextSize(2);
-    tft.setCursor(8, 6);
+    // 1. TOP HEADER (y: 0 .. 24)
+    tft.fillRect(0, 0, 240, 24, COLOR_CARD);
+    tft.drawFastHLine(0, 24, 240, COLOR_CARD_ACC);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE, COLOR_CARD);
+    tft.setCursor(8, 7);
     tft.print("NMEA LIVE CONSOLE");
 
-    // Stats Bar Container (x: 6, y: 28, w: 228, h: 42)
-    tft.fillRoundRect(6, 28, 228, 42, 6, COLOR_CARD);
-    tft.drawRoundRect(6, 28, 228, 42, 6, COLOR_CARD_ACC);
+    // Page Indicator Dots (Center: x: 104..136)
+    for (int i = 0; i < 5; i++) {
+      uint16_t dotColor = (i == 3) ? COLOR_CYAN : COLOR_CARD_ACC;
+      tft.fillCircle(104 + (i * 8), 12, (i == 3) ? 3 : 2, dotColor);
+    }
 
-    // Terminal Screen Container (x: 6, y: 74, w: 228, h: 200)
-    tft.fillRoundRect(6, 74, 228, 200, 6, COLOR_CONSOLE);
-    tft.drawRoundRect(6, 74, 228, 200, 6, COLOR_GREEN);
+    // 2. Stats Bar Container (x: 4, y: 28, w: 232, h: 42)
+    tft.fillRoundRect(4, 28, 232, 42, 6, COLOR_CARD);
+    tft.drawRoundRect(4, 28, 232, 42, 6, COLOR_CARD_ACC);
+
+    // 3. EXPANDED Terminal Screen Container (x: 4, y: 74, w: 232, h: 242, FULL HEIGHT!)
+    tft.fillRoundRect(4, 74, 232, 242, 6, COLOR_CONSOLE);
+    tft.drawRoundRect(4, 74, 232, 242, 6, COLOR_GREEN);
   }
 
   // Stats Bar Info
@@ -50,8 +58,8 @@ void renderDebugPage(const TelemetryState& state, bool forceFullRedraw) {
            (unsigned long)g_gps_debug.total_chars, (unsigned long)g_gps_debug.sentences_passed);
   tft.print(statsStr);
 
-  // Live Terminal Screen Output (Lines y: 82 .. 260)
-  tft.fillRect(10, 78, 220, 192, COLOR_CONSOLE);
+  // Live Terminal Screen Output (Lines y: 82 .. 304)
+  tft.fillRect(8, 78, 224, 234, COLOR_CONSOLE);
   tft.setTextSize(1);
   tft.setTextColor(COLOR_GREEN, COLOR_CONSOLE);
 
@@ -66,9 +74,9 @@ void renderDebugPage(const TelemetryState& state, bool forceFullRedraw) {
     for (int i = 0; i < NMEA_BUFFER_LINES; i++) {
       int lineIdx = (g_gps_debug.line_head + i) % NMEA_BUFFER_LINES;
       if (strlen(g_gps_debug.last_lines[lineIdx]) > 0) {
-        tft.setCursor(10, y);
+        tft.setCursor(8, y);
         tft.print(g_gps_debug.last_lines[lineIdx]);
-        y += 22;
+        y += 26;
       }
     }
   }

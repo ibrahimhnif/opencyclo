@@ -31,7 +31,13 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setTextSize(1);
     tft.setTextColor(TFT_WHITE, COLOR_CARD);
     tft.setCursor(8, 7);
-    tft.print("CLIMB & ELEVATION PROFILE");
+    tft.print("CLIMB & ELEVATION");
+
+    // Page Indicator Dots (Center: x: 104..136)
+    for (int i = 0; i < 5; i++) {
+      uint16_t dotColor = (i == 1) ? COLOR_CYAN : COLOR_CARD_ACC;
+      tft.fillCircle(104 + (i * 8), 12, (i == 1) ? 3 : 2, dotColor);
+    }
 
     // 2. HERO ALTITUDE CARD (x: 4, y: 28, w: 232, h: 74)
     tft.fillRoundRect(4, 28, 232, 74, 8, COLOR_HERO_BG);
@@ -44,9 +50,9 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.fillRoundRect(122, 106, 114, 58, 6, COLOR_CARD);
     tft.drawRoundRect(122, 106, 114, 58, 6, COLOR_CARD_ACC);
 
-    // 4. SPARKLINE ELEVATION PROFILE CARD (x: 4, y: 168, w: 232, h: 108)
-    tft.fillRoundRect(4, 168, 232, 108, 8, COLOR_CARD);
-    tft.drawRoundRect(4, 168, 232, 108, 8, COLOR_CARD_ACC);
+    // 4. EXPANDED ELEVATION PROFILE CARD (x: 4, y: 168, w: 232, h: 148, FULL HEIGHT!)
+    tft.fillRoundRect(4, 168, 232, 148, 8, COLOR_CARD);
+    tft.drawRoundRect(4, 168, 232, 148, 8, COLOR_CARD_ACC);
   }
 
   // --- HERO ALTITUDE CARD ---
@@ -69,7 +75,6 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
   tft.print((g_settings.units == 1) ? "FT" : "M");
 
   // --- MIDDLE GRID: GRADE % & TOTAL ASCENT ---
-  // Left: Grade %
   tft.setTextSize(1);
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(10, 112);
@@ -83,7 +88,6 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
   snprintf(gradeBuf, sizeof(gradeBuf), "%+4.1f%%", state.grade_pct);
   tft.print(gradeBuf);
 
-  // Right: Total Ascent
   tft.setTextSize(1);
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(128, 112);
@@ -97,13 +101,12 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
   snprintf(ascBuf, sizeof(ascBuf), "%.0f", displayAsc);
   tft.print(ascBuf);
 
-  // --- SPARKLINE ELEVATION PROFILE CHART ---
+  // --- EXPANDED ELEVATION PROFILE CHART (120px tall graph!) ---
   tft.setTextSize(1);
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(12, 174);
   tft.print("LIVE ELEVATION PROFILE (30s)");
 
-  // Find min and max altitude in buffer
   float minAlt = 99999.0f, maxAlt = -99999.0f;
   uint8_t count = elevFilled ? ELEV_SAMPLES : elevHead;
   if (count < 2) count = 2;
@@ -117,14 +120,14 @@ void renderClimbPage(const TelemetryState& state, bool forceFullRedraw) {
     maxAlt = minAlt + 5.0f;
   }
 
-  // Chart bounds: x: 12..228, y: 190..264 (height: 74px)
-  tft.fillRect(12, 188, 216, 80, COLOR_HERO_BG);
-  tft.drawRect(12, 188, 216, 80, COLOR_CARD_ACC);
+  // Chart area: x: 12..228, y: 188..306 (height: 118px)
+  tft.fillRect(12, 188, 216, 120, COLOR_HERO_BG);
+  tft.drawRect(12, 188, 216, 120, COLOR_CARD_ACC);
 
   int chartX = 14;
   int chartY = 190;
   int chartW = 212;
-  int chartH = 76;
+  int chartH = 116;
 
   int prevPx = -1, prevPy = -1;
   for (uint8_t i = 0; i < count; i++) {

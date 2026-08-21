@@ -6,7 +6,6 @@
 static uint16_t COLOR_BG       = tft.color565(10, 14, 24);
 static uint16_t COLOR_CARD     = tft.color565(20, 28, 44);
 static uint16_t COLOR_CARD_ACC = tft.color565(32, 44, 68);
-static uint16_t COLOR_HERO_BG  = tft.color565(14, 22, 38);
 static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
 static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
 static uint16_t COLOR_AMBER    = tft.color565(255, 171, 0);
@@ -23,22 +22,28 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setTextSize(1);
     tft.setTextColor(TFT_WHITE, COLOR_CARD);
     tft.setCursor(8, 7);
-    tft.print("BLE SENSORS & GPS DIAGNOSTICS");
+    tft.print("BLE SENSORS & GPS");
 
-    // 2. MAIN CONTAINER CARD (x: 4, y: 28, w: 232, h: 246)
-    tft.fillRoundRect(4, 28, 232, 246, 8, COLOR_CARD);
-    tft.drawRoundRect(4, 28, 232, 246, 8, COLOR_CARD_ACC);
+    // Page Indicator Dots (Center: x: 104..136)
+    for (int i = 0; i < 5; i++) {
+      uint16_t dotColor = (i == 2) ? COLOR_CYAN : COLOR_CARD_ACC;
+      tft.fillCircle(104 + (i * 8), 12, (i == 2) ? 3 : 2, dotColor);
+    }
+
+    // 2. MAIN CONTAINER CARD (x: 4, y: 28, w: 232, h: 288, FULL HEIGHT!)
+    tft.fillRoundRect(4, 28, 232, 288, 8, COLOR_CARD);
+    tft.drawRoundRect(4, 28, 232, 288, 8, COLOR_CARD_ACC);
   }
 
-  // Row 1: Scan Action Button (y: 34..58)
+  // Row 1: Scan Action Button (y: 34..62)
   uint16_t scanBtnColor = g_ble_scanning ? COLOR_AMBER : COLOR_CYAN;
-  tft.fillRoundRect(10, 34, 220, 24, 6, scanBtnColor);
+  tft.fillRoundRect(10, 34, 220, 28, 6, scanBtnColor);
   tft.setTextColor(TFT_BLACK, scanBtnColor);
   tft.setTextSize(1);
-  tft.setCursor(56, 42);
+  tft.setCursor(56, 44);
   tft.print(g_ble_scanning ? "SCANNING BLE..." : "SCAN & ADD SENSORS");
 
-  int y = 68;
+  int y = 74;
 
   // Row 2: SPEED / CADENCE (CSC)
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -48,7 +53,6 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
   if (g_settings.paired_csc_mac[0] != '\0') {
     tft.setTextColor(COLOR_GREEN, COLOR_CARD);
     tft.printf("%.10s..", g_settings.paired_csc_mac);
-    // Forget button
     tft.fillRoundRect(172, y - 4, 52, 18, 4, COLOR_RED);
     tft.setTextColor(TFT_WHITE, COLOR_RED);
     tft.setCursor(178, y);
@@ -57,7 +61,7 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("NOT PAIRED");
   }
-  y += 28;
+  y += 32;
 
   // Row 3: HEART RATE (HR)
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -75,7 +79,7 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("NOT PAIRED");
   }
-  y += 28;
+  y += 32;
 
   // Row 4: POWER METER
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -93,11 +97,11 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("NOT PAIRED");
   }
-  y += 32;
+  y += 36;
 
   // Separator line
   tft.drawFastHLine(12, y, 216, COLOR_CARD_ACC);
-  y += 8;
+  y += 12;
 
   // GPS Diagnostics Summary
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -106,7 +110,7 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
   tft.setCursor(110, y);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
   tft.print(state.gps_has_fix ? "3D FIX VALID" : "SEARCHING...");
-  y += 20;
+  y += 24;
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(14, y);
@@ -116,7 +120,7 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
   char satStr[32];
   snprintf(satStr, sizeof(satStr), "%u sats (HDOP: %.2f)", state.satellites, state.hdop);
   tft.print(satStr);
-  y += 20;
+  y += 24;
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(14, y);
@@ -129,23 +133,23 @@ void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw) {
 }
 
 bool handleSensorsPageTouch(int16_t x, int16_t y) {
-  // Scan Button Tap (x: 10..230, y: 34..58)
-  if (x >= 10 && x <= 230 && y >= 34 && y <= 58) {
+  // Scan Button Tap (x: 10..230, y: 34..62)
+  if (x >= 10 && x <= 230 && y >= 34 && y <= 62) {
     triggerBleScan();
     return true;
   }
-  // CSC Forget Button Tap (x: 172..224, y: 64..82)
-  if (x >= 172 && x <= 224 && y >= 64 && y <= 82) {
+  // CSC Forget Button Tap (x: 172..224, y: 70..90)
+  if (x >= 172 && x <= 224 && y >= 70 && y <= 90) {
     forgetSensorProfile(BLE_PROFILE_CSC);
     return true;
   }
-  // HR Forget Button Tap (x: 172..224, y: 92..110)
-  if (x >= 172 && x <= 224 && y >= 92 && y <= 110) {
+  // HR Forget Button Tap (x: 172..224, y: 100..120)
+  if (x >= 172 && x <= 224 && y >= 100 && y <= 120) {
     forgetSensorProfile(BLE_PROFILE_HR);
     return true;
   }
-  // Power Forget Button Tap (x: 172..224, y: 120..138)
-  if (x >= 172 && x <= 224 && y >= 120 && y <= 138) {
+  // Power Forget Button Tap (x: 172..224, y: 130..150)
+  if (x >= 172 && x <= 224 && y >= 130 && y <= 150) {
     forgetSensorProfile(BLE_PROFILE_POWER);
     return true;
   }

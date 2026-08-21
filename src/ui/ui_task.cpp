@@ -7,65 +7,11 @@
 #include "pages/debug_page.h"
 #include "pages/settings_page.h"
 #include "storage/settings.h"
+#include <stdlib.h>
 
 static UiPage currentUiPage = PAGE_RIDE;
 static UiPage activePageDrawn = PAGE_RIDE;
 static bool forceRedraw = true;
-
-static uint16_t COLOR_BG       = tft.color565(12, 16, 26);
-static uint16_t COLOR_CARD     = tft.color565(26, 34, 52);
-static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
-static uint16_t COLOR_TEXT_MUT = tft.color565(140, 155, 180);
-
-static void renderNavBar() {
-  tft.fillRect(0, 280, 240, 40, COLOR_BG);
-  tft.drawFastHLine(0, 280, 240, COLOR_CARD);
-
-  // Tab 0: RIDE (2..46)
-  uint16_t tab0Bg = (currentUiPage == PAGE_RIDE) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab0Fg = (currentUiPage == PAGE_RIDE) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(2, 284, 44, 32, 4, tab0Bg);
-  tft.setTextColor(tab0Fg, tab0Bg);
-  tft.setTextSize(1);
-  tft.setCursor(12, 296);
-  tft.print("RIDE");
-
-  // Tab 1: CLIMB (48..92)
-  uint16_t tab1Bg = (currentUiPage == PAGE_CLIMB) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab1Fg = (currentUiPage == PAGE_CLIMB) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(48, 284, 44, 32, 4, tab1Bg);
-  tft.setTextColor(tab1Fg, tab1Bg);
-  tft.setTextSize(1);
-  tft.setCursor(55, 296);
-  tft.print("CLIMB");
-
-  // Tab 2: SENSORS (94..138)
-  uint16_t tab2Bg = (currentUiPage == PAGE_GPS_INFO) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab2Fg = (currentUiPage == PAGE_GPS_INFO) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(94, 284, 44, 32, 4, tab2Bg);
-  tft.setTextColor(tab2Fg, tab2Bg);
-  tft.setTextSize(1);
-  tft.setCursor(100, 296);
-  tft.print("SENSR");
-
-  // Tab 3: NMEA DEBUG (140..184)
-  uint16_t tab3Bg = (currentUiPage == PAGE_DEBUG) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab3Fg = (currentUiPage == PAGE_DEBUG) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(140, 284, 44, 32, 4, tab3Bg);
-  tft.setTextColor(tab3Fg, tab3Bg);
-  tft.setTextSize(1);
-  tft.setCursor(148, 296);
-  tft.print("NMEA");
-
-  // Tab 4: SETTING (186..238)
-  uint16_t tab4Bg = (currentUiPage == PAGE_SETTINGS) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab4Fg = (currentUiPage == PAGE_SETTINGS) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(186, 284, 52, 32, 4, tab4Bg);
-  tft.setTextColor(tab4Fg, tab4Bg);
-  tft.setTextSize(1);
-  tft.setCursor(192, 296);
-  tft.print("SETTNG");
-}
 
 void startUiTask() {
   xTaskCreatePinnedToCore(
@@ -84,14 +30,15 @@ void uiTaskLoop(void* pvParameters) {
   setDisplayBrightness(g_settings.brightness);
   forceRedraw = true;
 
-  int16_t touchX = 0, touchY = 0;
+  int16_t touchStartX = -1, touchStartY = -1;
+  int16_t lastTouchX = -1, lastTouchY = -1;
   bool wasTouched = false;
   uint32_t lastTouchMs = 0;
 
   for (;;) {
     uint32_t now = millis();
 
-    // Read touch input
+    // Read touch input from FT6336G
     int16_t x = 0, y = 0;
     bool isTouched = false;
 
@@ -100,58 +47,64 @@ void uiTaskLoop(void* pvParameters) {
       xSemaphoreGive(g_i2c_mutex);
     }
 
-    if (isTouched && !wasTouched && (now - lastTouchMs > 200)) {
-      lastTouchMs = now;
-      wasTouched = true;
-      touchX = x;
-      touchY = y;
+    if (isTouched) {
+      if (!wasTouched) {
+        touchStartX = x;
+        touchStartY = y;
+        wasTouched = true;
+      }
+      lastTouchX = x;
+      lastTouchY = y;
+    } else if (wasTouched) {
+      // Touch released! Evaluate gesture (Swipe vs Single Tap)
+      wasTouched = false;
 
-      Serial.printf("[TOUCH] Pressed at X:%d, Y:%d\n", touchX, touchY);
+      if (now - lastTouchMs > 150 && touchStartX >= 0 && lastTouchX >= 0) {
+        lastTouchMs = now;
+        int16_t deltaX = lastTouchX - touchStartX;
+        int16_t deltaY = lastTouchY - touchStartY;
 
-      // Handle Bottom Navigation Tab Taps (y >= 280)
-      if (touchY >= 280) {
-        if (touchX < 47 && currentUiPage != PAGE_RIDE) {
-          Serial.println("[UI] Switch to RIDE page");
-          currentUiPage = PAGE_RIDE;
-          forceRedraw = true;
-        } else if (touchX >= 47 && touchX < 93 && currentUiPage != PAGE_CLIMB) {
-          Serial.println("[UI] Switch to CLIMB page");
-          currentUiPage = PAGE_CLIMB;
-          forceRedraw = true;
-        } else if (touchX >= 93 && touchX < 139 && currentUiPage != PAGE_GPS_INFO) {
-          Serial.println("[UI] Switch to SENSORS page");
-          currentUiPage = PAGE_GPS_INFO;
-          forceRedraw = true;
-        } else if (touchX >= 139 && touchX < 185 && currentUiPage != PAGE_DEBUG) {
-          Serial.println("[UI] Switch to NMEA DEBUG page");
-          currentUiPage = PAGE_DEBUG;
-          forceRedraw = true;
-        } else if (touchX >= 185 && currentUiPage != PAGE_SETTINGS) {
-          Serial.println("[UI] Switch to SETTINGS page");
-          currentUiPage = PAGE_SETTINGS;
+        Serial.printf("[GESTURE] Touch release. Start:(%d,%d), End:(%d,%d), DeltaX:%d, DeltaY:%d\n",
+                      touchStartX, touchStartY, lastTouchX, lastTouchY, deltaX, deltaY);
+
+        // Gesture 1: SWIPE LEFT (Next Page)
+        if (deltaX < -35 && abs(deltaY) < 70) {
+          currentUiPage = (UiPage)((currentUiPage + 1) % PAGE_COUNT);
+          Serial.printf("[UI GESTURE] Swiped Left -> New Page: %d\n", currentUiPage);
           forceRedraw = true;
         }
-      } else {
-        // Page-specific touch handlers
-        if (currentUiPage == PAGE_RIDE) {
-          if (handleRidePageTouch(touchX, touchY)) {
-            Serial.println("[UI] Ride state toggled via touch");
-            forceRedraw = true;
-          }
-        } else if (currentUiPage == PAGE_GPS_INFO) {
-          if (handleSensorsPageTouch(touchX, touchY)) {
-            Serial.println("[UI] Sensor page action triggered");
-            forceRedraw = true;
-          }
-        } else if (currentUiPage == PAGE_SETTINGS) {
-          if (handleSettingsPageTouch(touchX, touchY)) {
-            Serial.println("[UI] Setting updated via touch");
-            forceRedraw = true;
+        // Gesture 2: SWIPE RIGHT (Previous Page)
+        else if (deltaX > 35 && abs(deltaY) < 70) {
+          currentUiPage = (UiPage)((currentUiPage + PAGE_COUNT - 1) % PAGE_COUNT);
+          Serial.printf("[UI GESTURE] Swiped Right -> New Page: %d\n", currentUiPage);
+          forceRedraw = true;
+        }
+        // Gesture 3: SINGLE TAP / PRESS (Page Action Controls)
+        else if (abs(deltaX) < 20 && abs(deltaY) < 20) {
+          int16_t tapX = lastTouchX;
+          int16_t tapY = lastTouchY;
+
+          if (currentUiPage == PAGE_RIDE) {
+            if (handleRidePageTouch(tapX, tapY)) {
+              Serial.println("[UI] Ride button tapped");
+              forceRedraw = true;
+            }
+          } else if (currentUiPage == PAGE_GPS_INFO) {
+            if (handleSensorsPageTouch(tapX, tapY)) {
+              Serial.println("[UI] Sensor button tapped");
+              forceRedraw = true;
+            }
+          } else if (currentUiPage == PAGE_SETTINGS) {
+            if (handleSettingsPageTouch(tapX, tapY)) {
+              Serial.println("[UI] Setting button tapped");
+              forceRedraw = true;
+            }
           }
         }
       }
-    } else if (!isTouched) {
-      wasTouched = false;
+
+      touchStartX = -1;
+      touchStartY = -1;
     }
 
     // Check page switch
@@ -177,7 +130,6 @@ void uiTaskLoop(void* pvParameters) {
     }
 
     if (forceRedraw) {
-      renderNavBar();
       forceRedraw = false;
     }
 
