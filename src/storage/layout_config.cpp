@@ -2,6 +2,8 @@
 #include <Preferences.h>
 #include <SD_MMC.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 UiConfig g_ui_config;
 static Preferences uiPrefs;
@@ -72,27 +74,112 @@ void saveLayoutConfig() {
   Serial.println("[LAYOUT CONFIG] Saved UiConfig to NVS Flash.");
 }
 
+size_t exportLayoutToString(char* buffer, size_t maxLen) {
+  int written = snprintf(buffer, maxLen, "{\"page_count\":%u,\"pages\":[", g_ui_config.active_page_count);
+  for (uint8_t i = 0; i < g_ui_config.active_page_count; i++) {
+    const PageConfig& p = g_ui_config.pages[i];
+    written += snprintf(buffer + written, maxLen - written,
+      "%s{\"title\":\"%s\",\"template\":%u,\"widgets\":[",
+      (i > 0) ? "," : "", p.title, p.template_id);
+    for (uint8_t j = 0; j < p.widget_count; j++) {
+      written += snprintf(buffer + written, maxLen - written, "%u%s",
+        p.widgets[j], (j < p.widget_count - 1) ? "," : "");
+    }
+    written += snprintf(buffer + written, maxLen - written, "]}");
+  }
+  written += snprintf(buffer + written, maxLen - written, "]}");
+  return (written > 0 && (size_t)written < maxLen) ? (size_t)written : 0;
+}
+
+bool importLayoutFromString(const char* jsonStr) {
+  if (jsonStr == nullptr || strlen(jsonStr) < 10) return false;
+
+  // Simple token parser for layout configuration
+  const char* pCount = strstr(jsonStr, "\"page_count\":");
+  if (!pCount) return false;
+
+  uint8_t pageCount = (uint8_t)atoi(pCount + 13);
+  if (pageCount == 0 || pageCount > MAX_PAGES) return false;
+
+  g_ui_config.active_page_count = pageCount;
+
+  const char* pPages = strstr(jsonStr, "\"pages\":[");
+  if (!pPages) return false;
+
+  const char* cursor = pPages + 9;
+  for (uint8_t i = 0; i < pageCount; i++) {
+    const char* pObj = strchr(cursor, '{');
+    if (!pObj) break;
+
+    // Parse title
+    const char* pTitle = strstr(pObj, "\"title\":\"");
+    if (pTitle) {
+      const char* tStart = pTitle + 9;
+      const char* tEnd = strchr(tStart, '\"');
+      if (tEnd) {
+        size_t len = tEnd - tStart;
+        if (len >= sizeof(g_ui_config.pages[i].title)) len = sizeof(g_ui_config.pages[i].title) - 1;
+        strncpy(g_ui_config.pages[i].title, tStart, len);
+        g_ui_config.pages[i].title[len] = '\0';
+      }
+    }
+
+    // Parse template
+    const char* pTemplate = strstr(pObj, "\"template\":");
+    if (pTemplate) {
+      g_ui_config.pages[i].template_id = (LayoutTemplateId)atoi(pTemplate + 11);
+    }
+
+    // Parse widgets
+    const char* pWidgets = strstr(pObj, "\"widgets\":[");
+    if (pWidgets) {
+      const char* wCursor = pWidgets + 11;
+      uint8_t wIdx = 0;
+      while (wCursor && *wCursor != ']' && wIdx < MAX_SLOTS_PER_PAGE) {
+        g_ui_config.pages[i].widgets[wIdx++] = (WidgetType)atoi(wCursor);
+        const char* nextComma = strchr(wCursor, ',');
+        const char* endBracket = strchr(wCursor, ']');
+        if (nextComma && (!endBracket || nextComma < endBracket)) {
+          wCursor = nextComma + 1;
+        } else {
+          break;
+        }
+      }
+      g_ui_config.pages[i].widget_count = wIdx;
+    }
+
+    const char* objEnd = strchr(pObj, '}');
+    if (objEnd) cursor = objEnd + 1;
+    else break;
+  }
+
+  saveLayoutConfig();
+  Serial.printf("[LAYOUT CONFIG] Imported %u pages from BLE JSON string.\n", g_ui_config.active_page_count);
+  return true;
+}
+
 bool exportLayoutToJson(const char* filepath) {
   File file = SD_MMC.open(filepath, FILE_WRITE);
   if (!file) return false;
 
-  file.printf("{\n  \"page_count\": %u,\n  \"pages\": [\n", g_ui_config.active_page_count);
-  for (uint8_t i = 0; i < g_ui_config.active_page_count; i++) {
-    const PageConfig& p = g_ui_config.pages[i];
-    file.printf("    {\n      \"title\": \"%s\",\n      \"template\": %u,\n      \"widgets\": [",
-                p.title, p.template_id);
-    for (uint8_t j = 0; j < p.widget_count; j++) {
-      file.printf("%u%s", p.widgets[j], (j < p.widget_count - 1) ? ", " : "");
-    }
-    file.printf("]\n    }%s\n", (i < g_ui_config.active_page_count - 1) ? "," : "");
+  char buf[1024];
+  size_t len = exportLayoutToString(buf, sizeof(buf));
+  if (len > 0) {
+    file.write((const uint8_t*)buf, len);
   }
-  file.print("  ]\n}\n");
   file.close();
   Serial.printf("[LAYOUT CONFIG] Exported layout to %s\n", filepath);
   return true;
 }
 
 bool importLayoutFromJson(const char* filepath) {
-  // Reserved for companion app / SD JSON parser
-  return false;
+  File file = SD_MMC.open(filepath, FILE_READ);
+  if (!file) return false;
+
+  char buf[1024];
+  size_t len = file.readBytes(buf, sizeof(buf) - 1);
+  buf[len] = '\0';
+  file.close();
+
+  return importLayoutFromString(buf);
 }

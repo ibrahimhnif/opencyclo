@@ -1,10 +1,13 @@
 #include "ble_task.h"
+#include "ble_layout_sync.h"
+#include "ble_ota_handler.h"
 #include "core/telemetry_state.h"
 #include "storage/settings.h"
 #include <NimBLEDevice.h>
 
 bool g_ble_scanning = false;
 static NimBLEScan* pBLEScan = nullptr;
+static NimBLEServer* pBLEServer = nullptr;
 
 static int16_t currentHrBpm = -1;
 static int16_t currentCadenceRpm = -1;
@@ -68,6 +71,17 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
   }
 };
 
+class ServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer* pServer) override {
+    Serial.println("[BLE SERVER] Mobile App connected!");
+  }
+
+  void onDisconnect(NimBLEServer* pServer) override {
+    Serial.println("[BLE SERVER] Mobile App disconnected. Restarting advertising...");
+    NimBLEDevice::startAdvertising();
+  }
+};
+
 void startBleTask() {
   xTaskCreatePinnedToCore(
     bleTaskLoop,
@@ -81,16 +95,44 @@ void startBleTask() {
 }
 
 void bleTaskLoop(void* pvParameters) {
+  // 1. Initialize NimBLE Dual Role
   NimBLEDevice::init("OpenCyclo-GPS");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9); // Max TX Power
+  NimBLEDevice::setMTU(512);
 
+  // 2. Create GATT Peripheral Server for Smartphone App & OTA
+  pBLEServer = NimBLEDevice::createServer();
+  pBLEServer->setCallbacks(new ServerCallbacks());
+
+  // Register Device Information Service (0x180A)
+  NimBLEService* pDevInfo = pBLEServer->createService(NimBLEUUID((uint16_t)0x180A));
+  NimBLECharacteristic* pMfgChar = pDevInfo->createCharacteristic((uint16_t)0x2A29, NIMBLE_PROPERTY::READ);
+  pMfgChar->setValue("OpenCyclo Project");
+  NimBLECharacteristic* pModelChar = pDevInfo->createCharacteristic((uint16_t)0x2A24, NIMBLE_PROPERTY::READ);
+  pModelChar->setValue("ES3C28P-GPS");
+  NimBLECharacteristic* pVerChar = pDevInfo->createCharacteristic((uint16_t)0x2A26, NIMBLE_PROPERTY::READ);
+  pVerChar->setValue("v0.1.0-TreeUI");
+  pDevInfo->start();
+
+  // Register OpenCyclo Communication & OTA Services
+  initBleLayoutSyncService(pBLEServer);
+  initBleOtaService(pBLEServer);
+
+  // Start BLE Peripheral Advertising
+  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(BLE_OPENCYCLO_SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->start();
+  Serial.println("[BLE SERVER] Advertising as 'OpenCyclo-GPS' with MTU 512.");
+
+  // 3. Setup Central Scanner for Bike Sensors (CSC, HR, Power)
   pBLEScan = NimBLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(45);
   pBLEScan->setWindow(15);
 
-  Serial.println("[BLE TASK] NimBLE Central initialized.");
+  Serial.println("[BLE TASK] Dual-Role Central & Peripheral initialized.");
 
   for (;;) {
     if (g_ble_scanning) {
@@ -116,6 +158,9 @@ void bleTaskLoop(void* pvParameters) {
 
     setTelemetryState(state);
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+    // Stream live telemetry to connected smartphone app
+    notifyBleTelemetry(state);
+
+    vTaskDelay(pdMS_TO_TICKS(500)); // 2Hz Telemetry stream
   }
 }
