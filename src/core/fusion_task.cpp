@@ -1,6 +1,7 @@
 #include "fusion_task.h"
 #include "hardware/gps_task.h"
 #include "hardware/baro_task.h"
+#include "hardware/battery.h"
 #include <math.h>
 
 static double haversineDistanceKm(double lat1, double lon1, double lat2, double lon2) {
@@ -28,6 +29,7 @@ void startFusionTask() {
 }
 
 void fusionTaskLoop(void* pvParameters) {
+  initBatteryADC();
   GpsFix fix;
   BaroSample baro;
   TelemetryState state = getTelemetrySnapshot();
@@ -35,6 +37,7 @@ void fusionTaskLoop(void* pvParameters) {
   uint32_t speedAbove3StartMs = 0;
   uint32_t speedZeroStartMs = 0;
   uint32_t lastSecondTickMs = millis();
+  uint32_t lastBatCheckMs = 0;
   double prevLat = 0.0;
   double prevLon = 0.0;
   float prevAlt = 0.0f;
@@ -42,6 +45,12 @@ void fusionTaskLoop(void* pvParameters) {
   float distForGradeKm = 0.0f;
 
   for (;;) {
+    uint32_t now = millis();
+
+    if (now - lastBatCheckMs >= 2000) {
+      lastBatCheckMs = now;
+      state.battery_pct = readBatteryPercentage();
+    }
     bool gotGpsFix = false;
     if (g_gps_queue != NULL && xQueueReceive(g_gps_queue, &fix, pdMS_TO_TICKS(50)) == pdTRUE) {
       gotGpsFix = true;
@@ -51,8 +60,6 @@ void fusionTaskLoop(void* pvParameters) {
     if (g_baro_queue != NULL && xQueueReceive(g_baro_queue, &baro, 0) == pdTRUE) {
       gotBaroSample = true;
     }
-
-    uint32_t now = millis();
 
     if (gotBaroSample && baro.isValid) {
       if (smoothAlt == 0.0f) {

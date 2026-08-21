@@ -1,5 +1,6 @@
 #include "settings_page.h"
 #include "storage/settings.h"
+#include "hardware/battery.h"
 #include <stdio.h>
 
 static uint16_t COLOR_BG       = tft.color565(12, 16, 26);
@@ -75,8 +76,9 @@ void renderSettingsPage(const TelemetryState& state, bool forceFullRedraw) {
   tft.print("BATTERY LEVEL:");
   tft.setCursor(120, y);
   tft.setTextColor(COLOR_GREEN, COLOR_CARD);
-  char batStr[16];
-  snprintf(batStr, sizeof(batStr), "%u%% (4.12 V)", state.battery_pct);
+  char batStr[24];
+  float vBat = readBatteryVoltage();
+  snprintf(batStr, sizeof(batStr), "%u%% (%.2f V)", state.battery_pct, vBat);
   tft.print(batStr);
   y += 32;
 
