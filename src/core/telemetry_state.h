@@ -5,6 +5,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#define NMEA_BUFFER_LINES 8
+#define NMEA_LINE_MAX_LEN 48
+
 enum SpeedSource {
   SPEED_SOURCE_NONE = 0,
   SPEED_SOURCE_GPS,
@@ -32,6 +35,14 @@ struct GpsFix {
   uint8_t minute;
   uint8_t second;
   uint32_t ageMs;
+};
+
+struct GpsDebugInfo {
+  uint32_t total_chars;
+  uint32_t sentences_passed;
+  uint8_t active_rx_pin;
+  char last_lines[NMEA_BUFFER_LINES][NMEA_LINE_MAX_LEN];
+  uint8_t line_head;
 };
 
 struct TelemetryState {
@@ -71,11 +82,13 @@ struct TelemetryState {
 };
 
 extern TelemetryState g_telemetry;
+extern GpsDebugInfo g_gps_debug;
 extern SemaphoreHandle_t g_telemetry_mutex;
 extern SemaphoreHandle_t g_i2c_mutex;
 
 void initTelemetryState();
 TelemetryState getTelemetrySnapshot();
 void setTelemetryState(const TelemetryState& newState);
+void addNmeaDebugLine(const char* line);
 
 #endif // OPENCYCLO_TELEMETRY_STATE_H

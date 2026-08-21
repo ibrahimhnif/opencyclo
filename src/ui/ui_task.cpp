@@ -4,6 +4,7 @@
 #include "pages/ride_page.h"
 #include "pages/climb_page.h"
 #include "pages/sensors_page.h"
+#include "pages/debug_page.h"
 #include "pages/settings_page.h"
 #include "storage/settings.h"
 
@@ -20,41 +21,50 @@ static void renderNavBar() {
   tft.fillRect(0, 280, 240, 40, COLOR_BG);
   tft.drawFastHLine(0, 280, 240, COLOR_CARD);
 
-  // Tab 0: RIDE (2..57)
+  // Tab 0: RIDE (2..46)
   uint16_t tab0Bg = (currentUiPage == PAGE_RIDE) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab0Fg = (currentUiPage == PAGE_RIDE) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(2, 284, 56, 32, 6, tab0Bg);
+  tft.fillRoundRect(2, 284, 44, 32, 4, tab0Bg);
   tft.setTextColor(tab0Fg, tab0Bg);
   tft.setTextSize(1);
-  tft.setCursor(16, 296);
+  tft.setCursor(12, 296);
   tft.print("RIDE");
 
-  // Tab 1: CLIMB (60..115)
+  // Tab 1: CLIMB (48..92)
   uint16_t tab1Bg = (currentUiPage == PAGE_CLIMB) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab1Fg = (currentUiPage == PAGE_CLIMB) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(60, 284, 56, 32, 6, tab1Bg);
+  tft.fillRoundRect(48, 284, 44, 32, 4, tab1Bg);
   tft.setTextColor(tab1Fg, tab1Bg);
   tft.setTextSize(1);
-  tft.setCursor(72, 296);
+  tft.setCursor(55, 296);
   tft.print("CLIMB");
 
-  // Tab 2: GPS (118..173)
+  // Tab 2: SENSORS (94..138)
   uint16_t tab2Bg = (currentUiPage == PAGE_GPS_INFO) ? COLOR_CYAN : COLOR_CARD;
   uint16_t tab2Fg = (currentUiPage == PAGE_GPS_INFO) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(118, 284, 56, 32, 6, tab2Bg);
+  tft.fillRoundRect(94, 284, 44, 32, 4, tab2Bg);
   tft.setTextColor(tab2Fg, tab2Bg);
   tft.setTextSize(1);
-  tft.setCursor(134, 296);
-  tft.print("GPS");
+  tft.setCursor(100, 296);
+  tft.print("SENSR");
 
-  // Tab 3: SETTINGS (176..238)
-  uint16_t tab3Bg = (currentUiPage == PAGE_SETTINGS) ? COLOR_CYAN : COLOR_CARD;
-  uint16_t tab3Fg = (currentUiPage == PAGE_SETTINGS) ? TFT_BLACK : COLOR_TEXT_MUT;
-  tft.fillRoundRect(176, 284, 60, 32, 6, tab3Bg);
+  // Tab 3: NMEA DEBUG (140..184)
+  uint16_t tab3Bg = (currentUiPage == PAGE_DEBUG) ? COLOR_CYAN : COLOR_CARD;
+  uint16_t tab3Fg = (currentUiPage == PAGE_DEBUG) ? TFT_BLACK : COLOR_TEXT_MUT;
+  tft.fillRoundRect(140, 284, 44, 32, 4, tab3Bg);
   tft.setTextColor(tab3Fg, tab3Bg);
   tft.setTextSize(1);
-  tft.setCursor(182, 296);
-  tft.print("SETTING");
+  tft.setCursor(148, 296);
+  tft.print("NMEA");
+
+  // Tab 4: SETTING (186..238)
+  uint16_t tab4Bg = (currentUiPage == PAGE_SETTINGS) ? COLOR_CYAN : COLOR_CARD;
+  uint16_t tab4Fg = (currentUiPage == PAGE_SETTINGS) ? TFT_BLACK : COLOR_TEXT_MUT;
+  tft.fillRoundRect(186, 284, 52, 32, 4, tab4Bg);
+  tft.setTextColor(tab4Fg, tab4Bg);
+  tft.setTextSize(1);
+  tft.setCursor(192, 296);
+  tft.print("SETTNG");
 }
 
 void startUiTask() {
@@ -100,19 +110,23 @@ void uiTaskLoop(void* pvParameters) {
 
       // Handle Bottom Navigation Tab Taps (y >= 280)
       if (touchY >= 280) {
-        if (touchX < 58 && currentUiPage != PAGE_RIDE) {
+        if (touchX < 47 && currentUiPage != PAGE_RIDE) {
           Serial.println("[UI] Switch to RIDE page");
           currentUiPage = PAGE_RIDE;
           forceRedraw = true;
-        } else if (touchX >= 58 && touchX < 117 && currentUiPage != PAGE_CLIMB) {
+        } else if (touchX >= 47 && touchX < 93 && currentUiPage != PAGE_CLIMB) {
           Serial.println("[UI] Switch to CLIMB page");
           currentUiPage = PAGE_CLIMB;
           forceRedraw = true;
-        } else if (touchX >= 117 && touchX < 175 && currentUiPage != PAGE_GPS_INFO) {
-          Serial.println("[UI] Switch to GPS INFO page");
+        } else if (touchX >= 93 && touchX < 139 && currentUiPage != PAGE_GPS_INFO) {
+          Serial.println("[UI] Switch to SENSORS page");
           currentUiPage = PAGE_GPS_INFO;
           forceRedraw = true;
-        } else if (touchX >= 175 && currentUiPage != PAGE_SETTINGS) {
+        } else if (touchX >= 139 && touchX < 185 && currentUiPage != PAGE_DEBUG) {
+          Serial.println("[UI] Switch to NMEA DEBUG page");
+          currentUiPage = PAGE_DEBUG;
+          forceRedraw = true;
+        } else if (touchX >= 185 && currentUiPage != PAGE_SETTINGS) {
           Serial.println("[UI] Switch to SETTINGS page");
           currentUiPage = PAGE_SETTINGS;
           forceRedraw = true;
@@ -156,6 +170,8 @@ void uiTaskLoop(void* pvParameters) {
       renderClimbPage(state, forceRedraw);
     } else if (currentUiPage == PAGE_GPS_INFO) {
       renderSensorsPage(state, forceRedraw);
+    } else if (currentUiPage == PAGE_DEBUG) {
+      renderDebugPage(state, forceRedraw);
     } else if (currentUiPage == PAGE_SETTINGS) {
       renderSettingsPage(state, forceRedraw);
     }

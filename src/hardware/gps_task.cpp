@@ -7,6 +7,9 @@ QueueHandle_t g_gps_queue = NULL;
 static TinyGPSPlus gps;
 static HardwareSerial gpsSerial(1);
 
+static char nmeaLineBuf[80];
+static uint8_t nmeaLineIdx = 0;
+
 void startGpsTask() {
   if (g_gps_queue == NULL) {
     g_gps_queue = xQueueCreate(10, sizeof(GpsFix));
@@ -36,18 +39,26 @@ void gpsTaskLoop(void* pvParameters) {
       char c = (char)gpsSerial.read();
       totalChars++;
       gps.encode(c);
+
+      // Accumulate NMEA line into buffer for Live UI Debug Console
+      if (c == '\n' || c == '\r') {
+        if (nmeaLineIdx > 0) {
+          nmeaLineBuf[nmeaLineIdx] = '\0';
+          addNmeaDebugLine(nmeaLineBuf);
+          nmeaLineIdx = 0;
+        }
+      } else if (nmeaLineIdx < sizeof(nmeaLineBuf) - 1) {
+        nmeaLineBuf[nmeaLineIdx++] = c;
+      }
     }
 
     uint32_t now = millis();
 
-    if (now - lastDebugLogMs >= 3000) {
+    if (now - lastDebugLogMs >= 1000) {
       lastDebugLogMs = now;
-      Serial.printf("[GPS STATUS] RX Pin:%d | Total Chars:%u | Sentences Passed:%u | Fix:%d | Sats:%u | HDOP:%.2f\n",
-                    PIN_GPS_RX, totalChars,
-                    (uint32_t)gps.passedChecksum(),
-                    gps.location.isValid(),
-                    gps.satellites.isValid() ? gps.satellites.value() : 0,
-                    gps.hdop.isValid() ? gps.hdop.hdop() : 99.99);
+      g_gps_debug.total_chars = totalChars;
+      g_gps_debug.sentences_passed = (uint32_t)gps.passedChecksum();
+      g_gps_debug.active_rx_pin = PIN_GPS_RX;
     }
 
     // Send GPS fix status to queue

@@ -1,6 +1,7 @@
 #include "telemetry_state.h"
 
 TelemetryState g_telemetry;
+GpsDebugInfo g_gps_debug;
 SemaphoreHandle_t g_telemetry_mutex = NULL;
 SemaphoreHandle_t g_i2c_mutex = NULL;
 
@@ -43,6 +44,14 @@ void initTelemetryState() {
 
     g_telemetry.ride_state = RIDE_STATE_IDLE;
 
+    g_gps_debug.total_chars = 0;
+    g_gps_debug.sentences_passed = 0;
+    g_gps_debug.active_rx_pin = 44;
+    g_gps_debug.line_head = 0;
+    for (int i = 0; i < NMEA_BUFFER_LINES; i++) {
+      g_gps_debug.last_lines[i][0] = '\0';
+    }
+
     xSemaphoreGive(g_telemetry_mutex);
   }
 }
@@ -53,7 +62,6 @@ TelemetryState getTelemetrySnapshot() {
     snap = g_telemetry;
     xSemaphoreGive(g_telemetry_mutex);
   } else {
-    // If lock fails, return fallback static copy
     snap = g_telemetry;
   }
   return snap;
@@ -62,6 +70,16 @@ TelemetryState getTelemetrySnapshot() {
 void setTelemetryState(const TelemetryState& newState) {
   if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
     g_telemetry = newState;
+    xSemaphoreGive(g_telemetry_mutex);
+  }
+}
+
+void addNmeaDebugLine(const char* line) {
+  if (line == NULL || strlen(line) == 0) return;
+  if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    uint8_t idx = g_gps_debug.line_head;
+    snprintf(g_gps_debug.last_lines[idx], NMEA_LINE_MAX_LEN, "%s", line);
+    g_gps_debug.line_head = (idx + 1) % NMEA_BUFFER_LINES;
     xSemaphoreGive(g_telemetry_mutex);
   }
 }
