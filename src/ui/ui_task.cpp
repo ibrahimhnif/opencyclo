@@ -124,6 +124,11 @@ void uiTaskLoop(void* pvParameters) {
             Serial.println("[UI] Ride state toggled via touch");
             forceRedraw = true;
           }
+        } else if (currentUiPage == PAGE_GPS_INFO) {
+          if (handleSensorsPageTouch(touchX, touchY)) {
+            Serial.println("[UI] Sensor page action triggered");
+            forceRedraw = true;
+          }
         } else if (currentUiPage == PAGE_SETTINGS) {
           if (handleSettingsPageTouch(touchX, touchY)) {
             Serial.println("[UI] Setting updated via touch");
@@ -150,7 +155,7 @@ void uiTaskLoop(void* pvParameters) {
     } else if (currentUiPage == PAGE_CLIMB) {
       renderClimbPage(state, forceRedraw);
     } else if (currentUiPage == PAGE_GPS_INFO) {
-      renderGpsInfoPage(state, forceRedraw);
+      renderSensorsPage(state, forceRedraw);
     } else if (currentUiPage == PAGE_SETTINGS) {
       renderSettingsPage(state, forceRedraw);
     }

@@ -4,6 +4,7 @@
 #include "hardware/display.h"
 #include "core/telemetry_state.h"
 
-void renderGpsInfoPage(const TelemetryState& state, bool forceFullRedraw);
+void renderSensorsPage(const TelemetryState& state, bool forceFullRedraw);
+bool handleSensorsPageTouch(int16_t x, int16_t y);
 
 #endif // OPENCYCLO_UI_PAGES_SENSORS_PAGE_H
