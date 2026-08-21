@@ -1,16 +1,13 @@
 #include "ui_task.h"
 #include "hardware/display.h"
 #include "core/telemetry_state.h"
-#include "pages/ride_page.h"
-#include "pages/climb_page.h"
-#include "pages/sensors_page.h"
-#include "pages/debug_page.h"
-#include "pages/settings_page.h"
+#include "engine/layout_manager.h"
+#include "storage/layout_config.h"
 #include "storage/settings.h"
 #include <stdlib.h>
 
-static UiPage currentUiPage = PAGE_RIDE;
-static UiPage activePageDrawn = PAGE_RIDE;
+static uint8_t currentPageIdx = 0;
+static uint8_t activePageDrawn = 255;
 static bool forceRedraw = true;
 
 void startUiTask() {
@@ -64,41 +61,24 @@ void uiTaskLoop(void* pvParameters) {
         int16_t deltaX = lastTouchX - touchStartX;
         int16_t deltaY = lastTouchY - touchStartY;
 
-        Serial.printf("[GESTURE] Touch release. Start:(%d,%d), End:(%d,%d), DeltaX:%d, DeltaY:%d\n",
-                      touchStartX, touchStartY, lastTouchX, lastTouchY, deltaX, deltaY);
+        uint8_t totalPages = (g_ui_config.active_page_count > 0) ? g_ui_config.active_page_count : 1;
 
         // Gesture 1: SWIPE LEFT (Next Page)
         if (deltaX < -35 && abs(deltaY) < 70) {
-          currentUiPage = (UiPage)((currentUiPage + 1) % PAGE_COUNT);
-          Serial.printf("[UI GESTURE] Swiped Left -> New Page: %d\n", currentUiPage);
+          currentPageIdx = (currentPageIdx + 1) % totalPages;
+          Serial.printf("[UI GESTURE] Swiped Left -> Page %u/%u\n", currentPageIdx + 1, totalPages);
           forceRedraw = true;
         }
         // Gesture 2: SWIPE RIGHT (Previous Page)
         else if (deltaX > 35 && abs(deltaY) < 70) {
-          currentUiPage = (UiPage)((currentUiPage + PAGE_COUNT - 1) % PAGE_COUNT);
-          Serial.printf("[UI GESTURE] Swiped Right -> New Page: %d\n", currentUiPage);
+          currentPageIdx = (currentPageIdx + totalPages - 1) % totalPages;
+          Serial.printf("[UI GESTURE] Swiped Right -> Page %u/%u\n", currentPageIdx + 1, totalPages);
           forceRedraw = true;
         }
-        // Gesture 3: SINGLE TAP / PRESS (Page Action Controls)
+        // Gesture 3: SINGLE TAP / PRESS (Delegate to current page layout & widgets)
         else if (abs(deltaX) < 20 && abs(deltaY) < 20) {
-          int16_t tapX = lastTouchX;
-          int16_t tapY = lastTouchY;
-
-          if (currentUiPage == PAGE_RIDE) {
-            if (handleRidePageTouch(tapX, tapY)) {
-              Serial.println("[UI] Ride button tapped");
-              forceRedraw = true;
-            }
-          } else if (currentUiPage == PAGE_GPS_INFO) {
-            if (handleSensorsPageTouch(tapX, tapY)) {
-              Serial.println("[UI] Sensor button tapped");
-              forceRedraw = true;
-            }
-          } else if (currentUiPage == PAGE_SETTINGS) {
-            if (handleSettingsPageTouch(tapX, tapY)) {
-              Serial.println("[UI] Setting button tapped");
-              forceRedraw = true;
-            }
+          if (handlePageTouch(g_ui_config.pages[currentPageIdx], lastTouchX, lastTouchY)) {
+            forceRedraw = true;
           }
         }
       }
@@ -108,25 +88,17 @@ void uiTaskLoop(void* pvParameters) {
     }
 
     // Check page switch
-    if (activePageDrawn != currentUiPage) {
+    if (activePageDrawn != currentPageIdx) {
       forceRedraw = true;
-      activePageDrawn = currentUiPage;
+      activePageDrawn = currentPageIdx;
     }
 
     // Fetch snapshot of telemetry state
     TelemetryState state = getTelemetrySnapshot();
 
-    // Render active UI page
-    if (currentUiPage == PAGE_RIDE) {
-      renderRidePage(state, forceRedraw);
-    } else if (currentUiPage == PAGE_CLIMB) {
-      renderClimbPage(state, forceRedraw);
-    } else if (currentUiPage == PAGE_GPS_INFO) {
-      renderSensorsPage(state, forceRedraw);
-    } else if (currentUiPage == PAGE_DEBUG) {
-      renderDebugPage(state, forceRedraw);
-    } else if (currentUiPage == PAGE_SETTINGS) {
-      renderSettingsPage(state, forceRedraw);
+    // Render active dynamic page from UiConfig
+    if (g_ui_config.active_page_count > 0) {
+      renderPage(g_ui_config.pages[currentPageIdx], currentPageIdx, g_ui_config.active_page_count, state, forceRedraw);
     }
 
     if (forceRedraw) {

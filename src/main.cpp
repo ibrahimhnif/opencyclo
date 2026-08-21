@@ -1,46 +1,38 @@
 #include <Arduino.h>
-#include "config/pins.h"
 #include "core/telemetry_state.h"
-#include "storage/settings.h"
+#include "core/fusion_task.h"
 #include "hardware/gps_task.h"
 #include "hardware/baro_task.h"
 #include "hardware/ble_task.h"
 #include "storage/logger_task.h"
-#include "core/fusion_task.h"
+#include "storage/settings.h"
+#include "storage/layout_config.h"
 #include "ui/ui_task.h"
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("==========================================");
-  Serial.println("         OPENCYCLO FIRMWARE v0.1.0        ");
-  Serial.println("       ESP32-S3 DIY GPS Cycling Computer  ");
-  Serial.println("==========================================");
+  Serial.println("\n=================================");
+  Serial.println("  OpenCyclo GPS Computer v0.1.0  ");
+  Serial.println("  Modular UI Component Engine    ");
+  Serial.println("=================================");
 
-  // Initialize shared telemetry state, NVS settings & mutexes
+  // 1. Initialize Shared Mutexes and Telemetry State
   initTelemetryState();
+
+  // 2. Initialize NVS Settings & Layout Configuration Tree
   initSettings();
+  initLayoutConfig();
 
-  // Start FreeRTOS Subsystem Tasks
-  Serial.println("[SYSTEM] Starting GPS Task on Core 0...");
+  // 3. Launch FreeRTOS Tasks
   startGpsTask();
-
-  Serial.println("[SYSTEM] Starting Barometer BME280 Task on Core 0...");
   startBaroTask();
-
-  Serial.println("[SYSTEM] Starting BLE Central Task on Core 0...");
   startBleTask();
-
-  Serial.println("[SYSTEM] Starting microSD Logger Task on Core 0...");
   startLoggerTask();
-
-  Serial.println("[SYSTEM] Starting Telemetry Fusion Task on Core 0...");
   startFusionTask();
-
-  Serial.println("[SYSTEM] Starting UI & Touch Task on Core 1...");
   startUiTask();
 
-  Serial.println("[SYSTEM] Setup complete. Tasks running.");
+  Serial.println("[SYSTEM] All tasks launched successfully.");
 }
 
 void loop() {

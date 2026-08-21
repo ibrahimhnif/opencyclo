@@ -5,15 +5,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-enum UiPage {
-  PAGE_RIDE = 0,
-  PAGE_CLIMB,
-  PAGE_GPS_INFO,
-  PAGE_DEBUG,
-  PAGE_SETTINGS,
-  PAGE_COUNT
-};
-
 void startUiTask();
 void uiTaskLoop(void* pvParameters);
 
