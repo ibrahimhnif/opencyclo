@@ -18,6 +18,86 @@ static uint8_t bleStatusCSC = 0;   // 0=Disconnected, 1=Scanning, 2=Connected
 static uint8_t bleStatusHR = 0;
 static uint8_t bleStatusPOWER = 0;
 
+// --- Heart Rate GATT client ---
+// Pairing used to mean "we saw this device advertise and remembered its MAC"
+// -- it never actually connected as a GATT client or subscribed to receive
+// live readings, so currentHrBpm stayed -1 forever regardless of pairing
+// status. bleTaskLoop() is what actually performs the connect()+subscribe()
+// call (never from inside a NimBLE scan-result callback, which isn't a safe
+// place to make a blocking connect() call) -- onResult() and the
+// reconnect-on-disconnect path below just set hrConnectPending +
+// hrTargetAddress, and the main loop picks it up on its next iteration.
+static NimBLEClient* pHrClient = nullptr;
+static NimBLEAddress hrTargetAddress;
+static volatile bool hrConnectPending = false;
+
+static const NimBLEUUID HR_SERVICE_UUID((uint16_t)0x180D);
+static const NimBLEUUID HR_MEASUREMENT_UUID((uint16_t)0x2A37);
+
+// Bluetooth SIG Heart Rate Measurement characteristic (0x2A37): byte 0 is a
+// flags field whose bit 0 selects whether the heart rate value is UINT8
+// (byte 1) or UINT16 little-endian (bytes 1-2). Energy Expended and
+// RR-Interval fields may follow but aren't needed for a bpm display.
+static void hrNotifyCallback(NimBLERemoteCharacteristic* chr, uint8_t* pData, size_t length, bool isNotify) {
+  if (length < 2) return;
+  uint8_t flags = pData[0];
+  uint16_t hr = (flags & 0x01) ? (uint16_t)(pData[1] | (pData[2] << 8)) : (uint16_t)pData[1];
+  currentHrBpm = (int16_t)hr;
+  bleStatusHR = 2;
+}
+
+class HrClientCallbacks : public NimBLEClientCallbacks {
+  void onDisconnect(NimBLEClient* pClient) override {
+    Serial.println("[BLE HR] Disconnected.");
+    currentHrBpm = -1;
+    // Retry against the same saved address rather than dropping the pairing
+    // on a transient disconnect (sensor briefly out of range, low battery
+    // blip, etc) -- matches the spec's "reconnect in the background against
+    // the last known MAC" design.
+    if (g_settings.paired_hr_mac[0] != '\0') {
+      bleStatusHR = 1; // reconnecting
+      hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac));
+      hrConnectPending = true;
+    } else {
+      bleStatusHR = 0;
+    }
+  }
+};
+static HrClientCallbacks hrClientCallbacks;
+
+// Connects to hrTargetAddress, discovers the Heart Rate service, and
+// subscribes to live measurements. Called only from bleTaskLoop()'s own
+// task context -- connect() blocks, which is fine here (BleTask has its own
+// core/task, unlike the UI task that used to call the blocking scan
+// overload).
+static void connectToHrSensor() {
+  if (pHrClient == nullptr) {
+    pHrClient = NimBLEDevice::createClient();
+    pHrClient->setClientCallbacks(&hrClientCallbacks, false);
+  }
+  Serial.printf("[BLE HR] Connecting to %s...\n", hrTargetAddress.toString().c_str());
+  if (!pHrClient->connect(hrTargetAddress)) {
+    Serial.println("[BLE HR] Connect failed.");
+    bleStatusHR = 0;
+    return;
+  }
+  NimBLERemoteService* pSvc = pHrClient->getService(HR_SERVICE_UUID);
+  if (pSvc == nullptr) {
+    Serial.println("[BLE HR] Heart Rate service not found on this device.");
+    pHrClient->disconnect();
+    return;
+  }
+  NimBLERemoteCharacteristic* pChar = pSvc->getCharacteristic(HR_MEASUREMENT_UUID);
+  if (pChar == nullptr || !pChar->canNotify()) {
+    Serial.println("[BLE HR] Heart Rate Measurement characteristic missing or not notifiable.");
+    pHrClient->disconnect();
+    return;
+  }
+  pChar->subscribe(true, hrNotifyCallback);
+  bleStatusHR = 2;
+  Serial.println("[BLE HR] Subscribed -- live heart rate should start updating.");
+}
+
 void triggerBleScan() {
   if (pBLEScan != nullptr && !g_ble_scanning) {
     Serial.println("[BLE] Triggering 10s active BLE scan for sensors...");
@@ -47,6 +127,10 @@ void forgetSensorProfile(BleProfileType profile) {
     g_settings.paired_hr_mac[0] = '\0';
     bleStatusHR = 0;
     currentHrBpm = -1;
+    hrConnectPending = false;
+    if (pHrClient != nullptr && pHrClient->isConnected()) {
+      pHrClient->disconnect();
+    }
   } else if (profile == BLE_PROFILE_POWER) {
     g_settings.paired_power_mac[0] = '\0';
     bleStatusPOWER = 0;
@@ -65,12 +149,18 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         snprintf(g_settings.paired_csc_mac, sizeof(g_settings.paired_csc_mac), "%s", advertisedDevice->getAddress().toString().c_str());
         saveSettings();
         bleStatusCSC = 2; // Connected/Paired
-      } else if (advertisedDevice->isAdvertisingService(NimBLEUUID((uint16_t)0x180D))) {
+      } else if (advertisedDevice->isAdvertisingService(HR_SERVICE_UUID)) {
+        if (bleStatusHR == 2) return; // already connected, ignore further discoveries
         Serial.printf("[BLE FOUND] Heart Rate Sensor: %s [%s]\n",
                       advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
         snprintf(g_settings.paired_hr_mac, sizeof(g_settings.paired_hr_mac), "%s", advertisedDevice->getAddress().toString().c_str());
         saveSettings();
-        bleStatusHR = 2;
+        // Hand off to bleTaskLoop() to make the actual connect()+subscribe()
+        // call -- a blocking connect() from inside this scan callback isn't
+        // safe. Stop the scan first; NimBLE can't connect while scanning.
+        NimBLEDevice::getScan()->stop();
+        hrTargetAddress = advertisedDevice->getAddress();
+        hrConnectPending = true;
       } else if (advertisedDevice->isAdvertisingService(NimBLEUUID((uint16_t)0x1818))) {
         Serial.printf("[BLE FOUND] Power Meter: %s [%s]\n",
                       advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
@@ -145,7 +235,20 @@ void bleTaskLoop(void* pvParameters) {
 
   Serial.println("[BLE TASK] Dual-Role Central & Peripheral initialized.");
 
+  // Auto-reconnect to a previously-paired HR sensor on boot, without waiting
+  // for a fresh scan -- matches the spec's "auto-reconnects on boot" design.
+  if (g_settings.paired_hr_mac[0] != '\0') {
+    hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac));
+    hrConnectPending = true;
+    bleStatusHR = 1; // reconnecting
+  }
+
   for (;;) {
+    if (hrConnectPending) {
+      hrConnectPending = false;
+      connectToHrSensor();
+    }
+
     if (g_ble_scanning) {
       if (!pBLEScan->isScanning()) {
         g_ble_scanning = false;
@@ -158,8 +261,13 @@ void bleTaskLoop(void* pvParameters) {
     state.cadence_rpm = currentCadenceRpm;
     state.power_watts = currentPowerWatts;
 
+    // CSC/Power still report "paired == connected" (a MAC is saved but,
+    // like HR used to be, nothing actually connects to them yet -- out of
+    // scope for this fix). HR now reports its real, live-tracked state
+    // instead of the same MAC-presence heuristic, since "paired" and
+    // "actually connected and streaming" are genuinely different states now.
     state.ble_connection_status[0] = (g_settings.paired_csc_mac[0] != '\0') ? 2 : (g_ble_scanning ? 1 : 0);
-    state.ble_connection_status[1] = (g_settings.paired_hr_mac[0] != '\0') ? 2 : (g_ble_scanning ? 1 : 0);
+    state.ble_connection_status[1] = bleStatusHR;
     state.ble_connection_status[2] = (g_settings.paired_power_mac[0] != '\0') ? 2 : (g_ble_scanning ? 1 : 0);
 
     if (currentCscSpeedKmh >= 0.0f) {
