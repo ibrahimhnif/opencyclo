@@ -278,6 +278,72 @@ static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
   return false;
 }
 
+// 15. SETTINGS LIST
+static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state, bool force) {
+  if (force) {
+    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+  }
+  int y = b.y + 16;
+  tft.setFont(&fonts::FreeSans9pt7b);
+
+  auto row = [&](const char* label, const char* value, uint16_t valueColor) {
+    tft.setTextColor(COLOR_LABEL, COLOR_BG);
+    tft.setCursor(b.x + 10, y);
+    tft.setTextPadding(110);
+    tft.print(label);
+    tft.setTextPadding(0);
+    tft.setTextColor(valueColor, COLOR_BG);
+    tft.setCursor(b.x + 116, y);
+    tft.setTextPadding(b.w - 126);
+    tft.print(value);
+    tft.setTextPadding(0);
+    tft.drawFastHLine(b.x + 6, y + 20, b.w - 12, COLOR_HAIRLINE);
+    y += 36;
+  };
+
+  row("units", g_settings.units == 0 ? "metric" : "imperial", COLOR_TEXT);
+
+  char brightStr[8];
+  snprintf(brightStr, sizeof(brightStr), "%u%%", (g_settings.brightness * 100) / 255);
+  row("brightness", brightStr, COLOR_TEXT);
+
+  char wheelStr[24];
+  snprintf(wheelStr, sizeof(wheelStr), "%u mm", g_settings.wheel_circumference_mm);
+  row("wheel size", wheelStr, COLOR_TEXT);
+
+  row("sd logging", g_settings.sd_logging_enabled ? "enabled" : "disabled",
+      g_settings.sd_logging_enabled ? COLOR_GREEN : COLOR_AMBER);
+
+  char batStr[24];
+  snprintf(batStr, sizeof(batStr), "%u%% (%.2fV)", state.battery_pct, readBatteryVoltage());
+  row("battery", batStr, COLOR_GREEN);
+
+  row("firmware", "opencyclo v0.2.0", COLOR_CYAN);
+}
+
+static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
+  int rowY = b.y + 16;
+  if (y >= rowY - 8 && y <= rowY + 12) {
+    g_settings.units = (g_settings.units == 0) ? 1 : 0;
+    saveSettings();
+    return true;
+  }
+  rowY += 36;
+  if (y >= rowY - 8 && y <= rowY + 12) {
+    g_settings.brightness = (g_settings.brightness >= 250) ? 50 : (g_settings.brightness + 50);
+    setDisplayBrightness(g_settings.brightness);
+    saveSettings();
+    return true;
+  }
+  rowY += 72; // skip wheel size row (not touch-editable)
+  if (y >= rowY - 8 && y <= rowY + 12) {
+    g_settings.sd_logging_enabled = !g_settings.sd_logging_enabled;
+    saveSettings();
+    return true;
+  }
+  return false;
+}
+
 // Stub renderer used for every widget until Tasks 6-10 replace it with the
 // real Minimal-style implementation. Draws only the background fill so the
 // dispatch/validation plumbing in this task is independently verifiable.
@@ -303,7 +369,7 @@ static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_ELEVATION_CHART, renderWidgetElevationChart, nullptr},
   {WIDGET_BATTERY,         renderWidgetBattery,  nullptr},
   {WIDGET_BLE_MANAGER,     renderWidgetBleManager, touchWidgetBleManager},
-  {WIDGET_SETTINGS_LIST,   renderStub,           nullptr},
+  {WIDGET_SETTINGS_LIST,   renderWidgetSettingsList, touchWidgetSettingsList},
 };
 
 void initWidgetRegistry() {
