@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'ble_protocol.dart';
@@ -43,8 +44,14 @@ class BleService {
         _connectionStateController.add(state);
       });
 
-      // Request MTU 512 for fast throughput
-      await device.requestMtu(512);
+      // Request MTU 512 on Android only (iOS/macOS CoreBluetooth handles MTU automatically)
+      if (!kIsWeb && Platform.isAndroid) {
+        try {
+          await device.requestMtu(512);
+        } catch (e) {
+          debugPrint("[BLE] requestMtu error (ignorable): $e");
+        }
+      }
 
       // Discover Services
       final services = await device.discoverServices();
