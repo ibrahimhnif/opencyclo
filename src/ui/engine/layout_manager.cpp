@@ -44,9 +44,8 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
     // long app-supplied title can never collide with the live segments.
     tft.setFont(&fonts::FreeSans9pt7b);
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setCursor(STATUS_TITLE_X, STATUS_ROW_Y);
     tft.setTextPadding(STATUS_TITLE_W);
-    tft.print(page.title);
+    tft.drawString(page.title, STATUS_TITLE_X, STATUS_ROW_Y);
     tft.setTextPadding(0);
 
     if (totalPages > 1) {
@@ -61,14 +60,15 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
   // Segment 2: gps fix / satellite count. Green when fixed, amber otherwise.
   tft.setFont(&fonts::FreeSans9pt7b);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_BG);
-  tft.setCursor(STATUS_GPS_X, STATUS_ROW_Y);
   tft.setTextPadding(STATUS_GPS_W);
   if (state.gps_has_fix) {
     // Clamp the printed count so the string can never outgrow its band
     // (satellites is a uint8_t; a bogus 3-digit value would overflow it).
-    tft.printf("gps %u", (unsigned)(state.satellites > 99 ? 99 : state.satellites));
+    char gpsBuf[10];
+    snprintf(gpsBuf, sizeof(gpsBuf), "gps %u", (unsigned)(state.satellites > 99 ? 99 : state.satellites));
+    tft.drawString(gpsBuf, STATUS_GPS_X, STATUS_ROW_Y);
   } else {
-    tft.print("gps --");
+    tft.drawString("gps --", STATUS_GPS_X, STATUS_ROW_Y);
   }
   tft.setTextPadding(0);
 
@@ -76,10 +76,11 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
   uint16_t stateColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_GREEN :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? COLOR_AMBER : COLOR_LABEL);
   tft.setTextColor(stateColor, COLOR_BG);
-  tft.setCursor(STATUS_STATE_X, STATUS_ROW_Y);
   tft.setTextPadding(STATUS_STATE_W);
-  tft.printf("%s %u%%", (state.ride_state == RIDE_STATE_ACTIVE) ? "rec" :
+  char stateBuf[16];
+  snprintf(stateBuf, sizeof(stateBuf), "%s %u%%", (state.ride_state == RIDE_STATE_ACTIVE) ? "rec" :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? "pause" : "stop"), state.battery_pct);
+  tft.drawString(stateBuf, STATUS_STATE_X, STATUS_ROW_Y);
   tft.setTextPadding(0);
 
   uint8_t count = (page.widget_count < slotDef.max_slots) ? page.widget_count : slotDef.max_slots;

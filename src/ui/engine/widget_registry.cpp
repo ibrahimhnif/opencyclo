@@ -22,9 +22,10 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   }
   tft.setFont(&fonts::FreeSans9pt7b);
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setCursor(b.x + 4, b.y + 4);
   tft.setTextPadding(b.w - 8);
-  tft.printf("speed . %s", state.speed_source == SPEED_SOURCE_BLE_CSC ? "ble" : "gps");
+  char srcBuf[16];
+  snprintf(srcBuf, sizeof(srcBuf), "speed . %s", state.speed_source == SPEED_SOURCE_BLE_CSC ? "ble" : "gps");
+  tft.drawString(srcBuf, b.x + 4, b.y + 4);
   tft.setTextPadding(0);
 
   tft.setFont(&fonts::FreeSans24pt7b);
@@ -32,9 +33,8 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   char buf[12];
   float speed = (g_settings.units == 1) ? (state.speed_kmh * 0.621371f) : state.speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", speed);
-  tft.setCursor(b.x + 4, b.y + 24);
   tft.setTextPadding(b.w - 70);
-  tft.print(buf);
+  tft.drawString(buf, b.x + 4, b.y + 24);
   tft.setTextPadding(0);
 
   tft.setFont(&fonts::FreeSans9pt7b);
@@ -58,16 +58,14 @@ static void renderTile(const Rect& b, const char* label, const char* valueStr, u
   }
   tft.setFont(&fonts::FreeSans9pt7b);
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setCursor(b.x + 4, b.y + 4);
   tft.setTextPadding(b.w - 8);
-  tft.print(label);
+  tft.drawString(label, b.x + 4, b.y + 4);
   tft.setTextPadding(0);
 
   tft.setFont(&fonts::FreeSans12pt7b);
   tft.setTextColor(valueColor, COLOR_BG);
-  tft.setCursor(b.x + 4, b.y + 24);
   tft.setTextPadding(b.w - 8);
-  tft.print(valueStr);
+  tft.drawString(valueStr, b.x + 4, b.y + 24);
   tft.setTextPadding(0);
 }
 
@@ -246,23 +244,28 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   int y = b.y + 48;
   for (int i = 0; i < 3; i++) {
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setCursor(b.x + 10, y);
     tft.setTextPadding(76);
-    tft.print(rows[i].label);
+    tft.drawString(rows[i].label, b.x + 10, y);
     tft.setTextPadding(0);
 
-    tft.setCursor(b.x + 90, y);
     tft.setTextPadding(b.w - 100);
     if (rows[i].mac[0] != '\0') {
       tft.setTextColor(COLOR_GREEN, COLOR_BG);
-      tft.printf("%.10s..", rows[i].mac);
+      char macBuf[14];
+      snprintf(macBuf, sizeof(macBuf), "%.10s..", rows[i].mac);
+      tft.drawString(macBuf, b.x + 90, y);
+      // "forget" is redrawn onto a fillRoundRect'd button every frame, so it's
+      // already safe without padding/drawString — and since the still-active
+      // b.w-100 padding above was sized for the mac text at x+90, not this
+      // button at x+b.w-54, converting it to drawString would erase past the
+      // widget's right edge. Leave it as print(), which never reads padding_x.
       tft.fillRoundRect(b.x + b.w - 60, y - 4, 52, 18, 4, COLOR_RED);
       tft.setTextColor(TFT_WHITE, COLOR_RED);
       tft.setCursor(b.x + b.w - 54, y);
       tft.print("forget");
     } else {
       tft.setTextColor(COLOR_LABEL, COLOR_BG);
-      tft.print("not paired");
+      tft.drawString("not paired", b.x + 90, y);
     }
     tft.setTextPadding(0);
     tft.drawFastHLine(b.x + 6, y + 22, b.w - 12, COLOR_HAIRLINE);
@@ -270,9 +273,8 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   }
 
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setCursor(b.x + 10, y + 6);
   tft.setTextPadding(b.w - 20);
-  tft.print(state.gps_has_fix ? "gps: 3d fix valid" : "gps: searching...");
+  tft.drawString(state.gps_has_fix ? "gps: 3d fix valid" : "gps: searching...", b.x + 10, y + 6);
   tft.setTextPadding(0);
 }
 
@@ -314,14 +316,12 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
 
   auto row = [&](const char* label, const char* value, uint16_t valueColor) {
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setCursor(b.x + 10, y);
     tft.setTextPadding(110);
-    tft.print(label);
+    tft.drawString(label, b.x + 10, y);
     tft.setTextPadding(0);
     tft.setTextColor(valueColor, COLOR_BG);
-    tft.setCursor(b.x + 116, y);
     tft.setTextPadding(b.w - 126);
-    tft.print(value);
+    tft.drawString(value, b.x + 116, y);
     tft.setTextPadding(0);
     tft.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, COLOR_HAIRLINE);
     y += SETTINGS_ROW_STRIDE;
