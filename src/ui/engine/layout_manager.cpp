@@ -35,22 +35,32 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
   }
 
   // --- TOP STATUS BAR UPDATES ---
+  // NOTE: setTextPadding() widens the glyph-erase rect drawn by print()/printf()
+  // beyond the new string's own width. Without it, LovyanGFX only clears pixels
+  // covered by the string being printed *this* frame; a shorter string (fewer
+  // satellite digits, "SEARCHING" vs "3D FIX", REC/PAUSE/STOP length changes)
+  // leaves the previous, wider string's trailing pixels on screen. Always reset
+  // padding to 0 right after so it doesn't bleed into the next unrelated print.
   tft.setTextSize(1);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
   tft.setCursor(6, 7);
+  tft.setTextPadding(160); // status text region: x=6 up to the state dot at x=168
   if (state.gps_has_fix) {
     tft.printf("GPS 3D (%u)", state.satellites);
   } else {
     tft.print("GPS SEARCH");
   }
+  tft.setTextPadding(0);
 
   uint16_t stateColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_GREEN :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? COLOR_AMBER : COLOR_TEXT_MUT);
   tft.fillCircle(168, 12, 3, stateColor);
   tft.setTextColor(stateColor, COLOR_CARD);
   tft.setCursor(176, 7);
+  tft.setTextPadding(60); // "PAUSE 100%" is the longest string this field prints
   tft.printf("%s %u%%", (state.ride_state == RIDE_STATE_ACTIVE) ? "REC" :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? "PAUSE" : "STOP"), state.battery_pct);
+  tft.setTextPadding(0);
 
   // --- RENDER ASSIGNED WIDGETS ---
   uint8_t count = (page.widget_count < slotDef.max_slots) ? page.widget_count : slotDef.max_slots;

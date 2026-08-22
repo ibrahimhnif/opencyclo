@@ -43,7 +43,9 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   float speed = (g_settings.units == 1) ? (state.speed_kmh * 0.621371f) : state.speed_kmh;
   snprintf(buf, sizeof(buf), "%4.1f", speed);
   tft.setCursor(b.x + 8, b.y + 22);
+  tft.setTextPadding(144); // guards against ghosting if speed ever crosses 100
   tft.print(buf);
+  tft.setTextPadding(0);
 
   tft.setTextSize(2);
   tft.setTextColor(COLOR_CYAN, COLOR_HERO_BG);
@@ -65,10 +67,12 @@ static void renderWidgetAvgSpeed(const Rect& b, const TelemetryState& state, boo
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   char buf[12];
   float avg = (g_settings.units == 1) ? (state.avg_speed_kmh * 0.621371f) : state.avg_speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", avg);
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 3. MAX SPEED WIDGET
@@ -85,10 +89,12 @@ static void renderWidgetMaxSpeed(const Rect& b, const TelemetryState& state, boo
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   char buf[12];
   float maxS = (g_settings.units == 1) ? (state.max_speed_kmh * 0.621371f) : state.max_speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", maxS);
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 4. DISTANCE WIDGET
@@ -105,10 +111,12 @@ static void renderWidgetDistance(const Rect& b, const TelemetryState& state, boo
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   char buf[12];
   float d = (g_settings.units == 1) ? (state.trip_distance_km * 0.621371f) : state.trip_distance_km;
   snprintf(buf, sizeof(buf), "%.2f", d);
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 5. RIDE TIME WIDGET
@@ -134,7 +142,9 @@ static void renderWidgetRideTime(const Rect& b, const TelemetryState& state, boo
   } else {
     snprintf(buf, sizeof(buf), "%02u:%02u", mins, secs);
   }
+  tft.setTextPadding(b.w - 12); // covers the MM:SS -> HH:MM:SS width jump past 1hr
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 6. CADENCE WIDGET
@@ -150,6 +160,7 @@ static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool
 
   tft.setTextSize(2);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   if (state.cadence_rpm >= 0) {
     tft.setTextColor(COLOR_CYAN, COLOR_CARD);
     tft.printf("%d", state.cadence_rpm);
@@ -157,6 +168,7 @@ static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("--");
   }
+  tft.setTextPadding(0);
 }
 
 // 7. HEART RATE WIDGET
@@ -172,6 +184,7 @@ static void renderWidgetHeartRate(const Rect& b, const TelemetryState& state, bo
 
   tft.setTextSize(2);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   if (state.heart_rate_bpm >= 0) {
     tft.setTextColor(COLOR_RED, COLOR_CARD);
     tft.printf("%d", state.heart_rate_bpm);
@@ -179,6 +192,7 @@ static void renderWidgetHeartRate(const Rect& b, const TelemetryState& state, bo
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("--");
   }
+  tft.setTextPadding(0);
 }
 
 // 8. POWER WIDGET
@@ -194,6 +208,7 @@ static void renderWidgetPower(const Rect& b, const TelemetryState& state, bool f
 
   tft.setTextSize(2);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   if (state.power_watts >= 0) {
     tft.setTextColor(COLOR_GREEN, COLOR_CARD);
     tft.printf("%d", state.power_watts);
@@ -201,6 +216,7 @@ static void renderWidgetPower(const Rect& b, const TelemetryState& state, bool f
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("--");
   }
+  tft.setTextPadding(0);
 }
 
 // 9. ALTITUDE WIDGET
@@ -217,10 +233,12 @@ static void renderWidgetAltitude(const Rect& b, const TelemetryState& state, boo
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   char buf[12];
   float alt = (g_settings.units == 1) ? (state.altitude_m * 3.28084f) : state.altitude_m;
   snprintf(buf, sizeof(buf), "%.0f", alt);
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 10. GRADE % WIDGET
@@ -238,9 +256,11 @@ static void renderWidgetGrade(const Rect& b, const TelemetryState& state, bool f
   uint16_t gradeColor = (state.grade_pct > 3.0f) ? COLOR_AMBER : ((state.grade_pct < -2.0f) ? COLOR_CYAN : COLOR_GREEN);
   tft.setTextColor(gradeColor, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   char buf[12];
   snprintf(buf, sizeof(buf), "%+4.1f%%", state.grade_pct);
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 11. TOTAL ASCENT WIDGET
@@ -257,10 +277,12 @@ static void renderWidgetTotalAscent(const Rect& b, const TelemetryState& state, 
   tft.setTextSize(2);
   tft.setTextColor(COLOR_GREEN, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   char buf[12];
   float asc = (g_settings.units == 1) ? (state.total_ascent_m * 3.28084f) : state.total_ascent_m;
   snprintf(buf, sizeof(buf), "%.0f", asc);
   tft.print(buf);
+  tft.setTextPadding(0);
 }
 
 // 12. ELEVATION SPARKLINE CHART WIDGET
@@ -345,7 +367,9 @@ static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool
   tft.setTextSize(2);
   tft.setTextColor(COLOR_GREEN, COLOR_CARD);
   tft.setCursor(b.x + 6, b.y + 24);
+  tft.setTextPadding(b.w - 12);
   tft.printf("%u%%", state.battery_pct);
+  tft.setTextPadding(0);
 }
 
 // 15. GPS DIAGNOSTICS WIDGET
@@ -361,7 +385,9 @@ static void renderWidgetGpsDiagnostics(const Rect& b, const TelemetryState& stat
   tft.print("GPS FIX STATUS:");
   tft.setCursor(b.x + 110, y);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
+  tft.setTextPadding(b.w - 120);
   tft.print(state.gps_has_fix ? "3D FIX VALID" : "SEARCHING...");
+  tft.setTextPadding(0);
   y += 24;
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -369,9 +395,11 @@ static void renderWidgetGpsDiagnostics(const Rect& b, const TelemetryState& stat
   tft.print("SATELLITES:");
   tft.setCursor(b.x + 110, y);
   tft.setTextColor(COLOR_CYAN, COLOR_CARD);
+  tft.setTextPadding(b.w - 120);
   char satStr[32];
   snprintf(satStr, sizeof(satStr), "%u sats (HDOP: %.2f)", state.satellites, state.hdop);
   tft.print(satStr);
+  tft.setTextPadding(0);
   y += 24;
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -379,9 +407,11 @@ static void renderWidgetGpsDiagnostics(const Rect& b, const TelemetryState& stat
   tft.print("COORDINATES:");
   tft.setCursor(b.x + 110, y);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
+  tft.setTextPadding(b.w - 120);
   char coordStr[32];
   snprintf(coordStr, sizeof(coordStr), "%.5f, %.5f", state.lat, state.lon);
   tft.print(coordStr);
+  tft.setTextPadding(0);
 }
 
 // 16. NMEA CONSOLE WIDGET
@@ -404,16 +434,21 @@ static void renderWidgetNmeaConsole(const Rect& b, const TelemetryState& state, 
   tft.setCursor(b.x + 120, b.y + 6);
   tft.print("STATUS:");
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
+  tft.setTextPadding(b.x + b.w - (b.x + 168)); // "3D FIX" (6ch) vs "SEARCHING" (9ch)
   tft.print(state.gps_has_fix ? "3D FIX" : "SEARCHING");
+  tft.setTextPadding(0);
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
   tft.setCursor(b.x + 8, b.y + 24);
+  tft.setTextPadding(b.w - 16); // Chars/Sentences counters grow digits over a ride
   char statsStr[36];
   snprintf(statsStr, sizeof(statsStr), "Chars: %lu | Sentences: %lu",
            (unsigned long)g_gps_debug.total_chars, (unsigned long)g_gps_debug.sentences_passed);
   tft.print(statsStr);
+  tft.setTextPadding(0);
 
-  // Terminal box
+  // Terminal box — cleared every frame (not just on force) since each of the
+  // scrolling NMEA lines below has its own independently-varying length.
   int termY = b.y + 50;
   int termH = b.h - 54;
   tft.fillRect(b.x + 4, termY, b.w - 8, termH, COLOR_CONSOLE);
@@ -458,6 +493,7 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   tft.setCursor(b.x + 10, y);
   tft.print("SPEED/CAD:");
   tft.setCursor(b.x + 88, y);
+  tft.setTextPadding(b.w - 98);
   if (g_settings.paired_csc_mac[0] != '\0') {
     tft.setTextColor(COLOR_GREEN, COLOR_CARD);
     tft.printf("%.10s..", g_settings.paired_csc_mac);
@@ -469,6 +505,7 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("NOT PAIRED");
   }
+  tft.setTextPadding(0);
   y += 30;
 
   // HR
@@ -476,6 +513,7 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   tft.setCursor(b.x + 10, y);
   tft.print("HEART RATE:");
   tft.setCursor(b.x + 88, y);
+  tft.setTextPadding(b.w - 98);
   if (g_settings.paired_hr_mac[0] != '\0') {
     tft.setTextColor(COLOR_GREEN, COLOR_CARD);
     tft.printf("%.10s..", g_settings.paired_hr_mac);
@@ -487,6 +525,7 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("NOT PAIRED");
   }
+  tft.setTextPadding(0);
   y += 30;
 
   // POWER
@@ -494,6 +533,7 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   tft.setCursor(b.x + 10, y);
   tft.print("POWER METER:");
   tft.setCursor(b.x + 88, y);
+  tft.setTextPadding(b.w - 98);
   if (g_settings.paired_power_mac[0] != '\0') {
     tft.setTextColor(COLOR_GREEN, COLOR_CARD);
     tft.printf("%.10s..", g_settings.paired_power_mac);
@@ -505,6 +545,7 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
     tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
     tft.print("NOT PAIRED");
   }
+  tft.setTextPadding(0);
   y += 34;
 
   // Separator line
@@ -517,7 +558,9 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   tft.print("GPS FIX STATUS:");
   tft.setCursor(b.x + 110, y);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_CARD);
+  tft.setTextPadding(b.w - 120);
   tft.print(state.gps_has_fix ? "3D FIX VALID" : "SEARCHING...");
+  tft.setTextPadding(0);
   y += 22;
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -525,9 +568,11 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   tft.print("SATELLITES:");
   tft.setCursor(b.x + 110, y);
   tft.setTextColor(COLOR_CYAN, COLOR_CARD);
+  tft.setTextPadding(b.w - 120);
   char satStr[32];
   snprintf(satStr, sizeof(satStr), "%u sats (HDOP: %.2f)", state.satellites, state.hdop);
   tft.print(satStr);
+  tft.setTextPadding(0);
   y += 22;
 
   tft.setTextColor(COLOR_TEXT_MUT, COLOR_CARD);
@@ -535,9 +580,11 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   tft.print("COORDINATES:");
   tft.setCursor(b.x + 110, y);
   tft.setTextColor(TFT_WHITE, COLOR_CARD);
+  tft.setTextPadding(b.w - 120);
   char coordStr[32];
   snprintf(coordStr, sizeof(coordStr), "%.5f, %.5f", state.lat, state.lon);
   tft.print(coordStr);
+  tft.setTextPadding(0);
 }
 
 static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
@@ -621,10 +668,12 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   tft.print("BATTERY LEVEL:");
   tft.setCursor(b.x + 106, y);
   tft.setTextColor(COLOR_GREEN, COLOR_CARD);
+  tft.setTextPadding(b.w - 116);
   char batStr[24];
   float vBat = readBatteryVoltage();
   snprintf(batStr, sizeof(batStr), "%u%% (%.2f V)", state.battery_pct, vBat);
   tft.print(batStr);
+  tft.setTextPadding(0);
   y += 36;
 
   // Separator line
