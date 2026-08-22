@@ -39,11 +39,15 @@ static const NimBLEUUID HR_MEASUREMENT_UUID((uint16_t)0x2A37);
 // (byte 1) or UINT16 little-endian (bytes 1-2). Energy Expended and
 // RR-Interval fields may follow but aren't needed for a bpm display.
 static void hrNotifyCallback(NimBLERemoteCharacteristic* chr, uint8_t* pData, size_t length, bool isNotify) {
-  if (length < 2) return;
+  if (length < 2) {
+    Serial.printf("[BLE HR] Notification too short (%u bytes), ignoring.\n", (unsigned)length);
+    return;
+  }
   uint8_t flags = pData[0];
   uint16_t hr = (flags & 0x01) ? (uint16_t)(pData[1] | (pData[2] << 8)) : (uint16_t)pData[1];
   currentHrBpm = (int16_t)hr;
   bleStatusHR = 2;
+  Serial.printf("[BLE HR] %u bpm\n", hr);
 }
 
 class HrClientCallbacks : public NimBLEClientCallbacks {
@@ -74,8 +78,21 @@ static void connectToHrSensor() {
   if (pHrClient == nullptr) {
     pHrClient = NimBLEDevice::createClient();
     pHrClient->setClientCallbacks(&hrClientCallbacks, false);
+    // Default connect timeout is 30s, and connect() blocks this whole task
+    // -- scan-completion polling, CSC/Power status, and the phone-app
+    // telemetry stream all stall with it. A sensor that isn't reachable
+    // (out of range, chest strap not worn) doesn't need 30s to find that
+    // out.
+    pHrClient->setConnectTimeout(8);
   }
   Serial.printf("[BLE HR] Connecting to %s...\n", hrTargetAddress.toString().c_str());
+  if (pHrClient->isConnected()) {
+    // A prior attempt already succeeded (e.g. the boot-time reconnect
+    // resolved after a user-triggered scan discovered and re-triggered the
+    // same device) -- nothing to do.
+    Serial.println("[BLE HR] Already connected, skipping duplicate connect.");
+    return;
+  }
   if (!pHrClient->connect(hrTargetAddress)) {
     Serial.println("[BLE HR] Connect failed.");
     bleStatusHR = 0;
@@ -93,9 +110,9 @@ static void connectToHrSensor() {
     pHrClient->disconnect();
     return;
   }
-  pChar->subscribe(true, hrNotifyCallback);
+  bool subOk = pChar->subscribe(true, hrNotifyCallback);
   bleStatusHR = 2;
-  Serial.println("[BLE HR] Subscribed -- live heart rate should start updating.");
+  Serial.printf("[BLE HR] subscribe() returned %s -- waiting for notifications.\n", subOk ? "true" : "false");
 }
 
 void triggerBleScan() {
