@@ -2,6 +2,7 @@
 #include "widget_catalog.h"
 #include "storage/settings.h"
 #include "hardware/battery.h"
+#include "hardware/ble_task.h"
 #include <stdio.h>
 
 static uint16_t COLOR_BG = TFT_BLACK;
@@ -208,6 +209,75 @@ static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool
   renderTile(b, "battery", buf, color, force);
 }
 
+// 14. BLE MANAGER
+static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, bool force) {
+  if (force) {
+    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+  }
+  uint16_t scanBtnColor = g_ble_scanning ? COLOR_AMBER : COLOR_CYAN;
+  tft.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, 28, 6, scanBtnColor);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextColor(TFT_BLACK, scanBtnColor);
+  tft.setCursor(b.x + 40, b.y + 16);
+  tft.print(g_ble_scanning ? "scanning..." : "scan & add sensors");
+
+  struct Row { const char* label; const char* mac; uint8_t profile; };
+  Row rows[3] = {
+    {"speed/cad", g_settings.paired_csc_mac, 0},
+    {"heart rate", g_settings.paired_hr_mac, 1},
+    {"power meter", g_settings.paired_power_mac, 2},
+  };
+
+  int y = b.y + 48;
+  for (int i = 0; i < 3; i++) {
+    tft.setTextColor(COLOR_LABEL, COLOR_BG);
+    tft.setCursor(b.x + 10, y);
+    tft.setTextPadding(76);
+    tft.print(rows[i].label);
+    tft.setTextPadding(0);
+
+    tft.setCursor(b.x + 90, y);
+    tft.setTextPadding(b.w - 100);
+    if (rows[i].mac[0] != '\0') {
+      tft.setTextColor(COLOR_GREEN, COLOR_BG);
+      tft.printf("%.10s..", rows[i].mac);
+      tft.fillRoundRect(b.x + b.w - 60, y - 4, 52, 18, 4, COLOR_RED);
+      tft.setTextColor(TFT_WHITE, COLOR_RED);
+      tft.setCursor(b.x + b.w - 54, y);
+      tft.print("forget");
+    } else {
+      tft.setTextColor(COLOR_LABEL, COLOR_BG);
+      tft.print("not paired");
+    }
+    tft.setTextPadding(0);
+    tft.drawFastHLine(b.x + 6, y + 22, b.w - 12, COLOR_HAIRLINE);
+    y += 34;
+  }
+
+  tft.setTextColor(COLOR_LABEL, COLOR_BG);
+  tft.setCursor(b.x + 10, y + 6);
+  tft.setTextPadding(b.w - 20);
+  tft.print(state.gps_has_fix ? "gps: 3d fix valid" : "gps: searching...");
+  tft.setTextPadding(0);
+}
+
+static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
+  if (x >= b.x + 6 && x <= b.x + b.w - 6 && y >= b.y + 6 && y <= b.y + 34) {
+    triggerBleScan();
+    return true;
+  }
+  static const BleProfileType kRowProfiles[3] = {BLE_PROFILE_CSC, BLE_PROFILE_HR, BLE_PROFILE_POWER};
+  int rowY = b.y + 48;
+  for (uint8_t i = 0; i < 3; i++) {
+    if (x >= b.x + b.w - 60 && x <= b.x + b.w - 8 && y >= rowY - 4 && y <= rowY + 14) {
+      forgetSensorProfile(kRowProfiles[i]);
+      return true;
+    }
+    rowY += 34;
+  }
+  return false;
+}
+
 // Stub renderer used for every widget until Tasks 6-10 replace it with the
 // real Minimal-style implementation. Draws only the background fill so the
 // dispatch/validation plumbing in this task is independently verifiable.
@@ -232,7 +302,7 @@ static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_TOTAL_ASCENT,    renderWidgetTotalAscent,    nullptr},
   {WIDGET_ELEVATION_CHART, renderWidgetElevationChart, nullptr},
   {WIDGET_BATTERY,         renderWidgetBattery,  nullptr},
-  {WIDGET_BLE_MANAGER,     renderStub,           nullptr},
+  {WIDGET_BLE_MANAGER,     renderWidgetBleManager, touchWidgetBleManager},
   {WIDGET_SETTINGS_LIST,   renderStub,           nullptr},
 };
 
