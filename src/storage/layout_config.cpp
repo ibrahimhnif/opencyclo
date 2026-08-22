@@ -9,10 +9,11 @@ UiConfig g_ui_config;
 static Preferences uiPrefs;
 
 void resetLayoutToDefaults() {
-  g_ui_config.active_page_count = 5;
+  g_ui_config.schema_version = UI_CONFIG_SCHEMA_VERSION;
+  g_ui_config.active_page_count = 4;
 
   // Page 0: Ride (Hero 6-Grid)
-  snprintf(g_ui_config.pages[0].title, sizeof(g_ui_config.pages[0].title), "RIDE TELEMETRY");
+  snprintf(g_ui_config.pages[0].title, sizeof(g_ui_config.pages[0].title), "ride");
   g_ui_config.pages[0].template_id = TEMPLATE_HERO_6_GRID;
   g_ui_config.pages[0].widget_count = 6;
   g_ui_config.pages[0].widgets[0] = WIDGET_SPEED;
@@ -23,7 +24,7 @@ void resetLayoutToDefaults() {
   g_ui_config.pages[0].widgets[5] = WIDGET_POWER;
 
   // Page 1: Climb (2-Grid + Chart)
-  snprintf(g_ui_config.pages[1].title, sizeof(g_ui_config.pages[1].title), "CLIMB & ELEVATION");
+  snprintf(g_ui_config.pages[1].title, sizeof(g_ui_config.pages[1].title), "climb");
   g_ui_config.pages[1].template_id = TEMPLATE_2_GRID_CHART;
   g_ui_config.pages[1].widget_count = 3;
   g_ui_config.pages[1].widgets[0] = WIDGET_ALTITUDE;
@@ -31,24 +32,18 @@ void resetLayoutToDefaults() {
   g_ui_config.pages[1].widgets[2] = WIDGET_ELEVATION_CHART;
 
   // Page 2: Sensors (Full Container)
-  snprintf(g_ui_config.pages[2].title, sizeof(g_ui_config.pages[2].title), "BLE & GPS SENSORS");
+  snprintf(g_ui_config.pages[2].title, sizeof(g_ui_config.pages[2].title), "sensors");
   g_ui_config.pages[2].template_id = TEMPLATE_FULL_CONTAINER;
   g_ui_config.pages[2].widget_count = 1;
   g_ui_config.pages[2].widgets[0] = WIDGET_BLE_MANAGER;
 
-  // Page 3: NMEA Console (Full Container)
-  snprintf(g_ui_config.pages[3].title, sizeof(g_ui_config.pages[3].title), "NMEA LIVE CONSOLE");
+  // Page 3: Settings (Full Container)
+  snprintf(g_ui_config.pages[3].title, sizeof(g_ui_config.pages[3].title), "settings");
   g_ui_config.pages[3].template_id = TEMPLATE_FULL_CONTAINER;
   g_ui_config.pages[3].widget_count = 1;
-  g_ui_config.pages[3].widgets[0] = WIDGET_NMEA_CONSOLE;
+  g_ui_config.pages[3].widgets[0] = WIDGET_SETTINGS_LIST;
 
-  // Page 4: Settings (Full Container)
-  snprintf(g_ui_config.pages[4].title, sizeof(g_ui_config.pages[4].title), "SYSTEM PREFERENCES");
-  g_ui_config.pages[4].template_id = TEMPLATE_FULL_CONTAINER;
-  g_ui_config.pages[4].widget_count = 1;
-  g_ui_config.pages[4].widgets[0] = WIDGET_SETTINGS_LIST;
-
-  Serial.println("[LAYOUT CONFIG] Loaded Factory Default Page Tree (5 pages).");
+  Serial.printf("[LAYOUT CONFIG] Loaded Factory Default Page Tree (4 pages, schema v%u).\n", UI_CONFIG_SCHEMA_VERSION);
 }
 
 void initLayoutConfig() {
@@ -58,12 +53,13 @@ void initLayoutConfig() {
   size_t readBytes = uiPrefs.getBytes("config", &g_ui_config, sizeof(UiConfig));
   uiPrefs.end();
 
-  if (readBytes != sizeof(UiConfig) || g_ui_config.active_page_count == 0 || g_ui_config.active_page_count > MAX_PAGES) {
-    Serial.println("[LAYOUT CONFIG] NVS layout not found or invalid, initializing defaults...");
+  if (!isUiConfigValid(g_ui_config, readBytes)) {
+    Serial.println("[LAYOUT CONFIG] NVS layout missing, invalid, or from an older schema — resetting to defaults.");
     resetLayoutToDefaults();
     saveLayoutConfig();
   } else {
-    Serial.printf("[LAYOUT CONFIG] Loaded %u custom pages from NVS Flash.\n", g_ui_config.active_page_count);
+    Serial.printf("[LAYOUT CONFIG] Loaded %u custom pages from NVS Flash (schema v%u).\n",
+                  g_ui_config.active_page_count, g_ui_config.schema_version);
   }
 }
 
