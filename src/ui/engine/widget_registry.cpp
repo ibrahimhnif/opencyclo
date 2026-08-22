@@ -20,7 +20,7 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   if (force) {
     tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
-  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setFont(&fonts::FreeSansBold9pt7b);
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
   tft.setTextPadding(b.w - 8);
   char srcBuf[16];
@@ -28,7 +28,7 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   tft.drawString(srcBuf, b.x + 4, b.y + 4);
   tft.setTextPadding(0);
 
-  tft.setFont(&fonts::FreeSans24pt7b);
+  tft.setFont(&fonts::FreeSansBold24pt7b);
   tft.setTextColor(COLOR_TEXT, COLOR_BG);
   char buf[12];
   float speed = (g_settings.units == 1) ? (state.speed_kmh * 0.621371f) : state.speed_kmh;
@@ -37,7 +37,7 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   tft.drawString(buf, b.x + 4, b.y + 24);
   tft.setTextPadding(0);
 
-  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setFont(&fonts::FreeSansBold9pt7b);
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
   tft.setCursor(b.x + b.w - 44, b.y + b.h - 18);
   tft.print((g_settings.units == 1) ? "mph" : "km/h");
@@ -56,13 +56,13 @@ static void renderTile(const Rect& b, const char* label, const char* valueStr, u
     tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
     tft.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
   }
-  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setFont(&fonts::FreeSansBold9pt7b);
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
   tft.setTextPadding(b.w - 8);
   tft.drawString(label, b.x + 4, b.y + 4);
   tft.setTextPadding(0);
 
-  tft.setFont(&fonts::FreeSans12pt7b);
+  tft.setFont(&fonts::FreeSansBold12pt7b);
   tft.setTextColor(valueColor, COLOR_BG);
   tft.setTextPadding(b.w - 8);
   tft.drawString(valueStr, b.x + 4, b.y + 24);
@@ -95,11 +95,16 @@ static void renderWidgetRideTime(const Rect& b, const TelemetryState& state, boo
 }
 
 // 4. CADENCE
+// "cad" not "cadence": Cadence is SIZE_SMALL-only (74px tiles), and
+// FreeSansBold9pt7b measures "cadence" at 72px against the tile's 66px erase
+// budget (b.w-8) — it was already tight at regular weight (68px) and bold
+// pushed it over. There's no headroom to widen the budget without also
+// shrinking the tile's side margins.
 static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool force) {
   char buf[8];
   if (state.cadence_rpm >= 0) snprintf(buf, sizeof(buf), "%d", state.cadence_rpm);
   else snprintf(buf, sizeof(buf), "--");
-  renderTile(b, "cadence", buf, state.cadence_rpm >= 0 ? COLOR_CYAN : COLOR_LABEL, force);
+  renderTile(b, "cad", buf, state.cadence_rpm >= 0 ? COLOR_CYAN : COLOR_LABEL, force);
 }
 
 // 5. HEART RATE
@@ -131,6 +136,13 @@ static void renderWidgetAltitude(const Rect& b, const TelemetryState& state, boo
 }
 
 // 8. GRADE
+// Known limitation: Grade is SIZE_SMALL-capable, and a value at or past
+// +/-10.0% ("+15.0%" = 81px bold) exceeds a canonical 74px SMALL tile's 66px
+// value budget. Not reachable on any default page (Climb places Grade in a
+// 114px-wide slot, well within budget), only if a future phone-app layout
+// puts it in a Hero-6-Grid bottom-row slot AND the grade happens to hit double
+// digits at that exact moment. Left as a documented edge case rather than
+// truncating displayed precision to force a fit everywhere.
 static void renderWidgetGrade(const Rect& b, const TelemetryState& state, bool force) {
   char buf[12];
   snprintf(buf, sizeof(buf), "%+.1f%%", state.grade_pct);
@@ -162,7 +174,7 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
   if (force) {
     tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
     tft.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
-    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setFont(&fonts::FreeSansBold9pt7b);
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
     tft.setCursor(b.x + 4, b.y + 6);
     tft.print("elevation profile");
@@ -199,19 +211,23 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
 }
 
 // 11. AVG SPEED
+// "avg" not "avg spd": same SIZE_SMALL budget problem as Cadence — bold
+// "avg spd" measures 68px against a 66px SMALL-tile erase budget.
 static void renderWidgetAvgSpeed(const Rect& b, const TelemetryState& state, bool force) {
   char buf[12];
   float avg = (g_settings.units == 1) ? (state.avg_speed_kmh * 0.621371f) : state.avg_speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", avg);
-  renderTile(b, "avg spd", buf, COLOR_TEXT, force);
+  renderTile(b, "avg", buf, COLOR_TEXT, force);
 }
 
 // 12. MAX SPEED
+// "max" not "max spd": bold "max spd" measures 73px against the same 66px
+// SMALL-tile budget.
 static void renderWidgetMaxSpeed(const Rect& b, const TelemetryState& state, bool force) {
   char buf[12];
   float maxS = (g_settings.units == 1) ? (state.max_speed_kmh * 0.621371f) : state.max_speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", maxS);
-  renderTile(b, "max spd", buf, COLOR_TEXT, force);
+  renderTile(b, "max", buf, COLOR_TEXT, force);
 }
 
 // 13. BATTERY
@@ -229,16 +245,20 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
   }
   uint16_t scanBtnColor = g_ble_scanning ? COLOR_AMBER : COLOR_CYAN;
   tft.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, 28, 6, scanBtnColor);
-  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setFont(&fonts::FreeSansBold9pt7b);
   tft.setTextColor(TFT_BLACK, scanBtnColor);
   tft.setCursor(b.x + 40, b.y + 16);
   tft.print(g_ble_scanning ? "scanning..." : "scan & add sensors");
 
+  // Labels are "speed"/"heart"/"power" not "speed/cad"/"heart rate"/"power
+  // meter": the label column has ~80px of real visual room before the mac
+  // address starts drawing at x+90, and bold "power meter" alone measures
+  // 107px — wider than the column even before considering erase padding.
   struct Row { const char* label; const char* mac; uint8_t profile; };
   Row rows[3] = {
-    {"speed/cad", g_settings.paired_csc_mac, 0},
-    {"heart rate", g_settings.paired_hr_mac, 1},
-    {"power meter", g_settings.paired_power_mac, 2},
+    {"speed", g_settings.paired_csc_mac, 0},
+    {"heart", g_settings.paired_hr_mac, 1},
+    {"power", g_settings.paired_power_mac, 2},
   };
 
   int y = b.y + 48;
@@ -312,15 +332,22 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
     tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
   int y = b.y + SETTINGS_ROW_Y0;
-  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setFont(&fonts::FreeSansBold9pt7b);
 
+  // Value column budget widened from b.w-126 (106px) to b.w-120 (112px): bold
+  // "100% (4.12V)" measures 109px — it was already over the old budget at
+  // regular weight (110px), bold just made it worse. The firmware string is
+  // shortened below rather than the column widened further, since "opencyclo
+  // v0.2.0" at 142px bold would run 26px past the tile's right edge even in
+  // a 232px FULL-size widget — that's an actual off-tile overflow, not just a
+  // ghosting-erase shortfall.
   auto row = [&](const char* label, const char* value, uint16_t valueColor) {
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
     tft.setTextPadding(110);
     tft.drawString(label, b.x + 10, y);
     tft.setTextPadding(0);
     tft.setTextColor(valueColor, COLOR_BG);
-    tft.setTextPadding(b.w - 126);
+    tft.setTextPadding(b.w - 120);
     tft.drawString(value, b.x + 116, y);
     tft.setTextPadding(0);
     tft.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, COLOR_HAIRLINE);
@@ -344,7 +371,7 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   snprintf(batStr, sizeof(batStr), "%u%% (%.2fV)", state.battery_pct, readBatteryVoltage());
   row("battery", batStr, COLOR_GREEN);
 
-  row("firmware", "opencyclo v0.2.0", COLOR_CYAN);
+  row("firmware", "v0.2.0", COLOR_CYAN);
 }
 
 // A row's visible cell is everything between the divider above it and its own

@@ -18,19 +18,25 @@ static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
 // the title, gps status and ride state share this one row.
 //
 // Horizontal bands on the 240px-wide panel, each sized to the widest string its
-// segment can produce (FreeSans9pt7b): "sensors" = 63px, "gps 99" = 54px,
-// "pause 100%" = 100px. The 4px gaps keep neighbouring padded erases apart.
+// segment can produce (FreeSansBold9pt7b — measured from the actual glyph
+// tables, not estimated): "settings" = 69px, "gps 99" = 57px, "pause 100%" =
+// 103px. The state band used to end exactly at the 240px panel edge with only
+// 102px of erase width, which the bold weight overflowed by 1px — silently
+// disabling the padded erase for that one string (LovyanGFX only widens the
+// erase when padx > cwidth). Reclaimed the 4px from the gps/state gap instead
+// of shrinking anything else, since bold "gps 99" (57px) still fits its 58px
+// band with room to spare.
 //   title   x   4 .. 72   (68px)
 //   gps     x  76 .. 134  (58px)
-//   state   x 138 .. 240  (102px)
+//   state   x 134 .. 240  (106px)
 // ---------------------------------------------------------------------------
 static const int16_t STATUS_ROW_Y   = 5;
 static const int16_t STATUS_TITLE_X = 4;
 static const int16_t STATUS_TITLE_W = 68;
 static const int16_t STATUS_GPS_X   = 76;
 static const int16_t STATUS_GPS_W   = 58;
-static const int16_t STATUS_STATE_X = 138;
-static const int16_t STATUS_STATE_W = 102;
+static const int16_t STATUS_STATE_X = 134;
+static const int16_t STATUS_STATE_W = 106;
 
 void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, const TelemetryState& state, bool forceFullRedraw) {
   const TemplateSlotDefinition& slotDef = getTemplateDefinition(page.template_id);
@@ -42,7 +48,7 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
     // change (the fillScreen above already cleared it); the gps segment's
     // padded erase below clips any over-long title at x=76 every frame, so a
     // long app-supplied title can never collide with the live segments.
-    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setFont(&fonts::FreeSansBold9pt7b);
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
     tft.setTextPadding(STATUS_TITLE_W);
     tft.drawString(page.title, STATUS_TITLE_X, STATUS_ROW_Y);
@@ -58,7 +64,7 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
   }
 
   // Segment 2: gps fix / satellite count. Green when fixed, amber otherwise.
-  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setFont(&fonts::FreeSansBold9pt7b);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_BG);
   tft.setTextPadding(STATUS_GPS_W);
   if (state.gps_has_fix) {
@@ -95,7 +101,7 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
     const Rect& btn = slotDef.action_button_rect;
     uint16_t btnColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_AMBER : COLOR_GREEN;
     tft.fillRoundRect(btn.x, btn.y, btn.w, btn.h, 8, btnColor);
-    tft.setFont(&fonts::FreeSans12pt7b);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
     tft.setTextColor(TFT_BLACK, btnColor);
     tft.setCursor(btn.x + 50, btn.y + 16);
     if (state.ride_state == RIDE_STATE_ACTIVE) {

@@ -31,7 +31,7 @@ LGFX::LGFX() {
     cfg.offset_rotation  = 0;
     cfg.dummy_read_pixel = 8;
     cfg.readable         = true;
-    cfg.invert           = false;
+    cfg.invert           = true;
     cfg.rgb_order        = false;
     cfg.dlen_16bit       = false;
     cfg.bus_shared       = false;
