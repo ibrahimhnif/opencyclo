@@ -1,6 +1,7 @@
 #include "widget_registry.h"
 #include "widget_catalog.h"
 #include "storage/settings.h"
+#include "hardware/battery.h"
 #include <stdio.h>
 
 static uint16_t COLOR_BG = TFT_BLACK;
@@ -183,6 +184,30 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
   }
 }
 
+// 11. AVG SPEED
+static void renderWidgetAvgSpeed(const Rect& b, const TelemetryState& state, bool force) {
+  char buf[12];
+  float avg = (g_settings.units == 1) ? (state.avg_speed_kmh * 0.621371f) : state.avg_speed_kmh;
+  snprintf(buf, sizeof(buf), "%.1f", avg);
+  renderTile(b, "avg spd", buf, COLOR_TEXT, force);
+}
+
+// 12. MAX SPEED
+static void renderWidgetMaxSpeed(const Rect& b, const TelemetryState& state, bool force) {
+  char buf[12];
+  float maxS = (g_settings.units == 1) ? (state.max_speed_kmh * 0.621371f) : state.max_speed_kmh;
+  snprintf(buf, sizeof(buf), "%.1f", maxS);
+  renderTile(b, "max spd", buf, COLOR_TEXT, force);
+}
+
+// 13. BATTERY
+static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool force) {
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%u%%", state.battery_pct);
+  uint16_t color = (state.battery_pct < 20) ? COLOR_AMBER : COLOR_GREEN;
+  renderTile(b, "battery", buf, color, force);
+}
+
 // Stub renderer used for every widget until Tasks 6-10 replace it with the
 // real Minimal-style implementation. Draws only the background fill so the
 // dispatch/validation plumbing in this task is independently verifiable.
@@ -195,8 +220,8 @@ static void renderStub(const Rect& b, const TelemetryState& state, bool force) {
 static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_NONE,            nullptr,              nullptr},
   {WIDGET_SPEED,           renderWidgetSpeed,    nullptr},
-  {WIDGET_AVG_SPEED,       renderStub,           nullptr},
-  {WIDGET_MAX_SPEED,       renderStub,           nullptr},
+  {WIDGET_AVG_SPEED,       renderWidgetAvgSpeed, nullptr},
+  {WIDGET_MAX_SPEED,       renderWidgetMaxSpeed, nullptr},
   {WIDGET_DISTANCE,        renderWidgetDistance, nullptr},
   {WIDGET_RIDE_TIME,       renderWidgetRideTime, nullptr},
   {WIDGET_CADENCE,         renderWidgetCadence,  nullptr},
@@ -206,7 +231,7 @@ static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_GRADE,           renderWidgetGrade,          nullptr},
   {WIDGET_TOTAL_ASCENT,    renderWidgetTotalAscent,    nullptr},
   {WIDGET_ELEVATION_CHART, renderWidgetElevationChart, nullptr},
-  {WIDGET_BATTERY,         renderStub,           nullptr},
+  {WIDGET_BATTERY,         renderWidgetBattery,  nullptr},
   {WIDGET_BLE_MANAGER,     renderStub,           nullptr},
   {WIDGET_SETTINGS_LIST,   renderStub,           nullptr},
 };
