@@ -22,7 +22,18 @@ void triggerBleScan() {
   if (pBLEScan != nullptr && !g_ble_scanning) {
     Serial.println("[BLE] Triggering 10s active BLE scan for sensors...");
     g_ble_scanning = true;
-    pBLEScan->start(10, false /* is_continue */);
+    // NimBLEScan::start() has two overloads with similar signatures: a
+    // 2-arg (duration, is_continue) form that BLOCKS THE CALLING TASK until
+    // the scan completes, and a 3-arg (duration, callback, is_continue) form
+    // that starts the scan and returns immediately. This function runs on
+    // the UI task's touch-handler call stack (touchWidgetBleManager ->
+    // handleWidgetTouch -> handlePageTouch), so calling the blocking
+    // overload here froze the entire touchscreen — rendering and touch
+    // input alike — for the full 10-second scan. The non-blocking overload
+    // is what bleTaskLoop()'s own polling loop (isScanning()) was already
+    // written to expect; passing nullptr for the completion callback since
+    // that loop's polling is how scan-complete is detected, not a callback.
+    pBLEScan->start(10, nullptr /* scanCompleteCB */, false /* is_continue */);
   }
 }
 
