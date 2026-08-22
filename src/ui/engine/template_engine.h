@@ -12,11 +12,16 @@ enum LayoutTemplateId : uint8_t {
   TEMPLATE_COUNT
 };
 
+struct TemplateSlot {
+  Rect rect;
+  SizeClass size_class;
+};
+
 struct TemplateSlotDefinition {
   LayoutTemplateId id;
   const char* name;
   uint8_t max_slots;
-  Rect slot_rects[8];
+  TemplateSlot slots[8];
   bool has_action_button;
   Rect action_button_rect;
 };
