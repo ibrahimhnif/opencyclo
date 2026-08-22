@@ -109,6 +109,80 @@ static void renderWidgetPower(const Rect& b, const TelemetryState& state, bool f
   renderTile(b, "power", buf, state.power_watts >= 0 ? COLOR_GREEN : COLOR_LABEL, force);
 }
 
+// 7. ALTITUDE
+static void renderWidgetAltitude(const Rect& b, const TelemetryState& state, bool force) {
+  char buf[16];
+  float alt = (g_settings.units == 1) ? (state.altitude_m * 3.28084f) : state.altitude_m;
+  snprintf(buf, sizeof(buf), "%.0f %s", alt, (g_settings.units == 1) ? "ft" : "m");
+  renderTile(b, "altitude", buf, COLOR_TEXT, force);
+}
+
+// 8. GRADE
+static void renderWidgetGrade(const Rect& b, const TelemetryState& state, bool force) {
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%+.1f%%", state.grade_pct);
+  uint16_t gradeColor = (state.grade_pct > 3.0f) ? COLOR_AMBER : ((state.grade_pct < -2.0f) ? COLOR_CYAN : COLOR_GREEN);
+  renderTile(b, "grade", buf, gradeColor, force);
+}
+
+// 9. TOTAL ASCENT
+static void renderWidgetTotalAscent(const Rect& b, const TelemetryState& state, bool force) {
+  char buf[16];
+  float asc = (g_settings.units == 1) ? (state.total_ascent_m * 3.28084f) : state.total_ascent_m;
+  snprintf(buf, sizeof(buf), "%.0f %s", asc, (g_settings.units == 1) ? "ft" : "m");
+  renderTile(b, "ascent", buf, COLOR_GREEN, force);
+}
+
+// 10. ELEVATION CHART
+#define ELEV_SAMPLES 30
+static float s_elevHistory[ELEV_SAMPLES];
+static uint8_t s_elevHead = 0;
+static bool s_elevFilled = false;
+
+static void renderWidgetElevationChart(const Rect& b, const TelemetryState& state, bool force) {
+  s_elevHistory[s_elevHead] = state.altitude_m;
+  s_elevHead = (s_elevHead + 1) % ELEV_SAMPLES;
+  if (s_elevHead == 0) s_elevFilled = true;
+
+  if (force) {
+    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    tft.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
+    tft.setFont(&fonts::FreeSans9pt7b);
+    tft.setTextColor(COLOR_LABEL, COLOR_BG);
+    tft.setCursor(b.x + 4, b.y + 6);
+    tft.print("elevation profile");
+  }
+
+  float minAlt = 99999.0f, maxAlt = -99999.0f;
+  uint8_t count = s_elevFilled ? ELEV_SAMPLES : s_elevHead;
+  if (count < 2) count = 2;
+  for (uint8_t i = 0; i < count; i++) {
+    float val = s_elevHistory[i];
+    if (val < minAlt) minAlt = val;
+    if (val > maxAlt) maxAlt = val;
+  }
+  if (maxAlt - minAlt < 5.0f) maxAlt = minAlt + 5.0f;
+
+  int innerX = b.x + 4;
+  int innerY = b.y + 26;
+  int innerW = b.w - 8;
+  int innerH = b.h - 32;
+  tft.fillRect(innerX, innerY, innerW, innerH, COLOR_BG);
+
+  int prevPx = -1, prevPy = -1;
+  for (uint8_t i = 0; i < count; i++) {
+    uint8_t idx = s_elevFilled ? ((s_elevHead + i) % ELEV_SAMPLES) : i;
+    float val = s_elevHistory[idx];
+    int px = innerX + (i * innerW) / (ELEV_SAMPLES - 1);
+    int py = innerY + innerH - (int)(((val - minAlt) / (maxAlt - minAlt)) * (innerH - 4));
+    if (prevPx != -1) {
+      tft.drawLine(prevPx, prevPy, px, py, COLOR_GREEN);
+    }
+    prevPx = px;
+    prevPy = py;
+  }
+}
+
 // Stub renderer used for every widget until Tasks 6-10 replace it with the
 // real Minimal-style implementation. Draws only the background fill so the
 // dispatch/validation plumbing in this task is independently verifiable.
@@ -128,10 +202,10 @@ static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_CADENCE,         renderWidgetCadence,  nullptr},
   {WIDGET_HEART_RATE,      renderWidgetHeartRate,nullptr},
   {WIDGET_POWER,           renderWidgetPower,    nullptr},
-  {WIDGET_ALTITUDE,        renderStub,           nullptr},
-  {WIDGET_GRADE,           renderStub,           nullptr},
-  {WIDGET_TOTAL_ASCENT,    renderStub,           nullptr},
-  {WIDGET_ELEVATION_CHART, renderStub,           nullptr},
+  {WIDGET_ALTITUDE,        renderWidgetAltitude,       nullptr},
+  {WIDGET_GRADE,           renderWidgetGrade,          nullptr},
+  {WIDGET_TOTAL_ASCENT,    renderWidgetTotalAscent,    nullptr},
+  {WIDGET_ELEVATION_CHART, renderWidgetElevationChart, nullptr},
   {WIDGET_BATTERY,         renderStub,           nullptr},
   {WIDGET_BLE_MANAGER,     renderStub,           nullptr},
   {WIDGET_SETTINGS_LIST,   renderStub,           nullptr},
