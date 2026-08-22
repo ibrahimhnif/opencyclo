@@ -23,9 +23,9 @@ class BleService {
   Stream<BluetoothConnectionState> get connectionStateStream => _connectionStateController.stream;
 
   Future<void> startScan() async {
+    // Scan without withServices filter for reliable CoreBluetooth discovery on macOS / iOS
     await FlutterBluePlus.startScan(
       timeout: const Duration(seconds: 10),
-      withServices: [Guid(BleProtocol.openCycloServiceUuid)],
     );
   }
 
@@ -49,23 +49,24 @@ class BleService {
       // Discover Services
       final services = await device.discoverServices();
       for (final service in services) {
-        if (service.uuid.toString().toLowerCase() == BleProtocol.openCycloServiceUuid.toLowerCase()) {
+        final sUuid = service.uuid.toString().toLowerCase();
+        if (sUuid.contains("1900")) {
           for (final char in service.characteristics) {
             final uuid = char.uuid.toString().toLowerCase();
-            if (uuid == BleProtocol.layoutConfigCharUuid.toLowerCase()) {
+            if (uuid.contains("1901")) {
               _layoutChar = char;
-            } else if (uuid == BleProtocol.telemetryStreamCharUuid.toLowerCase()) {
+            } else if (uuid.contains("1902")) {
               await _subscribeTelemetry(char);
-            } else if (uuid == BleProtocol.deviceCommandCharUuid.toLowerCase()) {
+            } else if (uuid.contains("1903")) {
               _commandChar = char;
             }
           }
-        } else if (service.uuid.toString().toLowerCase() == BleProtocol.otaServiceUuid.toLowerCase()) {
+        } else if (sUuid.contains("1910")) {
           for (final char in service.characteristics) {
             final uuid = char.uuid.toString().toLowerCase();
-            if (uuid == BleProtocol.otaControlCharUuid.toLowerCase()) {
+            if (uuid.contains("1911")) {
               _otaControlChar = char;
-            } else if (uuid == BleProtocol.otaDataCharUuid.toLowerCase()) {
+            } else if (uuid.contains("1912")) {
               _otaDataChar = char;
             }
           }

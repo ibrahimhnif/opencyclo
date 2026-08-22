@@ -137,9 +137,14 @@ class DeviceTab extends ConsumerWidget {
                 itemCount: bleState.scanResults.length,
                 itemBuilder: (context, index) {
                   final result = bleState.scanResults[index];
-                  final name = result.device.platformName.isNotEmpty
-                      ? result.device.platformName
-                      : 'Unknown Device';
+                  String name = result.device.platformName;
+                  if (name.isEmpty) {
+                    name = result.advertisementData.advName;
+                  }
+                  if (name.isEmpty) {
+                    name = 'Unknown BLE Device';
+                  }
+
                   final isOpenCyclo = name.contains('OpenCyclo');
 
                   return Container(
