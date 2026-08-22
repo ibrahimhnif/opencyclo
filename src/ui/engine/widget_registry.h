@@ -22,6 +22,12 @@ const WidgetDescriptor* getWidgetDescriptor(WidgetType type);
 // otherwise draws a blank placeholder tile (background fill, no text) so an
 // invalid config can never produce overlapping/garbled text again.
 void renderWidget(WidgetType type, const TemplateSlot& slot, const TelemetryState& state, bool forceFullRedraw);
-bool handleWidgetTouch(WidgetType type, const Rect& bounds, int16_t x, int16_t y);
+
+// Dispatches a touch into `type` only if the widget supports slot.size_class —
+// the same contract renderWidget() enforces. Without it a widget that renders
+// as a blank placeholder would still be fully tappable, letting an invalid
+// config reach side-effecting handlers (forgetSensorProfile(), settings
+// mutation) behind a tile that shows nothing.
+bool handleWidgetTouch(WidgetType type, const TemplateSlot& slot, int16_t x, int16_t y);
 
 #endif // OPENCYCLO_UI_ENGINE_WIDGET_REGISTRY_H

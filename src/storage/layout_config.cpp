@@ -1,4 +1,5 @@
 #include "layout_config.h"
+#include "ui/engine/widget_catalog.h"
 #include <Preferences.h>
 #include <SD_MMC.h>
 #include <stdio.h>
@@ -71,7 +72,10 @@ void saveLayoutConfig() {
 }
 
 size_t exportLayoutToString(char* buffer, size_t maxLen) {
-  int written = snprintf(buffer, maxLen, "{\"page_count\":%u,\"pages\":[", g_ui_config.active_page_count);
+  // "schema" lets a companion app tell which firmware widget/template numbering
+  // this payload uses before it tries to interpret the ids below.
+  int written = snprintf(buffer, maxLen, "{\"page_count\":%u,\"schema\":%u,\"pages\":[",
+                         g_ui_config.active_page_count, (unsigned)UI_CONFIG_SCHEMA_VERSION);
   for (uint8_t i = 0; i < g_ui_config.active_page_count; i++) {
     const PageConfig& p = g_ui_config.pages[i];
     written += snprintf(buffer + written, maxLen - written,
@@ -87,25 +91,47 @@ size_t exportLayoutToString(char* buffer, size_t maxLen) {
   return (written > 0 && (size_t)written < maxLen) ? (size_t)written : 0;
 }
 
+// Imports a layout sent over BLE / read off SD. The payload is untrusted: it can
+// come from an older or newer companion-app build whose widget and template
+// numbering does not match this firmware's enums. Everything is therefore parsed
+// into a local staging copy and fully validated first — g_ui_config is only
+// touched (and only persisted) once the entire payload checks out, so a rejected
+// import can never leave the live layout half-updated.
 bool importLayoutFromString(const char* jsonStr) {
   if (jsonStr == nullptr || strlen(jsonStr) < 10) return false;
 
   // Simple token parser for layout configuration
   const char* pCount = strstr(jsonStr, "\"page_count\":");
-  if (!pCount) return false;
+  if (!pCount) {
+    Serial.println("[LAYOUT CONFIG] Import rejected: missing \"page_count\".");
+    return false;
+  }
 
   uint8_t pageCount = (uint8_t)atoi(pCount + 13);
-  if (pageCount == 0 || pageCount > MAX_PAGES) return false;
-
-  g_ui_config.active_page_count = pageCount;
+  if (pageCount == 0 || pageCount > MAX_PAGES) {
+    Serial.printf("[LAYOUT CONFIG] Import rejected: page_count %u outside 1..%d.\n",
+                  pageCount, (int)MAX_PAGES);
+    return false;
+  }
 
   const char* pPages = strstr(jsonStr, "\"pages\":[");
-  if (!pPages) return false;
+  if (!pPages) {
+    Serial.println("[LAYOUT CONFIG] Import rejected: missing \"pages\" array.");
+    return false;
+  }
+
+  UiConfig staged;
+  memset(&staged, 0, sizeof(staged));
+  staged.active_page_count = pageCount;
 
   const char* cursor = pPages + 9;
   for (uint8_t i = 0; i < pageCount; i++) {
     const char* pObj = strchr(cursor, '{');
-    if (!pObj) break;
+    if (!pObj) {
+      Serial.printf("[LAYOUT CONFIG] Import rejected: found %u of %u page objects.\n", i, pageCount);
+      return false;
+    }
+    PageConfig& page = staged.pages[i];
 
     // Parse title
     const char* pTitle = strstr(pObj, "\"title\":\"");
@@ -114,17 +140,27 @@ bool importLayoutFromString(const char* jsonStr) {
       const char* tEnd = strchr(tStart, '\"');
       if (tEnd) {
         size_t len = tEnd - tStart;
-        if (len >= sizeof(g_ui_config.pages[i].title)) len = sizeof(g_ui_config.pages[i].title) - 1;
-        strncpy(g_ui_config.pages[i].title, tStart, len);
-        g_ui_config.pages[i].title[len] = '\0';
+        if (len >= sizeof(page.title)) len = sizeof(page.title) - 1;
+        strncpy(page.title, tStart, len);
+        page.title[len] = '\0';
       }
     }
 
-    // Parse template
+    // Parse template. Required and range-checked: the template selects the slot
+    // geometry every widget on this page is validated against below.
     const char* pTemplate = strstr(pObj, "\"template\":");
-    if (pTemplate) {
-      g_ui_config.pages[i].template_id = (LayoutTemplateId)atoi(pTemplate + 11);
+    if (!pTemplate) {
+      Serial.printf("[LAYOUT CONFIG] Import rejected: page %u has no \"template\".\n", i);
+      return false;
     }
+    int templateId = atoi(pTemplate + 11);
+    if (templateId < 0 || templateId >= (int)TEMPLATE_COUNT) {
+      Serial.printf("[LAYOUT CONFIG] Import rejected: page %u template %d outside 0..%d.\n",
+                    i, templateId, (int)TEMPLATE_COUNT - 1);
+      return false;
+    }
+    page.template_id = (LayoutTemplateId)templateId;
+    const TemplateSlotDefinition& slotDef = getTemplateDefinition(page.template_id);
 
     // Parse widgets
     const char* pWidgets = strstr(pObj, "\"widgets\":[");
@@ -132,7 +168,13 @@ bool importLayoutFromString(const char* jsonStr) {
       const char* wCursor = pWidgets + 11;
       uint8_t wIdx = 0;
       while (wCursor && *wCursor != ']' && wIdx < MAX_SLOTS_PER_PAGE) {
-        g_ui_config.pages[i].widgets[wIdx++] = (WidgetType)atoi(wCursor);
+        int widgetId = atoi(wCursor);
+        if (widgetId < 0 || widgetId >= (int)WIDGET_TYPE_COUNT) {
+          Serial.printf("[LAYOUT CONFIG] Import rejected: page %u slot %u widget id %d outside 0..%d.\n",
+                        i, wIdx, widgetId, (int)WIDGET_TYPE_COUNT - 1);
+          return false;
+        }
+        page.widgets[wIdx++] = (WidgetType)widgetId;
         const char* nextComma = strchr(wCursor, ',');
         const char* endBracket = strchr(wCursor, ']');
         if (nextComma && (!endBracket || nextComma < endBracket)) {
@@ -141,16 +183,46 @@ bool importLayoutFromString(const char* jsonStr) {
           break;
         }
       }
-      g_ui_config.pages[i].widget_count = wIdx;
+      // Extra widgets are clamped away rather than rejected — the parse loop
+      // above already bounds by MAX_SLOTS_PER_PAGE, this bounds by what the
+      // chosen template can actually display.
+      if (wIdx > slotDef.max_slots) {
+        Serial.printf("[LAYOUT CONFIG] Page %u: %u widgets clamped to template's %u slots.\n",
+                      i, wIdx, slotDef.max_slots);
+        wIdx = slotDef.max_slots;
+      }
+      page.widget_count = wIdx;
+    }
+
+    // Same contract renderWidget()/handleWidgetTouch() enforce at runtime: a
+    // widget may only sit in a slot whose size class it declares support for.
+    for (uint8_t j = 0; j < page.widget_count; j++) {
+      WidgetType w = page.widgets[j];
+      if (w == WIDGET_NONE) continue; // an empty slot is legal — nothing is drawn
+      if (!widgetSupportsSize(w, slotDef.slots[j].size_class)) {
+        Serial.printf("[LAYOUT CONFIG] Import rejected: page %u slot %u widget %u unsupported in size class %u.\n",
+                      i, j, (unsigned)w, (unsigned)slotDef.slots[j].size_class);
+        return false;
+      }
     }
 
     const char* objEnd = strchr(pObj, '}');
-    if (objEnd) cursor = objEnd + 1;
-    else break;
+    if (!objEnd) {
+      if (i + 1 < pageCount) {
+        Serial.printf("[LAYOUT CONFIG] Import rejected: page %u object is unterminated.\n", i);
+        return false;
+      }
+      break;
+    }
+    cursor = objEnd + 1;
   }
 
+  // Fully validated — publish atomically, stamping this firmware's schema.
+  g_ui_config = staged;
+  g_ui_config.schema_version = UI_CONFIG_SCHEMA_VERSION;
   saveLayoutConfig();
-  Serial.printf("[LAYOUT CONFIG] Imported %u pages from BLE JSON string.\n", g_ui_config.active_page_count);
+  Serial.printf("[LAYOUT CONFIG] Imported %u pages from BLE JSON string (schema v%u).\n",
+                g_ui_config.active_page_count, (unsigned)UI_CONFIG_SCHEMA_VERSION);
   return true;
 }
 

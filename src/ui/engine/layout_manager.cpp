@@ -8,16 +8,46 @@ static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
 static uint16_t COLOR_AMBER    = tft.color565(255, 171, 0);
 static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
 
+// ---------------------------------------------------------------------------
+// Status header geometry — ONE row, three side-by-side segments.
+//
+// Every template's first content slot starts at y = 28 (see template_engine.cpp),
+// so the whole header has to live above that. FreeSans9pt7b measures 18px tall
+// in LovyanGFX, so a single line drawn at y = 5 occupies rows 5..22 and leaves a
+// 5px margin before the content band. Two 18px lines would not fit, which is why
+// the title, gps status and ride state share this one row.
+//
+// Horizontal bands on the 240px-wide panel, each sized to the widest string its
+// segment can produce (FreeSans9pt7b): "sensors" = 63px, "gps 99" = 54px,
+// "pause 100%" = 100px. The 4px gaps keep neighbouring padded erases apart.
+//   title   x   4 .. 72   (68px)
+//   gps     x  76 .. 134  (58px)
+//   state   x 138 .. 240  (102px)
+// ---------------------------------------------------------------------------
+static const int16_t STATUS_ROW_Y   = 5;
+static const int16_t STATUS_TITLE_X = 4;
+static const int16_t STATUS_TITLE_W = 68;
+static const int16_t STATUS_GPS_X   = 76;
+static const int16_t STATUS_GPS_W   = 58;
+static const int16_t STATUS_STATE_X = 138;
+static const int16_t STATUS_STATE_W = 102;
+
 void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, const TelemetryState& state, bool forceFullRedraw) {
   const TemplateSlotDefinition& slotDef = getTemplateDefinition(page.template_id);
 
   if (forceFullRedraw) {
     tft.fillScreen(COLOR_BG);
 
+    // Segment 1 of the status header: page title. Only redrawn on a page
+    // change (the fillScreen above already cleared it); the gps segment's
+    // padded erase below clips any over-long title at x=76 every frame, so a
+    // long app-supplied title can never collide with the live segments.
     tft.setFont(&fonts::FreeSans9pt7b);
     tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setCursor(6, 6);
+    tft.setCursor(STATUS_TITLE_X, STATUS_ROW_Y);
+    tft.setTextPadding(STATUS_TITLE_W);
     tft.print(page.title);
+    tft.setTextPadding(0);
 
     if (totalPages > 1) {
       int startX = 120 - (totalPages * 8) / 2;
@@ -28,22 +58,26 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
     }
   }
 
+  // Segment 2: gps fix / satellite count. Green when fixed, amber otherwise.
   tft.setFont(&fonts::FreeSans9pt7b);
   tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_BG);
-  tft.setCursor(6, 22);
-  tft.setTextPadding(120);
+  tft.setCursor(STATUS_GPS_X, STATUS_ROW_Y);
+  tft.setTextPadding(STATUS_GPS_W);
   if (state.gps_has_fix) {
-    tft.printf("gps 3d (%u)", state.satellites);
+    // Clamp the printed count so the string can never outgrow its band
+    // (satellites is a uint8_t; a bogus 3-digit value would overflow it).
+    tft.printf("gps %u", (unsigned)(state.satellites > 99 ? 99 : state.satellites));
   } else {
-    tft.print("gps search");
+    tft.print("gps --");
   }
   tft.setTextPadding(0);
 
+  // Segment 3: ride state + battery, right-hand end of the same row.
   uint16_t stateColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_GREEN :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? COLOR_AMBER : COLOR_LABEL);
   tft.setTextColor(stateColor, COLOR_BG);
-  tft.setCursor(150, 22);
-  tft.setTextPadding(90);
+  tft.setCursor(STATUS_STATE_X, STATUS_ROW_Y);
+  tft.setTextPadding(STATUS_STATE_W);
   tft.printf("%s %u%%", (state.ride_state == RIDE_STATE_ACTIVE) ? "rec" :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? "pause" : "stop"), state.battery_pct);
   tft.setTextPadding(0);
@@ -92,7 +126,9 @@ bool handlePageTouch(const PageConfig& page, int16_t x, int16_t y) {
     WidgetType wType = page.widgets[i];
     const Rect& r = slotDef.slots[i].rect;
     if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
-      if (handleWidgetTouch(wType, r, x, y)) {
+      // Hit-test on the visible rectangle, but hand the full slot to the
+      // registry so it can enforce the widget/size-class contract.
+      if (handleWidgetTouch(wType, slotDef.slots[i], x, y)) {
         return true;
       }
     }

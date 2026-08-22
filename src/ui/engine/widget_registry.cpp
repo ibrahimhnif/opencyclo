@@ -45,6 +45,12 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
 
 // Shared layout for every SMALL/MEDIUM "label above, value below, hairline
 // above the tile" widget — same visual pattern, different label/value/color.
+//
+// Vertical budget inside the shortest (SMALL, 54px) tile: the label is
+// FreeSans9pt7b (18px tall) at +4, so it owns rows 4..21; the value is
+// FreeSans12pt7b (23px tall) at +24, owning rows 24..46. The 2px gap keeps the
+// value's background fill off the label's descenders ("avg spd", "power",
+// "grade"), which the previous +6 / +22 pair clipped.
 static void renderTile(const Rect& b, const char* label, const char* valueStr, uint16_t valueColor, bool force) {
   if (force) {
     tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
@@ -52,25 +58,28 @@ static void renderTile(const Rect& b, const char* label, const char* valueStr, u
   }
   tft.setFont(&fonts::FreeSans9pt7b);
   tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setCursor(b.x + 4, b.y + 6);
+  tft.setCursor(b.x + 4, b.y + 4);
   tft.setTextPadding(b.w - 8);
   tft.print(label);
   tft.setTextPadding(0);
 
   tft.setFont(&fonts::FreeSans12pt7b);
   tft.setTextColor(valueColor, COLOR_BG);
-  tft.setCursor(b.x + 4, b.y + 22);
+  tft.setCursor(b.x + 4, b.y + 24);
   tft.setTextPadding(b.w - 8);
   tft.print(valueStr);
   tft.setTextPadding(0);
 }
 
 // 2. DISTANCE
+// The unit rides in the 9pt label, not the 12pt value: "125.75 km" measures
+// 108px in FreeSans12pt7b, which is wider than a MEDIUM tile's 106px erase
+// padding and reaches to within 2px of the tile edge. The bare number is 71px.
 static void renderWidgetDistance(const Rect& b, const TelemetryState& state, bool force) {
   char buf[16];
   float d = (g_settings.units == 1) ? (state.trip_distance_km * 0.621371f) : state.trip_distance_km;
-  snprintf(buf, sizeof(buf), "%.2f %s", d, (g_settings.units == 1) ? "mi" : "km");
-  renderTile(b, "distance", buf, COLOR_TEXT, force);
+  snprintf(buf, sizeof(buf), "%.2f", d);
+  renderTile(b, (g_settings.units == 1) ? "dist (mi)" : "dist (km)", buf, COLOR_TEXT, force);
 }
 
 // 3. RIDE TIME
@@ -112,11 +121,15 @@ static void renderWidgetPower(const Rect& b, const TelemetryState& state, bool f
 }
 
 // 7. ALTITUDE
+// Same unit-in-the-label treatment as Distance, and more urgently so: altitude
+// declares SIZE_SMALL support, and a SMALL tile is only 74px wide. "12345 ft"
+// measures 85px in FreeSans12pt7b, i.e. it would spill 15px past the tile edge
+// into its neighbour. The bare number is 65px, inside the 66px erase padding.
 static void renderWidgetAltitude(const Rect& b, const TelemetryState& state, bool force) {
   char buf[16];
   float alt = (g_settings.units == 1) ? (state.altitude_m * 3.28084f) : state.altitude_m;
-  snprintf(buf, sizeof(buf), "%.0f %s", alt, (g_settings.units == 1) ? "ft" : "m");
-  renderTile(b, "altitude", buf, COLOR_TEXT, force);
+  snprintf(buf, sizeof(buf), "%.0f", alt);
+  renderTile(b, (g_settings.units == 1) ? "alt (ft)" : "alt (m)", buf, COLOR_TEXT, force);
 }
 
 // 8. GRADE
@@ -128,11 +141,13 @@ static void renderWidgetGrade(const Rect& b, const TelemetryState& state, bool f
 }
 
 // 9. TOTAL ASCENT
+// SIZE_SMALL-capable like Altitude, so the unit moves into the label for the
+// same reason ("12345 ft" = 85px vs a 74px tile).
 static void renderWidgetTotalAscent(const Rect& b, const TelemetryState& state, bool force) {
   char buf[16];
   float asc = (g_settings.units == 1) ? (state.total_ascent_m * 3.28084f) : state.total_ascent_m;
-  snprintf(buf, sizeof(buf), "%.0f %s", asc, (g_settings.units == 1) ? "ft" : "m");
-  renderTile(b, "ascent", buf, COLOR_GREEN, force);
+  snprintf(buf, sizeof(buf), "%.0f", asc);
+  renderTile(b, (g_settings.units == 1) ? "asc (ft)" : "asc (m)", buf, COLOR_GREEN, force);
 }
 
 // 10. ELEVATION CHART
@@ -279,11 +294,22 @@ static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
 }
 
 // 15. SETTINGS LIST
+//
+// Row geometry is shared between the renderer and the touch handler below so
+// the drawn rows and the tappable bands cannot drift apart: row `i`'s text cell
+// starts at b.y + SETTINGS_ROW_Y0 + i * SETTINGS_ROW_STRIDE and is 18px tall
+// (FreeSans9pt7b), with a divider hairline SETTINGS_ROW_DIVIDER px below that
+// top edge. Rows in order: 0 units, 1 brightness, 2 wheel size, 3 sd logging,
+// 4 battery, 5 firmware.
+static const int SETTINGS_ROW_Y0      = 16;
+static const int SETTINGS_ROW_STRIDE  = 36;
+static const int SETTINGS_ROW_DIVIDER = 20;
+
 static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state, bool force) {
   if (force) {
     tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
-  int y = b.y + 16;
+  int y = b.y + SETTINGS_ROW_Y0;
   tft.setFont(&fonts::FreeSans9pt7b);
 
   auto row = [&](const char* label, const char* value, uint16_t valueColor) {
@@ -297,8 +323,8 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
     tft.setTextPadding(b.w - 126);
     tft.print(value);
     tft.setTextPadding(0);
-    tft.drawFastHLine(b.x + 6, y + 20, b.w - 12, COLOR_HAIRLINE);
-    y += 36;
+    tft.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, COLOR_HAIRLINE);
+    y += SETTINGS_ROW_STRIDE;
   };
 
   row("units", g_settings.units == 0 ? "metric" : "imperial", COLOR_TEXT);
@@ -321,36 +347,37 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   row("firmware", "opencyclo v0.2.0", COLOR_CYAN);
 }
 
+// A row's visible cell is everything between the divider above it and its own
+// divider, which is what a user aims at when tapping. Row `index`'s text top is
+// at rowY, the divider above sits at rowY - 16 and its own at rowY + 20, so the
+// band is [rowY - 14, rowY + 20] — the whole cell bar a 2px sliver at the top
+// edge, which keeps neighbouring bands from claiming the same pixel row. The
+// previous [rowY - 8, rowY + 12] band left ~16px of each 36px row untappable.
+static bool settingsRowHit(const Rect& b, int16_t y, uint8_t index) {
+  const int rowY = b.y + SETTINGS_ROW_Y0 + index * SETTINGS_ROW_STRIDE;
+  return (y >= rowY - 14) && (y <= rowY + SETTINGS_ROW_DIVIDER);
+}
+
 static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
-  int rowY = b.y + 16;
-  if (y >= rowY - 8 && y <= rowY + 12) {
+  (void)x; // rows span the full widget width
+  if (settingsRowHit(b, y, 0)) { // units
     g_settings.units = (g_settings.units == 0) ? 1 : 0;
     saveSettings();
     return true;
   }
-  rowY += 36;
-  if (y >= rowY - 8 && y <= rowY + 12) {
+  if (settingsRowHit(b, y, 1)) { // brightness
     g_settings.brightness = (g_settings.brightness >= 250) ? 50 : (g_settings.brightness + 50);
     setDisplayBrightness(g_settings.brightness);
     saveSettings();
     return true;
   }
-  rowY += 72; // skip wheel size row (not touch-editable)
-  if (y >= rowY - 8 && y <= rowY + 12) {
+  // Row 2 (wheel size) is display-only — not touch-editable.
+  if (settingsRowHit(b, y, 3)) { // sd logging
     g_settings.sd_logging_enabled = !g_settings.sd_logging_enabled;
     saveSettings();
     return true;
   }
   return false;
-}
-
-// Stub renderer used for every widget until Tasks 6-10 replace it with the
-// real Minimal-style implementation. Draws only the background fill so the
-// dispatch/validation plumbing in this task is independently verifiable.
-static void renderStub(const Rect& b, const TelemetryState& state, bool force) {
-  if (force) {
-    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-  }
 }
 
 static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
@@ -373,7 +400,7 @@ static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
 };
 
 void initWidgetRegistry() {
-  Serial.println("[WIDGET REGISTRY] Initialized 15 modular widgets (Minimal style rebuild in progress).");
+  Serial.println("[WIDGET REGISTRY] Initialized 15 modular widgets (Minimal style).");
 }
 
 const WidgetDescriptor* getWidgetDescriptor(WidgetType type) {
@@ -382,9 +409,11 @@ const WidgetDescriptor* getWidgetDescriptor(WidgetType type) {
 }
 
 void renderWidget(WidgetType type, const TemplateSlot& slot, const TelemetryState& state, bool forceFullRedraw) {
-  if (type >= WIDGET_TYPE_COUNT) return;
-  if (!widgetSupportsSize(type, slot.size_class)) {
-    // Invalid widget/slot pairing (e.g. stale config): fail safe, don't draw garbage.
+  // An out-of-range type (e.g. a widget id from a newer/foreign companion-app
+  // build) and an unsupported size class are the same failure: the slot cannot
+  // be drawn. Both take the fail-safe blank fill so stale pixels from whatever
+  // was previously in this slot can never be left behind.
+  if (type >= WIDGET_TYPE_COUNT || !widgetSupportsSize(type, slot.size_class)) {
     if (forceFullRedraw) {
       tft.fillRect(slot.rect.x, slot.rect.y, slot.rect.w, slot.rect.h, COLOR_BG);
     }
@@ -396,9 +425,14 @@ void renderWidget(WidgetType type, const TemplateSlot& slot, const TelemetryStat
   }
 }
 
-bool handleWidgetTouch(WidgetType type, const Rect& bounds, int16_t x, int16_t y) {
-  if (type < WIDGET_TYPE_COUNT && s_descriptors[type].touch_fn != nullptr) {
-    return s_descriptors[type].touch_fn(bounds, x, y);
+bool handleWidgetTouch(WidgetType type, const TemplateSlot& slot, int16_t x, int16_t y) {
+  // Same gate as renderWidget(): a widget that isn't drawable in this slot must
+  // not be tappable in it either.
+  if (type >= WIDGET_TYPE_COUNT || !widgetSupportsSize(type, slot.size_class)) {
+    return false;
+  }
+  if (s_descriptors[type].touch_fn != nullptr) {
+    return s_descriptors[type].touch_fn(slot.rect, x, y);
   }
   return false;
 }
