@@ -412,22 +412,30 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
 //
 // Impersonates the Insta360 "GPS Remote" accessory over BLE to trigger an
 // Insta360 Ace Pro 2 -- confirmed working on real hardware (see
-// ble_camera_remote.cpp for the protocol source). Three verified commands:
+// ble_camera_remote.cpp for the protocol source). Five verified commands:
 // Shutter (photo in photo mode, record start/stop toggle in video mode),
 // Mode (cycles Photo/Video/Time Shift -- same as the physical remote, does
 // NOT reach every camera mode; e.g. FreeFrame is touchscreen-only even on
-// Insta360's own remote), and Power Off (the remote's 3s-hold command).
+// Insta360's own remote), Screen Toggle (short press), Power Off (3s hold),
+// and Wake Camera (beacons the camera-specific bytes set via a dedicated
+// BLE characteristic -- see ble_camera_remote.h -- so a sleeping/off camera
+// notices and reconnects on its own; the button is greyed distinctly if no
+// wake bytes have been set yet).
 //
 // Row geometry is shared between render and touch, same discipline as the
 // BLE Manager / Settings List widgets above, so drawn buttons and tappable
 // bands can't drift apart.
-static const int CAM_PAIR_BTN_H  = 28;
-static const int CAM_SHUTTER_Y   = 70;
-static const int CAM_SHUTTER_H   = 86;
-static const int CAM_MODE_Y      = 164;
-static const int CAM_MODE_H      = 54;
-static const int CAM_POWEROFF_Y  = 226;
-static const int CAM_POWEROFF_H  = 40;
+static const int CAM_PAIR_BTN_H   = 28;
+static const int CAM_SHUTTER_Y    = 64;
+static const int CAM_SHUTTER_H    = 58;
+static const int CAM_MODE_Y       = 128;
+static const int CAM_MODE_H       = 34;
+static const int CAM_SCREEN_Y     = 168;
+static const int CAM_SCREEN_H     = 34;
+static const int CAM_WAKE_Y       = 208;
+static const int CAM_WAKE_H       = 34;
+static const int CAM_POWEROFF_Y   = 248;
+static const int CAM_POWEROFF_H   = 26;
 
 static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state, bool force) {
   (void)state;
@@ -435,14 +443,13 @@ static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state,
     canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
 
-  // Pair button and status line are both unconditionally redrawn every call
-  // (not gated on `force`) -- same pattern as the BLE Manager's scan button
-  // above: the button is a fully opaque fillRoundRect+print() every frame, so
-  // its amber/cyan color swap is always painted correctly, and the status
-  // text uses drawString()+setTextPadding() (never print()/printf()) since
+  // Every button + the status line is unconditionally redrawn every call
+  // (not gated on `force`) -- same pattern as the BLE Manager's scan button:
+  // fully opaque fillRoundRect+print() every frame, so color swaps (pairing/
+  // waking amber, disabled grey) are always painted correctly. The status
+  // line uses drawString()+setTextPadding() (never print()/printf()) since
   // it sits directly on the flat background and its length changes --
-  // print() never honors setTextPadding()'s erase-width widening, which is
-  // exactly the bug this project fixed earlier this session.
+  // print() never honors setTextPadding()'s erase-width widening.
   uint16_t pairColor = isCameraPairing() ? COLOR_AMBER : COLOR_CYAN;
   canvas.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, CAM_PAIR_BTN_H, 6, pairColor);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
@@ -459,25 +466,44 @@ static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state,
   canvas.fillRoundRect(b.x + 6, b.y + CAM_SHUTTER_Y, b.w - 12, CAM_SHUTTER_H, 10, COLOR_RED);
   canvas.setFont(&fonts::FreeSansBold12pt7b);
   canvas.setTextColor(TFT_WHITE, COLOR_RED);
-  canvas.setCursor(b.x + 60, b.y + CAM_SHUTTER_Y + 34);
+  canvas.setCursor(b.x + 60, b.y + CAM_SHUTTER_Y + 20);
   canvas.print("SHUTTER");
 
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_MODE_Y, b.w - 12, CAM_MODE_H, 10, COLOR_CYAN);
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_MODE_Y, b.w - 12, CAM_MODE_H, 8, COLOR_CYAN);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
-  canvas.setCursor(b.x + 90, b.y + CAM_MODE_Y + 22);
+  canvas.setCursor(b.x + 90, b.y + CAM_MODE_Y + 12);
   canvas.print("MODE");
 
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_SCREEN_Y, b.w - 12, CAM_SCREEN_H, 8, COLOR_CYAN);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
+  canvas.setCursor(b.x + 46, b.y + CAM_SCREEN_Y + 12);
+  canvas.print("SCREEN TOGGLE");
+
+  // Wake Camera -- grey/disabled-looking (COLOR_LABEL on COLOR_BG-ish dark
+  // fill) until wake bytes have actually been set via the dedicated BLE
+  // characteristic, so tapping it before setup doesn't look like a silent
+  // no-op. Green once armed, amber while a beacon is actively on the air.
+  uint16_t wakeColor = isCameraWaking() ? COLOR_AMBER
+                      : hasCameraWakeBytes() ? COLOR_GREEN
+                      : COLOR_LABEL; // visible mid-grey, reads as disabled without disappearing into COLOR_BG
+  uint16_t wakeTextColor = (wakeColor == COLOR_LABEL) ? COLOR_BG : TFT_BLACK;
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_WAKE_Y, b.w - 12, CAM_WAKE_H, 8, wakeColor);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(wakeTextColor, wakeColor);
+  canvas.setCursor(b.x + 61, b.y + CAM_WAKE_Y + 12);
+  canvas.print(isCameraWaking() ? "waking... (10s)" : "wake camera");
+
   // Power off -- the camera's 3s-hold-to-power-off command, not its short-
-  // press screen toggle (that's a separate, unimplemented command). Amber
-  // rather than red/cyan: distinct from Shutter/Mode, signals "be sure
+  // press screen toggle above. Amber rather than red/cyan: signals "be sure
   // before tapping" without claiming the destructive-red styling this app
   // uses for "forget sensor" elsewhere -- powering off is disruptive but not
   // data-destructive the way forgetting a pairing is.
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_POWEROFF_Y, b.w - 12, CAM_POWEROFF_H, 8, COLOR_AMBER);
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_POWEROFF_Y, b.w - 12, CAM_POWEROFF_H, 6, COLOR_AMBER);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setTextColor(TFT_BLACK, COLOR_AMBER);
-  canvas.setCursor(b.x + 70, b.y + CAM_POWEROFF_Y + 16);
+  canvas.setCursor(b.x + 70, b.y + CAM_POWEROFF_Y + 9);
   canvas.print("POWER OFF");
 }
 
@@ -493,6 +519,14 @@ static bool touchWidgetCameraRemote(const Rect& b, int16_t x, int16_t y) {
   }
   if (y >= b.y + CAM_MODE_Y && y <= b.y + CAM_MODE_Y + CAM_MODE_H) {
     triggerCameraMode();
+    return true;
+  }
+  if (y >= b.y + CAM_SCREEN_Y && y <= b.y + CAM_SCREEN_Y + CAM_SCREEN_H) {
+    triggerCameraScreenToggle();
+    return true;
+  }
+  if (y >= b.y + CAM_WAKE_Y && y <= b.y + CAM_WAKE_Y + CAM_WAKE_H) {
+    wakeSleepingCamera();
     return true;
   }
   if (y >= b.y + CAM_POWEROFF_Y && y <= b.y + CAM_POWEROFF_Y + CAM_POWEROFF_H) {

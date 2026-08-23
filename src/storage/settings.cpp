@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <string.h>
 
 Settings g_settings;
 static Preferences prefs;
@@ -14,6 +15,9 @@ void initSettings() {
   String hr = prefs.getString("hr_mac", "");
   String pow = prefs.getString("pow_mac", "");
   g_settings.paired_hr_addr_type = prefs.getUChar("hr_addr_t", 0); // 0 = BLE_ADDR_PUBLIC
+
+  memset(g_settings.insta360_wake_bytes, 0, sizeof(g_settings.insta360_wake_bytes));
+  prefs.getBytes("insta_wake", g_settings.insta360_wake_bytes, sizeof(g_settings.insta360_wake_bytes));
 
   snprintf(g_settings.paired_csc_mac, sizeof(g_settings.paired_csc_mac), "%s", csc.c_str());
   snprintf(g_settings.paired_hr_mac, sizeof(g_settings.paired_hr_mac), "%s", hr.c_str());
@@ -36,6 +40,7 @@ void saveSettings() {
   prefs.putString("hr_mac", g_settings.paired_hr_mac);
   prefs.putString("pow_mac", g_settings.paired_power_mac);
   prefs.putUChar("hr_addr_t", g_settings.paired_hr_addr_type);
+  prefs.putBytes("insta_wake", g_settings.insta360_wake_bytes, sizeof(g_settings.insta360_wake_bytes));
   prefs.end();
 
   Serial.println("[SETTINGS] Saved NVS preferences!");

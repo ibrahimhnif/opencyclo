@@ -22,6 +22,10 @@ void tickCameraPairing();
 
 bool isCameraPairing();
 
+// True while a wake beacon (see wakeSleepingCamera() below) is on the air.
+// Mutually exclusive with isCameraPairing() -- they share one revert timer.
+bool isCameraWaking();
+
 // True once a peer (expected to be the camera, though this can't be verified
 // beyond "something subscribed to our shutter-notify characteristic") has
 // subscribed to receive commands.
@@ -38,9 +42,25 @@ void triggerCameraShutter();
 void triggerCameraMode();
 
 // Sends the verified power-off command -- on the physical remote this is
-// what a 3-second hold of the power button does (a short press instead
-// toggles the camera's screen, a separate, unimplemented command). See
-// ble_camera_remote.cpp.
+// what a 3-second hold of the power button does.
 void triggerCameraPowerOff();
+
+// Sends the verified screen-toggle command -- a short press of the power
+// button; turns the camera's screen on/off without powering it down.
+void triggerCameraScreenToggle();
+
+// True once a 6-byte camera-specific wake code has been written (via the
+// dedicated GATT characteristic -- any generic BLE tool, e.g. nRF Connect,
+// can write it; no phone app required) and persisted to settings.
+bool hasCameraWakeBytes();
+
+// Briefly advertises the reference protocol's wake beacon -- a raw
+// manufacturer-data payload containing the camera-specific bytes above --
+// so a sleeping/powered-off camera that previously bonded with this remote
+// notices it and reconnects on its own. No-op (logs and returns) if
+// hasCameraWakeBytes() is false. Shares tickCameraPairing()'s revert timer
+// with startCameraPairing() (the two are mutually exclusive -- whichever
+// was started most recently owns the current window).
+void wakeSleepingCamera();
 
 #endif // OPENCYCLO_HARDWARE_BLE_CAMERA_REMOTE_H
