@@ -8,7 +8,17 @@ LGFX::LGFX() {
     auto cfg = _bus_instance.config();
     cfg.spi_host = SPI2_HOST;
     cfg.spi_mode = 0;
-    cfg.freq_write = 40000000;
+    // Bumped 40MHz -> 80MHz: measured canvas.pushSprite() (full 240x320x16bpp
+    // frame, ~153KB) at ~34ms with the old clock, which is within 10% of the
+    // theoretical pure-SPI-bandwidth floor at 40MHz (153600B*8bit / 40Mbit/s
+    // = ~30.7ms) -- confirming SPI bus speed, not PSRAM latency or CPU
+    // overhead, is what's actually limiting the double-buffered push. This
+    // is a short on-module trace to the ILI9341 (not a long jumper-wire
+    // run), and 80MHz is a common, well-supported ceiling for this panel/
+    // ESP32 SPI DMA combination. If this introduces visible corruption/
+    // garbled pixels, back off toward 60MHz rather than reverting to 40MHz
+    // outright.
+    cfg.freq_write = 80000000;
     cfg.freq_read  = 16000000;
     cfg.spi_3wire  = false;
     cfg.use_lock   = true;

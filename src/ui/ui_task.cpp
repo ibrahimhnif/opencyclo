@@ -106,13 +106,22 @@ void uiTaskLoop(void* pvParameters) {
     // this every iteration (not just on forceRedraw) is what makes double
     // buffering actually work: the dynamic per-frame text updates inside
     // renderPage() above still only touch canvas, so without this the panel
-    // would never see them.
+    // would never see them. Measured at ~19-20ms on this hardware (240x320
+    // RGB565, ~153KB) at the 80MHz SPI clock set in display.cpp.
     canvas.pushSprite(0, 0);
 
     if (forceRedraw) {
       forceRedraw = false;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(50)); // ~20 FPS rendering loop
+    // Was a flat 50ms (~20Hz) added on top of the loop body's own cost, back
+    // when that cost was negligible (direct-to-panel drawing, no full-frame
+    // push). Double buffering's canvas.pushSprite() alone now costs ~19-20ms
+    // (measured, after also bumping the SPI clock 40->80MHz -- see
+    // display.cpp), so 50ms of *additional* delay was stacking on top of an
+    // already-~35ms loop body, roughly halving the real update rate.
+    // Reduced to 15ms so total period lands back near the original ~50ms/
+    // ~20Hz target instead of drifting to ~85ms/~12Hz.
+    vTaskDelay(pdMS_TO_TICKS(15));
   }
 }
