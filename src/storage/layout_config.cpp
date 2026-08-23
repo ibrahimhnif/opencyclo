@@ -69,6 +69,26 @@ void initLayoutConfig() {
   } else {
     Serial.printf("[LAYOUT CONFIG] Loaded %u custom pages from NVS Flash (schema v%u).\n",
                   g_ui_config.active_page_count, g_ui_config.schema_version);
+
+    // One-time additive migration: a valid, already-saved config predating
+    // WIDGET_CAMERA_REMOTE (page 5) never gets touched by the invalid-config
+    // path above -- schema_version didn't change, since nothing about the
+    // MEANING of existing saved data changed, only a new widget/page was
+    // added. Without this, a board that was already provisioned before this
+    // feature shipped would silently never see the new page. This only
+    // fires for exactly the shape the old factory default produced (4
+    // pages, room for a 5th) -- it appends, it never touches pages 0-3, so
+    // any on-device or app-driven customization to those is preserved.
+    if (g_ui_config.active_page_count == 4 && MAX_PAGES > 4) {
+      PageConfig& camPage = g_ui_config.pages[4];
+      snprintf(camPage.title, sizeof(camPage.title), "camera");
+      camPage.template_id = TEMPLATE_FULL_CONTAINER;
+      camPage.widget_count = 1;
+      camPage.widgets[0] = WIDGET_CAMERA_REMOTE;
+      g_ui_config.active_page_count = 5;
+      saveLayoutConfig();
+      Serial.println("[LAYOUT CONFIG] Migrated: appended page 5 'camera' to existing saved layout.");
+    }
   }
 }
 
