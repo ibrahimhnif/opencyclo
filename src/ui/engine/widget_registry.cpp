@@ -103,7 +103,7 @@ static void renderWidgetRideTime(const Rect& b, const TelemetryState& state, boo
 static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool force) {
   char buf[8];
   if (state.cadence_rpm >= 0) snprintf(buf, sizeof(buf), "%d", state.cadence_rpm);
-  else snprintf(buf, sizeof(buf), "--");
+  else snprintf(buf, sizeof(buf), "0");
   renderTile(b, "cad", buf, state.cadence_rpm >= 0 ? COLOR_CYAN : COLOR_LABEL, force);
 }
 
@@ -111,7 +111,7 @@ static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool
 static void renderWidgetHeartRate(const Rect& b, const TelemetryState& state, bool force) {
   char buf[8];
   if (state.heart_rate_bpm >= 0) snprintf(buf, sizeof(buf), "%d", state.heart_rate_bpm);
-  else snprintf(buf, sizeof(buf), "--");
+  else snprintf(buf, sizeof(buf), "0");
   renderTile(b, "heart", buf, state.heart_rate_bpm >= 0 ? COLOR_RED : COLOR_LABEL, force);
 }
 
@@ -119,7 +119,7 @@ static void renderWidgetHeartRate(const Rect& b, const TelemetryState& state, bo
 static void renderWidgetPower(const Rect& b, const TelemetryState& state, bool force) {
   char buf[8];
   if (state.power_watts >= 0) snprintf(buf, sizeof(buf), "%d", state.power_watts);
-  else snprintf(buf, sizeof(buf), "--");
+  else snprintf(buf, sizeof(buf), "0");
   renderTile(b, "power", buf, state.power_watts >= 0 ? COLOR_GREEN : COLOR_LABEL, force);
 }
 
