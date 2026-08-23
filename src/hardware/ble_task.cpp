@@ -25,6 +25,12 @@ static float currentCscSpeedKmh = -1.0f;
 static uint32_t lastHrUpdateMs = 0;
 static const uint32_t HR_STALE_TIMEOUT_MS = 15000;
 
+// How often bleTaskLoop() retries connecting to a saved-but-not-currently-
+// connected HR sensor. Longer than the 8s connect() timeout (setConnectTimeout,
+// see connectToHrSensor()) so a just-finished failed attempt gets a real gap
+// before the next one, rather than hammering the radio back-to-back.
+static const uint32_t HR_RECONNECT_RETRY_MS = 12000;
+
 static uint8_t bleStatusCSC = 0;   // 0=Disconnected, 1=Scanning, 2=Connected
 static uint8_t bleStatusHR = 0;
 static uint8_t bleStatusPOWER = 0;
@@ -274,9 +280,29 @@ void bleTaskLoop(void* pvParameters) {
     bleStatusHR = 1; // reconnecting
   }
 
+  uint32_t lastHrConnectAttemptMs = 0;
+
   for (;;) {
     if (hrConnectPending) {
       hrConnectPending = false;
+      lastHrConnectAttemptMs = millis();
+      connectToHrSensor();
+    }
+
+    // connectToHrSensor() failing (not "disconnecting after having
+    // connected" -- that path already retries via HrClientCallbacks::
+    // onDisconnect(), this is the case where connect() itself never
+    // succeeded in the first place) used to just give up silently:
+    // bleStatusHR dropped to 0 and nothing ever set hrConnectPending again
+    // until a user manually opened the Sensors page and tapped scan. Retry
+    // periodically in the background instead, so a paired sensor that
+    // simply wasn't ready yet at boot (or missed one connection window)
+    // gets picked up on its own, matching "auto-reconnect on boot" as an
+    // ongoing behavior rather than a single attempt.
+    if (bleStatusHR != 2 && g_settings.paired_hr_mac[0] != '\0' &&
+        (millis() - lastHrConnectAttemptMs) > HR_RECONNECT_RETRY_MS) {
+      lastHrConnectAttemptMs = millis();
+      hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac));
       connectToHrSensor();
     }
 
