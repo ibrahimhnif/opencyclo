@@ -96,10 +96,18 @@ void uiTaskLoop(void* pvParameters) {
     // Fetch snapshot of telemetry state
     TelemetryState state = getTelemetrySnapshot();
 
-    // Render active dynamic page from UiConfig
+    // Render active dynamic page from UiConfig -- every widget/layout draw
+    // call targets the off-screen canvas sprite, not the panel directly.
     if (g_ui_config.active_page_count > 0) {
       renderPage(g_ui_config.pages[currentPageIdx], currentPageIdx, g_ui_config.active_page_count, state, forceRedraw);
     }
+
+    // Blit the fully-composed frame to the panel in one SPI transfer. Doing
+    // this every iteration (not just on forceRedraw) is what makes double
+    // buffering actually work: the dynamic per-frame text updates inside
+    // renderPage() above still only touch canvas, so without this the panel
+    // would never see them.
+    canvas.pushSprite(0, 0);
 
     if (forceRedraw) {
       forceRedraw = false;

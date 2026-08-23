@@ -42,52 +42,52 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
   const TemplateSlotDefinition& slotDef = getTemplateDefinition(page.template_id);
 
   if (forceFullRedraw) {
-    tft.fillScreen(COLOR_BG);
+    canvas.fillScreen(COLOR_BG);
 
     // Segment 1 of the status header: page title. Only redrawn on a page
     // change (the fillScreen above already cleared it); the gps segment's
     // padded erase below clips any over-long title at x=76 every frame, so a
     // long app-supplied title can never collide with the live segments.
-    tft.setFont(&fonts::FreeSansBold9pt7b);
-    tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setTextPadding(STATUS_TITLE_W);
-    tft.drawString(page.title, STATUS_TITLE_X, STATUS_ROW_Y);
-    tft.setTextPadding(0);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+    canvas.setTextPadding(STATUS_TITLE_W);
+    canvas.drawString(page.title, STATUS_TITLE_X, STATUS_ROW_Y);
+    canvas.setTextPadding(0);
 
     if (totalPages > 1) {
       int startX = 120 - (totalPages * 8) / 2;
       for (int i = 0; i < totalPages; i++) {
         uint16_t dotColor = (i == pageIdx) ? COLOR_CYAN : COLOR_LABEL;
-        tft.fillCircle(startX + (i * 8), 312, (i == pageIdx) ? 3 : 2, dotColor);
+        canvas.fillCircle(startX + (i * 8), 312, (i == pageIdx) ? 3 : 2, dotColor);
       }
     }
   }
 
   // Segment 2: gps fix / satellite count. Green when fixed, amber otherwise.
-  tft.setFont(&fonts::FreeSansBold9pt7b);
-  tft.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_BG);
-  tft.setTextPadding(STATUS_GPS_W);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_BG);
+  canvas.setTextPadding(STATUS_GPS_W);
   if (state.gps_has_fix) {
     // Clamp the printed count so the string can never outgrow its band
     // (satellites is a uint8_t; a bogus 3-digit value would overflow it).
     char gpsBuf[10];
     snprintf(gpsBuf, sizeof(gpsBuf), "gps %u", (unsigned)(state.satellites > 99 ? 99 : state.satellites));
-    tft.drawString(gpsBuf, STATUS_GPS_X, STATUS_ROW_Y);
+    canvas.drawString(gpsBuf, STATUS_GPS_X, STATUS_ROW_Y);
   } else {
-    tft.drawString("gps --", STATUS_GPS_X, STATUS_ROW_Y);
+    canvas.drawString("gps --", STATUS_GPS_X, STATUS_ROW_Y);
   }
-  tft.setTextPadding(0);
+  canvas.setTextPadding(0);
 
   // Segment 3: ride state + battery, right-hand end of the same row.
   uint16_t stateColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_GREEN :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? COLOR_AMBER : COLOR_LABEL);
-  tft.setTextColor(stateColor, COLOR_BG);
-  tft.setTextPadding(STATUS_STATE_W);
+  canvas.setTextColor(stateColor, COLOR_BG);
+  canvas.setTextPadding(STATUS_STATE_W);
   char stateBuf[16];
   snprintf(stateBuf, sizeof(stateBuf), "%s %u%%", (state.ride_state == RIDE_STATE_ACTIVE) ? "rec" :
                         ((state.ride_state == RIDE_STATE_PAUSED) ? "pause" : "stop"), state.battery_pct);
-  tft.drawString(stateBuf, STATUS_STATE_X, STATUS_ROW_Y);
-  tft.setTextPadding(0);
+  canvas.drawString(stateBuf, STATUS_STATE_X, STATUS_ROW_Y);
+  canvas.setTextPadding(0);
 
   uint8_t count = (page.widget_count < slotDef.max_slots) ? page.widget_count : slotDef.max_slots;
   for (uint8_t i = 0; i < count; i++) {
@@ -100,16 +100,16 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
   if (slotDef.has_action_button) {
     const Rect& btn = slotDef.action_button_rect;
     uint16_t btnColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_AMBER : COLOR_GREEN;
-    tft.fillRoundRect(btn.x, btn.y, btn.w, btn.h, 8, btnColor);
-    tft.setFont(&fonts::FreeSansBold12pt7b);
-    tft.setTextColor(TFT_BLACK, btnColor);
-    tft.setCursor(btn.x + 50, btn.y + 16);
+    canvas.fillRoundRect(btn.x, btn.y, btn.w, btn.h, 8, btnColor);
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextColor(TFT_BLACK, btnColor);
+    canvas.setCursor(btn.x + 50, btn.y + 16);
     if (state.ride_state == RIDE_STATE_ACTIVE) {
-      tft.print("pause ride");
+      canvas.print("pause ride");
     } else if (state.ride_state == RIDE_STATE_PAUSED) {
-      tft.print("resume ride");
+      canvas.print("resume ride");
     } else {
-      tft.print("start ride");
+      canvas.print("start ride");
     }
   }
 }

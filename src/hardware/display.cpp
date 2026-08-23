@@ -1,6 +1,7 @@
 #include "display.h"
 
 LGFX tft;
+LGFX_Sprite canvas(&tft);
 
 LGFX::LGFX() {
   {
@@ -78,6 +79,16 @@ void initDisplay() {
   tft.setRotation(2); // Flipped 180 degrees so USB connector is at the bottom
   tft.setBrightness(200);
   tft.fillScreen(TFT_BLACK);
+
+  canvas.setPsram(true);
+  canvas.setColorDepth(16); // RGB565, matches the panel's native depth
+  if (!canvas.createSprite(240, 320)) {
+    // ~150KB PSRAM allocation failing would be a real hardware/config
+    // problem (this board has 8MB) -- log it loudly rather than silently
+    // rendering nothing, since every widget draws to canvas from here on.
+    Serial.println("[DISPLAY] FATAL: canvas.createSprite() failed -- out of PSRAM?");
+  }
+  canvas.fillScreen(TFT_BLACK);
 }
 
 void setDisplayBrightness(uint8_t duty) {

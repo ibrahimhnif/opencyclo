@@ -18,29 +18,29 @@ static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
 // 1. SPEED (hero) — the one widget with its own layout, everything else is a "tile."
 static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool force) {
   if (force) {
-    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
-  tft.setFont(&fonts::FreeSansBold9pt7b);
-  tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setTextPadding(b.w - 8);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+  canvas.setTextPadding(b.w - 8);
   char srcBuf[16];
   snprintf(srcBuf, sizeof(srcBuf), "speed . %s", state.speed_source == SPEED_SOURCE_BLE_CSC ? "ble" : "gps");
-  tft.drawString(srcBuf, b.x + 4, b.y + 4);
-  tft.setTextPadding(0);
+  canvas.drawString(srcBuf, b.x + 4, b.y + 4);
+  canvas.setTextPadding(0);
 
-  tft.setFont(&fonts::FreeSansBold24pt7b);
-  tft.setTextColor(COLOR_TEXT, COLOR_BG);
+  canvas.setFont(&fonts::FreeSansBold24pt7b);
+  canvas.setTextColor(COLOR_TEXT, COLOR_BG);
   char buf[12];
   float speed = (g_settings.units == 1) ? (state.speed_kmh * 0.621371f) : state.speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", speed);
-  tft.setTextPadding(b.w - 70);
-  tft.drawString(buf, b.x + 4, b.y + 24);
-  tft.setTextPadding(0);
+  canvas.setTextPadding(b.w - 70);
+  canvas.drawString(buf, b.x + 4, b.y + 24);
+  canvas.setTextPadding(0);
 
-  tft.setFont(&fonts::FreeSansBold9pt7b);
-  tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setCursor(b.x + b.w - 44, b.y + b.h - 18);
-  tft.print((g_settings.units == 1) ? "mph" : "km/h");
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+  canvas.setCursor(b.x + b.w - 44, b.y + b.h - 18);
+  canvas.print((g_settings.units == 1) ? "mph" : "km/h");
 }
 
 // Shared layout for every SMALL/MEDIUM "label above, value below, hairline
@@ -53,20 +53,20 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
 // "grade"), which the previous +6 / +22 pair clipped.
 static void renderTile(const Rect& b, const char* label, const char* valueStr, uint16_t valueColor, bool force) {
   if (force) {
-    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-    tft.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
+    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    canvas.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
   }
-  tft.setFont(&fonts::FreeSansBold9pt7b);
-  tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setTextPadding(b.w - 8);
-  tft.drawString(label, b.x + 4, b.y + 4);
-  tft.setTextPadding(0);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+  canvas.setTextPadding(b.w - 8);
+  canvas.drawString(label, b.x + 4, b.y + 4);
+  canvas.setTextPadding(0);
 
-  tft.setFont(&fonts::FreeSansBold12pt7b);
-  tft.setTextColor(valueColor, COLOR_BG);
-  tft.setTextPadding(b.w - 8);
-  tft.drawString(valueStr, b.x + 4, b.y + 24);
-  tft.setTextPadding(0);
+  canvas.setFont(&fonts::FreeSansBold12pt7b);
+  canvas.setTextColor(valueColor, COLOR_BG);
+  canvas.setTextPadding(b.w - 8);
+  canvas.drawString(valueStr, b.x + 4, b.y + 24);
+  canvas.setTextPadding(0);
 }
 
 // 2. DISTANCE
@@ -172,12 +172,12 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
   if (s_elevHead == 0) s_elevFilled = true;
 
   if (force) {
-    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-    tft.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
-    tft.setFont(&fonts::FreeSansBold9pt7b);
-    tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setCursor(b.x + 4, b.y + 6);
-    tft.print("elevation profile");
+    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    canvas.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+    canvas.setCursor(b.x + 4, b.y + 6);
+    canvas.print("elevation profile");
   }
 
   float minAlt = 99999.0f, maxAlt = -99999.0f;
@@ -194,7 +194,7 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
   int innerY = b.y + 26;
   int innerW = b.w - 8;
   int innerH = b.h - 32;
-  tft.fillRect(innerX, innerY, innerW, innerH, COLOR_BG);
+  canvas.fillRect(innerX, innerY, innerW, innerH, COLOR_BG);
 
   int prevPx = -1, prevPy = -1;
   for (uint8_t i = 0; i < count; i++) {
@@ -203,7 +203,7 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
     int px = innerX + (i * innerW) / (ELEV_SAMPLES - 1);
     int py = innerY + innerH - (int)(((val - minAlt) / (maxAlt - minAlt)) * (innerH - 4));
     if (prevPx != -1) {
-      tft.drawLine(prevPx, prevPy, px, py, COLOR_GREEN);
+      canvas.drawLine(prevPx, prevPy, px, py, COLOR_GREEN);
     }
     prevPx = px;
     prevPy = py;
@@ -241,14 +241,14 @@ static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool
 // 14. BLE MANAGER
 static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, bool force) {
   if (force) {
-    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
   uint16_t scanBtnColor = g_ble_scanning ? COLOR_AMBER : COLOR_CYAN;
-  tft.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, 28, 6, scanBtnColor);
-  tft.setFont(&fonts::FreeSansBold9pt7b);
-  tft.setTextColor(TFT_BLACK, scanBtnColor);
-  tft.setCursor(b.x + 40, b.y + 16);
-  tft.print(g_ble_scanning ? "scanning..." : "scan & add sensors");
+  canvas.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, 28, 6, scanBtnColor);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(TFT_BLACK, scanBtnColor);
+  canvas.setCursor(b.x + 40, b.y + 16);
+  canvas.print(g_ble_scanning ? "scanning..." : "scan & add sensors");
 
   // Labels are "speed"/"heart"/"power" not "speed/cad"/"heart rate"/"power
   // meter": the label column has ~80px of real visual room before the mac
@@ -263,39 +263,39 @@ static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, b
 
   int y = b.y + 48;
   for (int i = 0; i < 3; i++) {
-    tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setTextPadding(76);
-    tft.drawString(rows[i].label, b.x + 10, y);
-    tft.setTextPadding(0);
+    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+    canvas.setTextPadding(76);
+    canvas.drawString(rows[i].label, b.x + 10, y);
+    canvas.setTextPadding(0);
 
-    tft.setTextPadding(b.w - 100);
+    canvas.setTextPadding(b.w - 100);
     if (rows[i].mac[0] != '\0') {
-      tft.setTextColor(COLOR_GREEN, COLOR_BG);
+      canvas.setTextColor(COLOR_GREEN, COLOR_BG);
       char macBuf[14];
       snprintf(macBuf, sizeof(macBuf), "%.10s..", rows[i].mac);
-      tft.drawString(macBuf, b.x + 90, y);
+      canvas.drawString(macBuf, b.x + 90, y);
       // "forget" is redrawn onto a fillRoundRect'd button every frame, so it's
       // already safe without padding/drawString — and since the still-active
       // b.w-100 padding above was sized for the mac text at x+90, not this
       // button at x+b.w-54, converting it to drawString would erase past the
       // widget's right edge. Leave it as print(), which never reads padding_x.
-      tft.fillRoundRect(b.x + b.w - 60, y - 4, 52, 18, 4, COLOR_RED);
-      tft.setTextColor(TFT_WHITE, COLOR_RED);
-      tft.setCursor(b.x + b.w - 54, y);
-      tft.print("forget");
+      canvas.fillRoundRect(b.x + b.w - 60, y - 4, 52, 18, 4, COLOR_RED);
+      canvas.setTextColor(TFT_WHITE, COLOR_RED);
+      canvas.setCursor(b.x + b.w - 54, y);
+      canvas.print("forget");
     } else {
-      tft.setTextColor(COLOR_LABEL, COLOR_BG);
-      tft.drawString("not paired", b.x + 90, y);
+      canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+      canvas.drawString("not paired", b.x + 90, y);
     }
-    tft.setTextPadding(0);
-    tft.drawFastHLine(b.x + 6, y + 22, b.w - 12, COLOR_HAIRLINE);
+    canvas.setTextPadding(0);
+    canvas.drawFastHLine(b.x + 6, y + 22, b.w - 12, COLOR_HAIRLINE);
     y += 34;
   }
 
-  tft.setTextColor(COLOR_LABEL, COLOR_BG);
-  tft.setTextPadding(b.w - 20);
-  tft.drawString(state.gps_has_fix ? "gps: 3d fix valid" : "gps: searching...", b.x + 10, y + 6);
-  tft.setTextPadding(0);
+  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+  canvas.setTextPadding(b.w - 20);
+  canvas.drawString(state.gps_has_fix ? "gps: 3d fix valid" : "gps: searching...", b.x + 10, y + 6);
+  canvas.setTextPadding(0);
 }
 
 static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
@@ -329,10 +329,10 @@ static const int SETTINGS_ROW_DIVIDER = 20;
 
 static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state, bool force) {
   if (force) {
-    tft.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
   int y = b.y + SETTINGS_ROW_Y0;
-  tft.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
 
   // Value column budget widened from b.w-126 (106px) to b.w-120 (112px): bold
   // "100% (4.12V)" measures 109px — it was already over the old budget at
@@ -342,15 +342,15 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   // a 232px FULL-size widget — that's an actual off-tile overflow, not just a
   // ghosting-erase shortfall.
   auto row = [&](const char* label, const char* value, uint16_t valueColor) {
-    tft.setTextColor(COLOR_LABEL, COLOR_BG);
-    tft.setTextPadding(110);
-    tft.drawString(label, b.x + 10, y);
-    tft.setTextPadding(0);
-    tft.setTextColor(valueColor, COLOR_BG);
-    tft.setTextPadding(b.w - 120);
-    tft.drawString(value, b.x + 116, y);
-    tft.setTextPadding(0);
-    tft.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, COLOR_HAIRLINE);
+    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+    canvas.setTextPadding(110);
+    canvas.drawString(label, b.x + 10, y);
+    canvas.setTextPadding(0);
+    canvas.setTextColor(valueColor, COLOR_BG);
+    canvas.setTextPadding(b.w - 120);
+    canvas.drawString(value, b.x + 116, y);
+    canvas.setTextPadding(0);
+    canvas.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, COLOR_HAIRLINE);
     y += SETTINGS_ROW_STRIDE;
   };
 
@@ -442,7 +442,7 @@ void renderWidget(WidgetType type, const TemplateSlot& slot, const TelemetryStat
   // was previously in this slot can never be left behind.
   if (type >= WIDGET_TYPE_COUNT || !widgetSupportsSize(type, slot.size_class)) {
     if (forceFullRedraw) {
-      tft.fillRect(slot.rect.x, slot.rect.y, slot.rect.w, slot.rect.h, COLOR_BG);
+      canvas.fillRect(slot.rect.x, slot.rect.y, slot.rect.w, slot.rect.h, COLOR_BG);
     }
     return;
   }
