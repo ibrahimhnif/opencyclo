@@ -145,13 +145,17 @@ void tickCameraPairing() {
 bool isCameraPairing() { return camPairingActive; }
 bool isCameraSubscribed() { return camSubscribed; }
 
-static void sendCamCommand(uint8_t button) {
+// Byte 7 is the button id (0x00=power, 0x01=mode, 0x02=shutter); byte 8
+// distinguishes the power button's two press lengths in the reference
+// implementation (0x00=short press/screen toggle, 0x03=3s hold/power off) --
+// shutter and mode don't use byte 8, so it's always 0x00 for them.
+static void sendCamCommand(uint8_t button, uint8_t param) {
   if (pCamNotifyChar == nullptr) return;
-  uint8_t cmd[9] = {0xfc, 0xef, 0xfe, 0x86, 0x00, 0x03, 0x01, button, 0x00};
+  uint8_t cmd[9] = {0xfc, 0xef, 0xfe, 0x86, 0x00, 0x03, 0x01, button, param};
   pCamNotifyChar->setValue(cmd, sizeof(cmd));
   pCamNotifyChar->notify();
-  Serial.printf("[BLE CAM] Sent %s command.\n", button == 0x02 ? "shutter" : "mode");
 }
 
-void triggerCameraShutter() { sendCamCommand(0x02); }
-void triggerCameraMode()    { sendCamCommand(0x01); }
+void triggerCameraShutter()  { sendCamCommand(0x02, 0x00); Serial.println("[BLE CAM] Sent shutter command."); }
+void triggerCameraMode()     { sendCamCommand(0x01, 0x00); Serial.println("[BLE CAM] Sent mode command."); }
+void triggerCameraPowerOff() { sendCamCommand(0x00, 0x03); Serial.println("[BLE CAM] Sent power-off command."); }

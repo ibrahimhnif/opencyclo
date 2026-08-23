@@ -411,20 +411,23 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
 // 16. CAMERA REMOTE
 //
 // Impersonates the Insta360 "GPS Remote" accessory over BLE to trigger an
-// Insta360 Ace Pro 2 (see ble_camera_remote.cpp for the protocol source and
-// its unconfirmed-on-this-camera caveat). Only two commands are verified to
-// exist at all: Shutter (photo in photo mode, record start/stop toggle in
-// video mode) and Mode (cycles capture mode) -- mirroring the physical
-// remote's own two buttons, not three separate photo/start/stop actions.
+// Insta360 Ace Pro 2 -- confirmed working on real hardware (see
+// ble_camera_remote.cpp for the protocol source). Three verified commands:
+// Shutter (photo in photo mode, record start/stop toggle in video mode),
+// Mode (cycles Photo/Video/Time Shift -- same as the physical remote, does
+// NOT reach every camera mode; e.g. FreeFrame is touchscreen-only even on
+// Insta360's own remote), and Power Off (the remote's 3s-hold command).
 //
 // Row geometry is shared between render and touch, same discipline as the
 // BLE Manager / Settings List widgets above, so drawn buttons and tappable
 // bands can't drift apart.
-static const int CAM_PAIR_BTN_H = 28;
-static const int CAM_SHUTTER_Y  = 70;
-static const int CAM_SHUTTER_H  = 100;
-static const int CAM_MODE_Y     = 180;
-static const int CAM_MODE_H     = 60;
+static const int CAM_PAIR_BTN_H  = 28;
+static const int CAM_SHUTTER_Y   = 70;
+static const int CAM_SHUTTER_H   = 86;
+static const int CAM_MODE_Y      = 164;
+static const int CAM_MODE_H      = 54;
+static const int CAM_POWEROFF_Y  = 226;
+static const int CAM_POWEROFF_H  = 40;
 
 static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state, bool force) {
   (void)state;
@@ -456,14 +459,26 @@ static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state,
   canvas.fillRoundRect(b.x + 6, b.y + CAM_SHUTTER_Y, b.w - 12, CAM_SHUTTER_H, 10, COLOR_RED);
   canvas.setFont(&fonts::FreeSansBold12pt7b);
   canvas.setTextColor(TFT_WHITE, COLOR_RED);
-  canvas.setCursor(b.x + 60, b.y + CAM_SHUTTER_Y + 40);
+  canvas.setCursor(b.x + 60, b.y + CAM_SHUTTER_Y + 34);
   canvas.print("SHUTTER");
 
   canvas.fillRoundRect(b.x + 6, b.y + CAM_MODE_Y, b.w - 12, CAM_MODE_H, 10, COLOR_CYAN);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
-  canvas.setCursor(b.x + 90, b.y + CAM_MODE_Y + 24);
+  canvas.setCursor(b.x + 90, b.y + CAM_MODE_Y + 22);
   canvas.print("MODE");
+
+  // Power off -- the camera's 3s-hold-to-power-off command, not its short-
+  // press screen toggle (that's a separate, unimplemented command). Amber
+  // rather than red/cyan: distinct from Shutter/Mode, signals "be sure
+  // before tapping" without claiming the destructive-red styling this app
+  // uses for "forget sensor" elsewhere -- powering off is disruptive but not
+  // data-destructive the way forgetting a pairing is.
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_POWEROFF_Y, b.w - 12, CAM_POWEROFF_H, 8, COLOR_AMBER);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(TFT_BLACK, COLOR_AMBER);
+  canvas.setCursor(b.x + 70, b.y + CAM_POWEROFF_Y + 16);
+  canvas.print("POWER OFF");
 }
 
 static bool touchWidgetCameraRemote(const Rect& b, int16_t x, int16_t y) {
@@ -478,6 +493,10 @@ static bool touchWidgetCameraRemote(const Rect& b, int16_t x, int16_t y) {
   }
   if (y >= b.y + CAM_MODE_Y && y <= b.y + CAM_MODE_Y + CAM_MODE_H) {
     triggerCameraMode();
+    return true;
+  }
+  if (y >= b.y + CAM_POWEROFF_Y && y <= b.y + CAM_POWEROFF_Y + CAM_POWEROFF_H) {
+    triggerCameraPowerOff();
     return true;
   }
   return false;

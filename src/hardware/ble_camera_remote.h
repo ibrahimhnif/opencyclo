@@ -37,4 +37,10 @@ void triggerCameraShutter();
 // button).
 void triggerCameraMode();
 
+// Sends the verified power-off command -- on the physical remote this is
+// what a 3-second hold of the power button does (a short press instead
+// toggles the camera's screen, a separate, unimplemented command). See
+// ble_camera_remote.cpp.
+void triggerCameraPowerOff();
+
 #endif // OPENCYCLO_HARDWARE_BLE_CAMERA_REMOTE_H
