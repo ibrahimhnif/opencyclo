@@ -80,7 +80,7 @@ class HrClientCallbacks : public NimBLEClientCallbacks {
     // the last known MAC" design.
     if (g_settings.paired_hr_mac[0] != '\0') {
       bleStatusHR = 1; // reconnecting
-      hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac));
+      hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac), g_settings.paired_hr_addr_type);
       hrConnectPending = true;
     } else {
       bleStatusHR = 0;
@@ -191,6 +191,12 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
         Serial.printf("[BLE FOUND] Heart Rate Sensor: %s [%s]\n",
                       advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
         snprintf(g_settings.paired_hr_mac, sizeof(g_settings.paired_hr_mac), "%s", advertisedDevice->getAddress().toString().c_str());
+        // Persist the address type alongside the MAC -- NimBLEClient::connect()
+        // dials using this type, and most HR straps advertise as RANDOM, not
+        // the NimBLEAddress default of PUBLIC. Without it, every reconnect
+        // built from the saved MAC alone (boot, periodic retry) silently dials
+        // the wrong address type and times out. See settings.h for detail.
+        g_settings.paired_hr_addr_type = advertisedDevice->getAddress().getType();
         saveSettings();
         // Hand off to bleTaskLoop() to make the actual connect()+subscribe()
         // call -- a blocking connect() from inside this scan callback isn't
@@ -275,7 +281,7 @@ void bleTaskLoop(void* pvParameters) {
   // Auto-reconnect to a previously-paired HR sensor on boot, without waiting
   // for a fresh scan -- matches the spec's "auto-reconnects on boot" design.
   if (g_settings.paired_hr_mac[0] != '\0') {
-    hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac));
+    hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac), g_settings.paired_hr_addr_type);
     hrConnectPending = true;
     bleStatusHR = 1; // reconnecting
   }
@@ -302,7 +308,7 @@ void bleTaskLoop(void* pvParameters) {
     if (bleStatusHR != 2 && g_settings.paired_hr_mac[0] != '\0' &&
         (millis() - lastHrConnectAttemptMs) > HR_RECONNECT_RETRY_MS) {
       lastHrConnectAttemptMs = millis();
-      hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac));
+      hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac), g_settings.paired_hr_addr_type);
       connectToHrSensor();
     }
 

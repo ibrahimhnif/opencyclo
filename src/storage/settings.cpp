@@ -13,6 +13,7 @@ void initSettings() {
   String csc = prefs.getString("csc_mac", "");
   String hr = prefs.getString("hr_mac", "");
   String pow = prefs.getString("pow_mac", "");
+  g_settings.paired_hr_addr_type = prefs.getUChar("hr_addr_t", 0); // 0 = BLE_ADDR_PUBLIC
 
   snprintf(g_settings.paired_csc_mac, sizeof(g_settings.paired_csc_mac), "%s", csc.c_str());
   snprintf(g_settings.paired_hr_mac, sizeof(g_settings.paired_hr_mac), "%s", hr.c_str());
@@ -34,6 +35,7 @@ void saveSettings() {
   prefs.putString("csc_mac", g_settings.paired_csc_mac);
   prefs.putString("hr_mac", g_settings.paired_hr_mac);
   prefs.putString("pow_mac", g_settings.paired_power_mac);
+  prefs.putUChar("hr_addr_t", g_settings.paired_hr_addr_type);
   prefs.end();
 
   Serial.println("[SETTINGS] Saved NVS preferences!");
