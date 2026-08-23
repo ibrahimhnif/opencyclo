@@ -60,8 +60,16 @@ static const char* CAM_CHAR2_READ11  = "ffe0";
 // OpenCyclo's own service (not part of the Insta360 protocol) for setting
 // the wake beacon's camera-specific bytes -- any generic BLE GATT tool
 // (nRF Connect, etc.) can write 6 raw bytes here, no phone app needed.
-static const char* WAKE_CONFIG_SERVICE_UUID = "00001902-0000-1000-8000-00805F9B34FB";
-static const char* WAKE_CONFIG_CHAR_UUID    = "00001903-0000-1000-8000-00805F9B34FB";
+//
+// 0x1920/0x1921 -- deliberately NOT 0x1902/0x1903: this codebase already
+// uses 00001900-00001903 for the layout-sync service (ble_layout_sync.h)
+// and 00001910-00001912 for OTA (ble_ota_handler.h). An earlier version of
+// this file picked 1902/1903 without checking that range first, which
+// collided with the existing telemetry-stream and device-command
+// characteristics -- same UUID string, different service, genuinely
+// confusing in any GATT browser even though BLE permits the reuse.
+static const char* WAKE_CONFIG_SERVICE_UUID = "00001920-0000-1000-8000-00805F9B34FB";
+static const char* WAKE_CONFIG_CHAR_UUID    = "00001921-0000-1000-8000-00805F9B34FB";
 
 static const char* CAMERA_REMOTE_NAME = "Insta360 GPS Remote";
 static const uint32_t CAMERA_PAIRING_WINDOW_MS = 30000;
