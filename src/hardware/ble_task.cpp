@@ -1,6 +1,7 @@
 #include "ble_task.h"
 #include "ble_layout_sync.h"
 #include "ble_ota_handler.h"
+#include "ble_camera_remote.h"
 #include "core/telemetry_state.h"
 #include "storage/settings.h"
 #include <NimBLEDevice.h>
@@ -240,7 +241,7 @@ void startBleTask() {
 
 void bleTaskLoop(void* pvParameters) {
   // 1. Initialize NimBLE Dual Role
-  NimBLEDevice::init("OpenCyclo-GPS");
+  NimBLEDevice::init(OPENCYCLO_BLE_NAME);
   NimBLEDevice::setPower(ESP_PWR_LVL_P9); // Max TX Power
   NimBLEDevice::setMTU(512);
 
@@ -261,6 +262,7 @@ void bleTaskLoop(void* pvParameters) {
   // Register OpenCyclo Communication & OTA Services
   initBleLayoutSyncService(pBLEServer);
   initBleOtaService(pBLEServer);
+  initBleCameraRemoteService(pBLEServer);
 
   // Start BLE Peripheral Advertising
   NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
@@ -311,6 +313,8 @@ void bleTaskLoop(void* pvParameters) {
       hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac), g_settings.paired_hr_addr_type);
       connectToHrSensor();
     }
+
+    tickCameraPairing();
 
     if (g_ble_scanning) {
       if (!pBLEScan->isScanning()) {

@@ -11,7 +11,7 @@ static Preferences uiPrefs;
 
 void resetLayoutToDefaults() {
   g_ui_config.schema_version = UI_CONFIG_SCHEMA_VERSION;
-  g_ui_config.active_page_count = 4;
+  g_ui_config.active_page_count = 5;
 
   // Page 0: Ride (Hero 6-Grid)
   snprintf(g_ui_config.pages[0].title, sizeof(g_ui_config.pages[0].title), "ride");
@@ -44,7 +44,15 @@ void resetLayoutToDefaults() {
   g_ui_config.pages[3].widget_count = 1;
   g_ui_config.pages[3].widgets[0] = WIDGET_SETTINGS_LIST;
 
-  Serial.printf("[LAYOUT CONFIG] Loaded Factory Default Page Tree (4 pages, schema v%u).\n", UI_CONFIG_SCHEMA_VERSION);
+  // Page 4: Camera (Full Container) -- Insta360 Ace Pro 2 remote trigger.
+  // Best-effort: verified against the older X3/RS protocol only, not this
+  // camera specifically. See ble_camera_remote.cpp.
+  snprintf(g_ui_config.pages[4].title, sizeof(g_ui_config.pages[4].title), "camera");
+  g_ui_config.pages[4].template_id = TEMPLATE_FULL_CONTAINER;
+  g_ui_config.pages[4].widget_count = 1;
+  g_ui_config.pages[4].widgets[0] = WIDGET_CAMERA_REMOTE;
+
+  Serial.printf("[LAYOUT CONFIG] Loaded Factory Default Page Tree (5 pages, schema v%u).\n", UI_CONFIG_SCHEMA_VERSION);
 }
 
 void initLayoutConfig() {

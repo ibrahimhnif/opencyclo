@@ -31,6 +31,7 @@ static const WidgetMeta s_catalog[WIDGET_TYPE_COUNT] = {
   // labels only.
   {WIDGET_BLE_MANAGER,     "BLE Manager",    "sensors",          "",     "",      BIT(SIZE_FULL)},
   {WIDGET_SETTINGS_LIST,   "Settings List",  "settings",         "",     "",      BIT(SIZE_FULL)},
+  {WIDGET_CAMERA_REMOTE,   "Camera Remote",  "camera",           "",     "",      BIT(SIZE_FULL)},
 };
 
 const WidgetMeta& getWidgetMeta(WidgetType type) {

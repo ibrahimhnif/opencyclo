@@ -3,6 +3,7 @@
 #include "storage/settings.h"
 #include "hardware/battery.h"
 #include "hardware/ble_task.h"
+#include "hardware/ble_camera_remote.h"
 #include <stdio.h>
 
 static uint16_t COLOR_BG = TFT_BLACK;
@@ -407,6 +408,81 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
   return false;
 }
 
+// 16. CAMERA REMOTE
+//
+// Impersonates the Insta360 "GPS Remote" accessory over BLE to trigger an
+// Insta360 Ace Pro 2 (see ble_camera_remote.cpp for the protocol source and
+// its unconfirmed-on-this-camera caveat). Only two commands are verified to
+// exist at all: Shutter (photo in photo mode, record start/stop toggle in
+// video mode) and Mode (cycles capture mode) -- mirroring the physical
+// remote's own two buttons, not three separate photo/start/stop actions.
+//
+// Row geometry is shared between render and touch, same discipline as the
+// BLE Manager / Settings List widgets above, so drawn buttons and tappable
+// bands can't drift apart.
+static const int CAM_PAIR_BTN_H = 28;
+static const int CAM_SHUTTER_Y  = 70;
+static const int CAM_SHUTTER_H  = 100;
+static const int CAM_MODE_Y     = 180;
+static const int CAM_MODE_H     = 60;
+
+static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state, bool force) {
+  (void)state;
+  if (force) {
+    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+  }
+
+  // Pair button and status line are both unconditionally redrawn every call
+  // (not gated on `force`) -- same pattern as the BLE Manager's scan button
+  // above: the button is a fully opaque fillRoundRect+print() every frame, so
+  // its amber/cyan color swap is always painted correctly, and the status
+  // text uses drawString()+setTextPadding() (never print()/printf()) since
+  // it sits directly on the flat background and its length changes --
+  // print() never honors setTextPadding()'s erase-width widening, which is
+  // exactly the bug this project fixed earlier this session.
+  uint16_t pairColor = isCameraPairing() ? COLOR_AMBER : COLOR_CYAN;
+  canvas.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, CAM_PAIR_BTN_H, 6, pairColor);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(TFT_BLACK, pairColor);
+  canvas.setCursor(b.x + 24, b.y + 16);
+  canvas.print(isCameraPairing() ? "pairing... (30s)" : "pair camera");
+
+  canvas.setTextColor(isCameraSubscribed() ? COLOR_GREEN : COLOR_LABEL, COLOR_BG);
+  canvas.setTextPadding(b.w - 20);
+  canvas.drawString(isCameraSubscribed() ? "camera: connected" : "camera: not connected",
+                     b.x + 10, b.y + 44);
+  canvas.setTextPadding(0);
+
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_SHUTTER_Y, b.w - 12, CAM_SHUTTER_H, 10, COLOR_RED);
+  canvas.setFont(&fonts::FreeSansBold12pt7b);
+  canvas.setTextColor(TFT_WHITE, COLOR_RED);
+  canvas.setCursor(b.x + 60, b.y + CAM_SHUTTER_Y + 40);
+  canvas.print("SHUTTER");
+
+  canvas.fillRoundRect(b.x + 6, b.y + CAM_MODE_Y, b.w - 12, CAM_MODE_H, 10, COLOR_CYAN);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
+  canvas.setCursor(b.x + 90, b.y + CAM_MODE_Y + 24);
+  canvas.print("MODE");
+}
+
+static bool touchWidgetCameraRemote(const Rect& b, int16_t x, int16_t y) {
+  if (x < b.x + 6 || x > b.x + b.w - 6) return false;
+  if (y >= b.y + 6 && y <= b.y + 6 + CAM_PAIR_BTN_H) {
+    startCameraPairing();
+    return true;
+  }
+  if (y >= b.y + CAM_SHUTTER_Y && y <= b.y + CAM_SHUTTER_Y + CAM_SHUTTER_H) {
+    triggerCameraShutter();
+    return true;
+  }
+  if (y >= b.y + CAM_MODE_Y && y <= b.y + CAM_MODE_Y + CAM_MODE_H) {
+    triggerCameraMode();
+    return true;
+  }
+  return false;
+}
+
 static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_NONE,            nullptr,              nullptr},
   {WIDGET_SPEED,           renderWidgetSpeed,    nullptr},
@@ -424,6 +500,7 @@ static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_BATTERY,         renderWidgetBattery,  nullptr},
   {WIDGET_BLE_MANAGER,     renderWidgetBleManager, touchWidgetBleManager},
   {WIDGET_SETTINGS_LIST,   renderWidgetSettingsList, touchWidgetSettingsList},
+  {WIDGET_CAMERA_REMOTE,   renderWidgetCameraRemote, touchWidgetCameraRemote},
 };
 
 void initWidgetRegistry() {
