@@ -14,6 +14,17 @@ static int16_t currentCadenceRpm = -1;
 static int16_t currentPowerWatts = -1;
 static float currentCscSpeedKmh = -1.0f;
 
+// Hold the last HR reading through brief disconnect/reconnect blips instead
+// of blanking to "--" the instant the connection drops -- this sensor's
+// connection is intermittent enough in practice that resetting immediately
+// made the Ride page tile flicker "--"/number/"--" every time it bounced.
+// Only actually go stale (and show "--" again) if no fresh notification
+// arrives for HR_STALE_TIMEOUT_MS -- long enough to ride out a reconnect,
+// short enough that a genuinely removed/powered-off strap doesn't leave a
+// frozen, increasingly-wrong number on screen forever.
+static uint32_t lastHrUpdateMs = 0;
+static const uint32_t HR_STALE_TIMEOUT_MS = 15000;
+
 static uint8_t bleStatusCSC = 0;   // 0=Disconnected, 1=Scanning, 2=Connected
 static uint8_t bleStatusHR = 0;
 static uint8_t bleStatusPOWER = 0;
@@ -46,6 +57,7 @@ static void hrNotifyCallback(NimBLERemoteCharacteristic* chr, uint8_t* pData, si
   uint8_t flags = pData[0];
   uint16_t hr = (flags & 0x01) ? (uint16_t)(pData[1] | (pData[2] << 8)) : (uint16_t)pData[1];
   currentHrBpm = (int16_t)hr;
+  lastHrUpdateMs = millis();
   bleStatusHR = 2;
   Serial.printf("[BLE HR] %u bpm\n", hr);
 }
@@ -53,7 +65,9 @@ static void hrNotifyCallback(NimBLERemoteCharacteristic* chr, uint8_t* pData, si
 class HrClientCallbacks : public NimBLEClientCallbacks {
   void onDisconnect(NimBLEClient* pClient) override {
     Serial.println("[BLE HR] Disconnected.");
-    currentHrBpm = -1;
+    // Deliberately NOT resetting currentHrBpm here -- see the staleness
+    // comment above. bleTaskLoop() blanks it on its own once
+    // HR_STALE_TIMEOUT_MS has genuinely elapsed with no new notification.
     // Retry against the same saved address rather than dropping the pairing
     // on a transient disconnect (sensor briefly out of range, low battery
     // blip, etc) -- matches the spec's "reconnect in the background against
@@ -271,6 +285,14 @@ void bleTaskLoop(void* pvParameters) {
         g_ble_scanning = false;
         Serial.println("[BLE] Scan complete.");
       }
+    }
+
+    // Only actually blank the reading once it's genuinely stale -- a brief
+    // disconnect/reconnect (this sensor's connection is intermittent) holds
+    // the last known value instead of flickering the tile back to "--".
+    if (currentHrBpm >= 0 && (millis() - lastHrUpdateMs) > HR_STALE_TIMEOUT_MS) {
+      currentHrBpm = -1;
+      bleStatusHR = (g_settings.paired_hr_mac[0] != '\0') ? 1 : 0;
     }
 
     TelemetryState state = getTelemetrySnapshot();
