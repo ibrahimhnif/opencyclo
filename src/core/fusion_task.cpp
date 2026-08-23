@@ -32,7 +32,6 @@ void fusionTaskLoop(void* pvParameters) {
   initBatteryADC();
   GpsFix fix;
   BaroSample baro;
-  TelemetryState state = getTelemetrySnapshot();
 
   uint32_t speedAbove4StartMs = 0;
   uint32_t speedBelow1_5StartMs = 0;
@@ -46,6 +45,21 @@ void fusionTaskLoop(void* pvParameters) {
 
   for (;;) {
     uint32_t now = millis();
+
+    // Re-fetch a fresh snapshot every iteration rather than reusing one
+    // persistent local copy across the whole task lifetime. FusionTask
+    // doesn't own every field in TelemetryState (heart_rate_bpm/
+    // cadence_rpm/power_watts are BleTask's) but it writes back the WHOLE
+    // struct every ~50ms regardless -- with a stale one-time snapshot, that
+    // meant FusionTask was silently stomping BleTask's live BLE sensor
+    // updates back to whatever they were when this task started (typically
+    // -1, since it starts before any sensor connects), every single cycle.
+    // Symptom: the heart rate tile flickered between a real reading and 0
+    // as the two tasks' writes raced. Fields FusionTask itself computes
+    // (trip_distance_km, max_speed_kmh, ride_state, etc.) are unaffected --
+    // they round-trip through the same shared state either way, since
+    // FusionTask remains their only writer.
+    TelemetryState state = getTelemetrySnapshot();
 
     // Check battery every 2 seconds
     if (now - lastBatCheckMs >= 2000) {
