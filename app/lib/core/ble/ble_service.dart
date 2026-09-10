@@ -6,6 +6,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'ble_protocol.dart';
 import '../models/telemetry_model.dart';
 import '../models/layout_config_model.dart';
+import '../models/route_model.dart';
+import 'route_transfer.dart';
 
 class BleService {
   static final BleService instance = BleService._internal();
@@ -16,12 +18,17 @@ class BleService {
   BluetoothCharacteristic? _commandChar;
   BluetoothCharacteristic? _otaControlChar;
   BluetoothCharacteristic? _otaDataChar;
+  BluetoothCharacteristic? _routeControlChar;
+  BluetoothCharacteristic? _routeDataChar;
+  bool _routeBusy = false;
 
   final _telemetryController = StreamController<TelemetryModel>.broadcast();
   Stream<TelemetryModel> get telemetryStream => _telemetryController.stream;
 
-  final _connectionStateController = StreamController<BluetoothConnectionState>.broadcast();
-  Stream<BluetoothConnectionState> get connectionStateStream => _connectionStateController.stream;
+  final _connectionStateController =
+      StreamController<BluetoothConnectionState>.broadcast();
+  Stream<BluetoothConnectionState> get connectionStateStream =>
+      _connectionStateController.stream;
 
   Future<void> startScan() async {
     // Scan without withServices filter for reliable CoreBluetooth discovery on macOS / iOS
@@ -37,11 +44,18 @@ class BleService {
   Future<bool> connect(BluetoothDevice device) async {
     try {
       connectedDevice = device;
-      await device.connect(timeout: const Duration(seconds: 15), autoConnect: false);
+      _routeControlChar = null;
+      _routeDataChar = null;
+      await device.connect(
+          timeout: const Duration(seconds: 15), autoConnect: false);
 
       // Listen to connection state
       device.connectionState.listen((state) {
         _connectionStateController.add(state);
+        if (state == BluetoothConnectionState.disconnected) {
+          _routeControlChar = null;
+          _routeDataChar = null;
+        }
       });
 
       // Request MTU 512 on Android only (iOS/macOS CoreBluetooth handles MTU automatically)
@@ -66,6 +80,10 @@ class BleService {
               await _subscribeTelemetry(char);
             } else if (uuid.contains("1903")) {
               _commandChar = char;
+            } else if (uuid.contains("1904")) {
+              _routeControlChar = char;
+            } else if (uuid.contains("1905")) {
+              _routeDataChar = char;
             }
           }
         } else if (sUuid.contains("1910")) {
@@ -135,6 +153,62 @@ class BleService {
   }
 
   // --- DEVICE COMMANDS ---
+  Future<String> _routeCommand(List<int> bytes) async {
+    final c = _routeControlChar;
+    if (c == null) {
+      throw StateError('Connect to a device with navigation firmware');
+    }
+    await c.write(bytes, withoutResponse: false);
+    final reply = utf8.decode(await c.read());
+    if (reply.startsWith('ERR')) throw StateError(reply);
+    return reply;
+  }
+
+  Future<void> freeRide() async {
+    if (_routeBusy) throw StateError('Wait for route transfer');
+    await _routeCommand([5]);
+  }
+
+  Future<void> selectRoute(RouteModel route) async {
+    if (_routeBusy) throw StateError('Wait for route transfer');
+    final b = ByteData(5)
+      ..setUint8(0, 4)
+      ..setUint32(1, RouteModel.checksum(route.toBytes()), Endian.little);
+    await _routeCommand(b.buffer.asUint8List());
+  }
+
+  Future<String> routeMapCoverage(RouteModel route) async {
+    if (_routeBusy) throw StateError('Wait for route transfer');
+    final b = ByteData(5)
+      ..setUint8(0, 6)
+      ..setUint32(1, RouteModel.checksum(route.toBytes()), Endian.little);
+    return _routeCommand(b.buffer.asUint8List());
+  }
+
+  Future<void> syncRoute(RouteModel route, void Function(double) progress,
+      {bool Function()? cancelled}) async {
+    if (_routeBusy) throw StateError('A route transfer is already running');
+    final c = _routeControlChar, d = _routeDataChar, device = connectedDevice;
+    if (c == null || d == null || device == null) {
+      throw StateError('Connect to a device with navigation firmware');
+    }
+    _routeBusy = true;
+    try {
+      await transferRoute(
+          bytes: route.toBytes(),
+          mtu: device.mtuNow,
+          command: _routeCommand,
+          data: (packet) async {
+            await d.write(packet, withoutResponse: false);
+            return utf8.decode(await c.read());
+          },
+          progress: progress,
+          cancelled: cancelled);
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
   Future<void> sendCommand(int cmd) async {
     if (_commandChar == null) return;
     try {
@@ -146,8 +220,12 @@ class BleService {
 
   // --- WIRELESS OTA FIRMWARE FLASHER ---
   Stream<double> flashFirmware(Uint8List firmwareBytes) async* {
+    if (_routeBusy) {
+      throw StateError('Wait for the route transfer before updating firmware');
+    }
     if (_otaControlChar == null || _otaDataChar == null) {
-      throw Exception("OTA GATT characteristics not found on connected device.");
+      throw Exception(
+          "OTA GATT characteristics not found on connected device.");
     }
 
     final int totalBytes = firmwareBytes.length;
@@ -158,7 +236,8 @@ class BleService {
     beginPayload.setUint8(0, BleProtocol.otaCmdBegin);
     beginPayload.setUint32(1, totalBytes, Endian.little);
 
-    await _otaControlChar!.write(beginPayload.buffer.asUint8List(), withoutResponse: false);
+    await _otaControlChar!
+        .write(beginPayload.buffer.asUint8List(), withoutResponse: false);
     await Future.delayed(const Duration(milliseconds: 200));
 
     // Step 2: Stream binary chunks (480 bytes per packet)
@@ -166,7 +245,8 @@ class BleService {
     int offset = 0;
 
     while (offset < totalBytes) {
-      final int end = (offset + chunkSize < totalBytes) ? offset + chunkSize : totalBytes;
+      final int end =
+          (offset + chunkSize < totalBytes) ? offset + chunkSize : totalBytes;
       final chunk = firmwareBytes.sublist(offset, end);
 
       await _otaDataChar!.write(chunk, withoutResponse: true);
@@ -180,7 +260,8 @@ class BleService {
     }
 
     // Step 3: Send End Command (0x02) to verify & reboot
-    await _otaControlChar!.write([BleProtocol.otaCmdEnd], withoutResponse: false);
+    await _otaControlChar!
+        .write([BleProtocol.otaCmdEnd], withoutResponse: false);
     yield 1.0;
   }
 }

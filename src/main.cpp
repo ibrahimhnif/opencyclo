@@ -8,8 +8,14 @@
 #include "storage/settings.h"
 #include "storage/layout_config.h"
 #include "ui/ui_task.h"
+#include "hardware/power.h"
+#include "hardware/battery.h"
+#include "ui/charging_screen.h"
+#include "storage/sd_access.h"
 
 void setup() {
+  initPower();
+  initBatteryADC();
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n=================================");
@@ -19,10 +25,16 @@ void setup() {
 
   // 1. Initialize Shared Mutexes and Telemetry State
   initTelemetryState();
+  initSdAccess();
 
   // 2. Initialize NVS Settings & Layout Configuration Tree
   initSettings();
   initLayoutConfig();
+
+  // USB can wake a powered-off device into a charging-only UI. Cycling tasks
+  // start only after ON (or a BOOT-button wake), never merely on USB insertion.
+  showChargingScreenIfNeeded();
+  markPowerOn();
 
   // 3. Launch FreeRTOS Tasks
   startGpsTask();

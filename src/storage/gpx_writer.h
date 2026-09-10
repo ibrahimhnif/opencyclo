@@ -11,6 +11,10 @@ class GpxWriter {
   bool _isOpen;
   uint16_t _bufferCount;
   char _filename[64];
+  char _pending[768];
+  size_t _pendingOffset;
+  bool _closing;
+  bool flushPending();
 
 public:
   GpxWriter();

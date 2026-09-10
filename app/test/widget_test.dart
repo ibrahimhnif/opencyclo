@@ -10,6 +10,9 @@ void main() {
       ),
     );
 
-    expect(find.text('OPENCYCLO DEVICE'), findsOneWidget);
+    // The device draws every string lowercase, and so does the app: the status
+    // bar's first segment is the screen name, and the nav bar labels match.
+    expect(find.text('device'), findsWidgets);
+    expect(find.text('scan & add sensors'), findsOneWidget);
   });
 }

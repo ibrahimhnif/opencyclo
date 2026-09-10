@@ -2,6 +2,7 @@
 #include "ui/engine/widget_catalog.h"
 #include <Preferences.h>
 #include <SD_MMC.h>
+#include "sd_access.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -255,6 +256,8 @@ bool importLayoutFromString(const char* jsonStr) {
 }
 
 bool exportLayoutToJson(const char* filepath) {
+  SdGuard sd;
+  if (!sd.locked || !g_sd_ready) return false;
   File file = SD_MMC.open(filepath, FILE_WRITE);
   if (!file) return false;
 
@@ -269,6 +272,8 @@ bool exportLayoutToJson(const char* filepath) {
 }
 
 bool importLayoutFromJson(const char* filepath) {
+  SdGuard sd;
+  if (!sd.locked || !g_sd_ready) return false;
   File file = SD_MMC.open(filepath, FILE_READ);
   if (!file) return false;
 

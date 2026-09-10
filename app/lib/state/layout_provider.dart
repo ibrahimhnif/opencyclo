@@ -59,13 +59,27 @@ class LayoutNotifier extends StateNotifier<LayoutState> {
     final updatedPages = List<PageConfigModel>.from(state.config.pages);
     final currentPage = updatedPages[pageIndex];
 
-    // Adjust widget list length to fit new template's maxSlots
+    // Resize to the new template's slot count, padding with empty slots. Never
+    // pad with a concrete widget: `speed` only supports SIZE_HERO, so filling
+    // four medium slots with it produced a layout the device rejects outright
+    // (importLayoutFromString() fails the WHOLE import on one bad placement).
+    // An empty slot is explicitly legal on the device and draws nothing.
     final updatedWidgets = List<WidgetType>.from(currentPage.widgets);
     while (updatedWidgets.length < template.maxSlots) {
-      updatedWidgets.add(WidgetType.speed);
+      updatedWidgets.add(WidgetType.none);
     }
     if (updatedWidgets.length > template.maxSlots) {
       updatedWidgets.removeRange(template.maxSlots, updatedWidgets.length);
+    }
+
+    // Slot size classes differ between templates, so a widget that was valid
+    // before may not fit where it now lands. Clear those rather than carrying
+    // an unsyncable layout forward.
+    for (var i = 0; i < updatedWidgets.length; i++) {
+      final w = updatedWidgets[i];
+      if (w != WidgetType.none && !w.supportsSize(template.sizeOfSlot(i))) {
+        updatedWidgets[i] = WidgetType.none;
+      }
     }
 
     updatedPages[pageIndex] = PageConfigModel(

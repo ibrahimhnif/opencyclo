@@ -43,6 +43,12 @@ void initTelemetryState() {
     g_telemetry.battery_pct = 100;
 
     g_telemetry.ride_state = RIDE_STATE_IDLE;
+    g_telemetry.ride_revision = 0;
+    g_telemetry.ride_auto_allowed = true;
+    g_telemetry.ride_save = RIDE_SAVE_NONE;
+    g_telemetry.ride_file[0] = 0;
+    g_telemetry.gps_year = 0;
+    g_telemetry.gps_month = g_telemetry.gps_day = g_telemetry.gps_hour = g_telemetry.gps_minute = g_telemetry.gps_second = 0;
 
     g_gps_debug.total_chars = 0;
     g_gps_debug.sentences_passed = 0;
@@ -57,19 +63,74 @@ void initTelemetryState() {
 }
 
 TelemetryState getTelemetrySnapshot() {
-  TelemetryState snap;
-  if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+  TelemetryState snap{};
+  if (xSemaphoreTake(g_telemetry_mutex, portMAX_DELAY) == pdTRUE) {
     snap = g_telemetry;
     xSemaphoreGive(g_telemetry_mutex);
-  } else {
-    snap = g_telemetry;
   }
   return snap;
 }
 
-void setTelemetryState(const TelemetryState& newState) {
+static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
   if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-    g_telemetry = newState;
+    TelemetryState next = newState;
+    // Commands own lifecycle; only fusion owns accumulated ride statistics.
+    // Reject a fusion snapshot taken before a pause/finish/new ride command.
+    if (!fusion || next.ride_revision != g_telemetry.ride_revision ||
+        g_telemetry.ride_save != RIDE_SAVE_NONE) {
+      next.ride_state = g_telemetry.ride_state;
+      next.trip_distance_km = g_telemetry.trip_distance_km;
+      next.ride_time_s = g_telemetry.ride_time_s;
+      next.avg_speed_kmh = g_telemetry.avg_speed_kmh;
+      next.max_speed_kmh = g_telemetry.max_speed_kmh;
+      next.total_ascent_m = g_telemetry.total_ascent_m;
+    }
+    if (!g_telemetry.ride_auto_allowed) next.ride_state = g_telemetry.ride_state;
+    next.ride_revision = g_telemetry.ride_revision;
+    next.ride_auto_allowed = g_telemetry.ride_auto_allowed;
+    next.ride_save = g_telemetry.ride_save;
+    memcpy(next.ride_file,g_telemetry.ride_file,sizeof(next.ride_file));
+    g_telemetry = next;
+    xSemaphoreGive(g_telemetry_mutex);
+  }
+}
+void setTelemetryState(const TelemetryState& state) { mergeTelemetryState(state,false); }
+void setFusionTelemetryState(const TelemetryState& state) { mergeTelemetryState(state,true); }
+
+bool setManualRideState(RideState state) {
+  if (state != RIDE_STATE_ACTIVE && state != RIDE_STATE_PAUSED) return false;
+  if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+  bool ok = g_telemetry.ride_save != RIDE_SAVE_PENDING && g_telemetry.ride_save != RIDE_SAVE_ERROR &&
+            !(state == RIDE_STATE_PAUSED && g_telemetry.ride_state == RIDE_STATE_IDLE);
+  if (ok) {
+    if (g_telemetry.ride_state == RIDE_STATE_IDLE) {
+      g_telemetry.trip_distance_km = g_telemetry.avg_speed_kmh = g_telemetry.max_speed_kmh = 0;
+      g_telemetry.total_ascent_m = 0;g_telemetry.ride_time_s = 0;
+      g_telemetry.ride_save = RIDE_SAVE_NONE;g_telemetry.ride_file[0] = 0;
+    }
+    g_telemetry.ride_state = state;
+    g_telemetry.ride_auto_allowed = state == RIDE_STATE_ACTIVE;
+    ++g_telemetry.ride_revision;
+  }
+  xSemaphoreGive(g_telemetry_mutex);return ok;
+}
+bool requestFinishRide() {
+  if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+  bool ok = (g_telemetry.ride_state != RIDE_STATE_IDLE && g_telemetry.ride_save == RIDE_SAVE_NONE) ||
+            g_telemetry.ride_save == RIDE_SAVE_ERROR;
+  if (ok) {
+    g_telemetry.ride_state = RIDE_STATE_IDLE;g_telemetry.ride_auto_allowed = false;
+    g_telemetry.ride_save = RIDE_SAVE_PENDING;++g_telemetry.ride_revision;
+  }
+  xSemaphoreGive(g_telemetry_mutex);return ok;
+}
+void completeFinishRide(RideSaveState result,const char* filename) {
+  if (result != RIDE_SAVE_OK && result != RIDE_SAVE_ERROR && result != RIDE_SAVE_NO_FILE) return;
+  if (xSemaphoreTake(g_telemetry_mutex, portMAX_DELAY) == pdTRUE) {
+    if (g_telemetry.ride_save == RIDE_SAVE_PENDING) {
+      g_telemetry.ride_save = result;
+      snprintf(g_telemetry.ride_file,sizeof(g_telemetry.ride_file),"%s",filename?filename:"");
+    }
     xSemaphoreGive(g_telemetry_mutex);
   }
 }

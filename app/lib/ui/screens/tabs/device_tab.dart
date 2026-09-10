@@ -2,7 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/ble_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/device_ui.dart';
 
+/// Mirrors `renderWidgetBleManager` on the device.
+///
+/// Same structure, top to bottom: a full-width scan button that turns amber
+/// while scanning, then a list of sensor rows carrying a mac address and a
+/// destructive chip, then a muted status footer. The device says "scanning..."
+/// and "not paired"; so does this.
 class DeviceTab extends ConsumerWidget {
   const DeviceTab({super.key});
 
@@ -11,181 +18,127 @@ class DeviceTab extends ConsumerWidget {
     final bleState = ref.watch(bleProvider);
     final bleNotifier = ref.read(bleProvider.notifier);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('OPENCYCLO DEVICE'),
+    final connected = bleState.status == DeviceConnectionStatus.connected;
+    final connecting = bleState.status == DeviceConnectionStatus.connecting;
+
+    final String linkText;
+    final Color linkColor;
+    if (connected) {
+      linkText = 'linked';
+      linkColor = AppTheme.green;
+    } else if (connecting) {
+      linkText = 'linking...';
+      linkColor = AppTheme.amber;
+    } else {
+      linkText = 'no link';
+      linkColor = AppTheme.label;
+    }
+
+    return DeviceScreen(
+      statusBar: DeviceStatusBar(
+        title: 'device',
+        linkText: linkText,
+        linkColor: linkColor,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Connection Status Card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.card,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: (bleState.status == DeviceConnectionStatus.connected)
-                      ? AppTheme.green
-                      : AppTheme.cardAccent,
-                ),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    (bleState.status == DeviceConnectionStatus.connected)
-                        ? Icons.bluetooth_connected
-                        : Icons.bluetooth,
-                    size: 48,
-                    color: (bleState.status == DeviceConnectionStatus.connected)
-                        ? AppTheme.green
-                        : AppTheme.cyan,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    (bleState.status == DeviceConnectionStatus.connected)
-                        ? 'CONNECTED TO OPENCYCLO'
-                        : (bleState.status == DeviceConnectionStatus.connecting)
-                            ? 'CONNECTING...'
-                            : 'DISCONNECTED',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: (bleState.status == DeviceConnectionStatus.connected)
-                          ? AppTheme.green
-                          : Colors.white,
-                    ),
-                  ),
-                  if (bleState.connectedDevice != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      bleState.connectedDevice!.platformName.isNotEmpty
-                          ? bleState.connectedDevice!.platformName
-                          : bleState.connectedDevice!.remoteId.str,
-                      style: const TextStyle(color: AppTheme.textMuted, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.red,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () => bleNotifier.disconnect(),
-                      child: const Text('DISCONNECT'),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          AppTheme.gutter,
+          8,
+          AppTheme.gutter,
+          24,
+        ),
+        children: [
+          // The device draws its scan button first, cyan when idle and amber
+          // while a scan is running. Same colour logic here.
+          DeviceButton(
+            text: bleState.isScanning ? 'scanning...' : 'scan & add sensors',
+            color: bleState.isScanning ? AppTheme.amber : AppTheme.cyan,
+            icon: Icons.search,
+            busy: bleState.isScanning,
+            onPressed: bleState.isScanning
+                ? () => bleNotifier.stopScan()
+                : () => bleNotifier.startScan(),
+          ),
+          const SizedBox(height: 8),
 
-            // Scan Action Button
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.cyan,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          // Paired device, shown as a settings-style row rather than a card —
+          // the device has no cards.
+          if (bleState.connectedDevice != null) ...[
+            const DeviceSectionLabel(text: 'paired computer'),
+            DeviceListRow(
+              label: bleState.connectedDevice!.platformName.isNotEmpty
+                  ? bleState.connectedDevice!.platformName
+                  : 'opencyclo',
+              detail: bleState.connectedDevice!.remoteId.str,
+              trailing: DeviceChip(
+                text: 'forget',
+                color: AppTheme.red,
+                onTap: () => bleNotifier.disconnect(),
               ),
-              icon: bleState.isScanning
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                    )
-                  : const Icon(Icons.search),
-              label: Text(
-                bleState.isScanning ? 'SCANNING FOR OPENCYCLO...' : 'SCAN FOR DEVICES',
-                style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-              ),
-              onPressed: bleState.isScanning
-                  ? () => bleNotifier.stopScan()
-                  : () => bleNotifier.startScan(),
-            ),
-            const SizedBox(height: 20),
-
-            // Discovered Devices List
-            const Text(
-              'DISCOVERED DEVICES',
-              style: TextStyle(
-                color: AppTheme.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
-              ),
+              showDivider: false,
             ),
             const SizedBox(height: 8),
-
-            if (bleState.scanResults.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(24),
-                alignment: Alignment.center,
-                child: Text(
-                  bleState.isScanning
-                      ? 'Searching for nearby OpenCyclo computer...'
-                      : 'No devices found. Tap "Scan For Devices" to search.',
-                  style: const TextStyle(color: AppTheme.textMuted, fontSize: 13),
-                  textAlign: TextAlign.center,
-                ),
-              )
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: bleState.scanResults.length,
-                itemBuilder: (context, index) {
-                  final result = bleState.scanResults[index];
-                  String name = result.device.platformName;
-                  if (name.isEmpty) {
-                    name = result.advertisementData.advName;
-                  }
-                  if (name.isEmpty) {
-                    name = 'Unknown BLE Device';
-                  }
-
-                  final isOpenCyclo = name.contains('OpenCyclo');
-
-                  return Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppTheme.card,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: isOpenCyclo ? AppTheme.cyan : AppTheme.cardAccent,
-                      ),
-                    ),
-                    child: ListTile(
-                      leading: Icon(
-                        Icons.gps_fixed,
-                        color: isOpenCyclo ? AppTheme.cyan : AppTheme.textMuted,
-                      ),
-                      title: Text(
-                        name,
-                        style: TextStyle(
-                          color: isOpenCyclo ? Colors.white : AppTheme.textMuted,
-                          fontWeight: isOpenCyclo ? FontWeight.bold : FontWeight.normal,
-                        ),
-                      ),
-                      subtitle: Text(
-                        '${result.device.remoteId.str} | RSSI: ${result.rssi} dBm',
-                        style: const TextStyle(color: AppTheme.textMuted, fontSize: 11),
-                      ),
-                      trailing: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.green,
-                          foregroundColor: Colors.black,
-                        ),
-                        onPressed: () => bleNotifier.connect(result.device),
-                        child: const Text('CONNECT'),
-                      ),
-                    ),
-                  );
-                },
-              ),
           ],
-        ),
+
+          DeviceSectionLabel(
+            text: 'discovered',
+            trailing: Text(
+              '${bleState.scanResults.length}',
+              style: AppTheme.statusStyle(
+                bleState.scanResults.isEmpty ? AppTheme.label : AppTheme.cyan,
+              ),
+            ),
+          ),
+
+          if (bleState.scanResults.isEmpty)
+            DeviceEmptyState(
+              text: bleState.isScanning
+                  ? 'searching for nearby opencyclo...'
+                  : 'not paired. tap scan to search.',
+            )
+          else
+            ...List.generate(bleState.scanResults.length, (index) {
+              final result = bleState.scanResults[index];
+              var name = result.device.platformName;
+              if (name.isEmpty) name = result.advertisementData.advName;
+              if (name.isEmpty) name = 'unknown device';
+
+              final isOpenCyclo = name.toLowerCase().contains('opencyclo');
+              final isLast = index == bleState.scanResults.length - 1;
+
+              return DeviceListRow(
+                label: name,
+                detail:
+                    '${result.device.remoteId.str}  ·  rssi ${result.rssi} dbm',
+                showDivider: !isLast,
+                trailing: DeviceChip(
+                  // Green for the device we're looking for, muted cyan for
+                  // anything else that happened to answer the scan.
+                  text: 'connect',
+                  color: isOpenCyclo ? AppTheme.green : AppTheme.cyan,
+                  onTap: () => bleNotifier.connect(result.device),
+                ),
+              );
+            }),
+
+          const SizedBox(height: 16),
+
+          // The device closes its BLE page with a muted one-line status. So
+          // does this — same voice, same colour.
+          Text(
+            connected
+                ? 'link: gatt connected, telemetry streaming'
+                : 'link: searching...',
+            style: AppTheme.labelStyle,
+          ),
+          if (bleState.errorMessage.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              DeviceText.normalise(bleState.errorMessage),
+              style: AppTheme.statusStyle(AppTheme.red),
+            ),
+          ],
+        ],
       ),
     );
   }

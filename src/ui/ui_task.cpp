@@ -4,7 +4,10 @@
 #include "engine/layout_manager.h"
 #include "storage/layout_config.h"
 #include "storage/settings.h"
+#include "power_menu.h"
+#include "ride_menu.h"
 #include <stdlib.h>
+#include "navigation/navigation.h"
 
 static uint8_t currentPageIdx = 0;
 static uint8_t activePageDrawn = 255;
@@ -42,9 +45,31 @@ void uiTaskLoop(void* pvParameters) {
     if (g_i2c_mutex != NULL && xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
       isTouched = tft.getTouch(&x, &y);
       xSemaphoreGive(g_i2c_mutex);
+    } else {
+      // A busy I2C bus is not a touch release (especially over Power Off).
+      vTaskDelay(pdMS_TO_TICKS(10));
+      continue;
     }
 
-    if (isTouched) {
+    if (updatePowerUi(isTouched, x, y, now)) {
+      cancelNavigationTouch();
+      cancelRideMenuTouch();
+      wasTouched = false;
+      touchStartX = touchStartY = -1;
+      forceRedraw = true;
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
+
+    if (updateRideMenu(isTouched,x,y)) {
+      cancelNavigationTouch();wasTouched=false;touchStartX=touchStartY=-1;
+      forceRedraw=true;vTaskDelay(pdMS_TO_TICKS(10));continue;
+    }
+    if (navigationOpen()) {
+      navigationTouch(isTouched,x,y);
+      wasTouched=false;
+      touchStartX=touchStartY=-1;
+    } else if (isTouched) {
       if (!wasTouched) {
         touchStartX = x;
         touchStartY = y;
@@ -63,8 +88,12 @@ void uiTaskLoop(void* pvParameters) {
 
         uint8_t totalPages = (g_ui_config.active_page_count > 0) ? g_ui_config.active_page_count : 1;
 
+        // Map drags pan instead of changing dashboard pages.
+        if (abs(deltaX)<20 && abs(deltaY)<20 && touchStartY<28) {
+          if(touchStartX>=134)openRideMenu();else openNavigation();
+        }
         // Gesture 1: SWIPE LEFT (Next Page)
-        if (deltaX < -35 && abs(deltaY) < 70) {
+        else if (deltaX < -35 && abs(deltaY) < 70) {
           currentPageIdx = (currentPageIdx + 1) % totalPages;
           Serial.printf("[UI GESTURE] Swiped Left -> Page %u/%u\n", currentPageIdx + 1, totalPages);
           forceRedraw = true;
@@ -95,6 +124,14 @@ void uiTaskLoop(void* pvParameters) {
 
     // Fetch snapshot of telemetry state
     TelemetryState state = getTelemetrySnapshot();
+    if (!navigationOpen()) updateNavigation(state);
+    if (navigationOpen()) {
+      renderNavigation(state);
+      forceRedraw=true;
+      // Poll touch between the map's 33 ms frame slots.
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue;
+    }
 
     // Render active dynamic page from UiConfig -- every widget/layout draw
     // call targets the off-screen canvas sprite, not the panel directly.

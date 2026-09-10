@@ -19,6 +19,7 @@ enum RideState {
   RIDE_STATE_ACTIVE,
   RIDE_STATE_PAUSED
 };
+enum RideSaveState { RIDE_SAVE_NONE, RIDE_SAVE_PENDING, RIDE_SAVE_OK, RIDE_SAVE_ERROR, RIDE_SAVE_NO_FILE };
 
 struct GpsFix {
   bool isValid;
@@ -79,6 +80,12 @@ struct TelemetryState {
   
   // State Machine
   RideState ride_state;
+  uint32_t ride_revision;
+  bool ride_auto_allowed;
+  RideSaveState ride_save;
+  char ride_file[64];
+  uint16_t gps_year;
+  uint8_t gps_month, gps_day, gps_hour, gps_minute, gps_second;
 };
 
 extern TelemetryState g_telemetry;
@@ -89,6 +96,10 @@ extern SemaphoreHandle_t g_i2c_mutex;
 void initTelemetryState();
 TelemetryState getTelemetrySnapshot();
 void setTelemetryState(const TelemetryState& newState);
+void setFusionTelemetryState(const TelemetryState& newState);
+bool setManualRideState(RideState state);
+bool requestFinishRide();
+void completeFinishRide(RideSaveState result, const char* filename);
 void addNmeaDebugLine(const char* line);
 
 #endif // OPENCYCLO_TELEMETRY_STATE_H

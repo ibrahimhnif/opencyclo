@@ -1,4 +1,5 @@
 #include "ble_ota_handler.h"
+#include "hardware/power.h"
 #include <Update.h>
 #include <esp_ota_ops.h>
 
@@ -9,6 +10,15 @@ static size_t otaTotalBytes = 0;
 static size_t otaWrittenBytes = 0;
 static bool otaInProgress = false;
 
+void abortBleOtaOnDisconnect() {
+  // Invoked on the same NimBLE host task as the OTA write callbacks.
+  if (!otaInProgress) return;
+  Update.abort();
+  otaInProgress = false;
+  endFirmwareUpdate();
+  Serial.println("[BLE OTA] Disconnected; aborted incomplete update.");
+}
+
 class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* pChar) override {
     std::string val = pChar->getValue();
@@ -18,6 +28,12 @@ class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
 
     // CMD 0x01: BEGIN OTA (Payload: 1 byte cmd + 4 bytes totalSize)
     if (cmd == 0x01 && val.length() >= 5) {
+      if (!beginFirmwareUpdate()) {
+        uint8_t resp[2] = {0xFF, 0xFE}; // busy: OTA or shutdown already owns power
+        pChar->setValue(resp, 2);
+        pChar->notify();
+        return;
+      }
       uint32_t size = 0;
       memcpy(&size, val.data() + 1, 4);
       otaTotalBytes = size;
@@ -30,6 +46,7 @@ class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
         pChar->setValue(resp, 2);
         pChar->notify();
         otaInProgress = false;
+        endFirmwareUpdate();
         return;
       }
 
@@ -57,12 +74,14 @@ class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
         pChar->notify();
       }
       otaInProgress = false;
+      endFirmwareUpdate();
     }
     // CMD 0x03: ABORT OTA
     else if (cmd == 0x03) {
       Serial.println("[BLE OTA] OTA Aborted by client.");
       Update.abort();
       otaInProgress = false;
+      endFirmwareUpdate();
       uint8_t resp[2] = {0x00, 0x00};
       pChar->setValue(resp, 2);
       pChar->notify();

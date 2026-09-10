@@ -9,3 +9,5 @@
 .vscode/ipch
 .DS_Store
 .superpowers/
+/artifacts/indonesia/
+__pycache__/

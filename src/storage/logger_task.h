@@ -7,5 +7,7 @@
 
 void startLoggerTask();
 void loggerTaskLoop(void* pvParameters);
+bool prepareLoggerForPowerOff(uint32_t timeoutMs);
+void resumeLoggerAfterPowerOff();
 
 #endif // OPENCYCLO_STORAGE_LOGGER_TASK_H

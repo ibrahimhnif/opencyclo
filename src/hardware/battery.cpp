@@ -3,13 +3,16 @@
 
 void initBatteryADC() {
   analogReadResolution(12);
+  analogSetPinAttenuation(PIN_BATTERY_ADC, ADC_11db);
   pinMode(PIN_BATTERY_ADC, INPUT);
 }
 
 float readBatteryVoltage() {
   // Read calibrated millivolts on GPIO 9 (PIN_BATTERY_ADC)
-  uint32_t rawMv = analogReadMilliVolts(PIN_BATTERY_ADC);
-  // Built-in 100k/100k voltage divider on board doubles the voltage
+  uint32_t rawMv = 0;
+  for (int i = 0; i < 16; ++i) rawMv += analogReadMilliVolts(PIN_BATTERY_ADC);
+  rawMv /= 16;
+  // Built-in equal-resistor voltage divider (200k/200k in the board schematic).
   float vBat = (rawMv * 2.0f) / 1000.0f;
   return vBat;
 }

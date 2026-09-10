@@ -29,7 +29,6 @@ void startFusionTask() {
 }
 
 void fusionTaskLoop(void* pvParameters) {
-  initBatteryADC();
   GpsFix fix;
   BaroSample baro;
 
@@ -42,6 +41,7 @@ void fusionTaskLoop(void* pvParameters) {
   float prevAlt = 0.0f;
   float smoothAlt = 0.0f;
   float distForGradeKm = 0.0f;
+  uint32_t rideRevision = 0;
 
   for (;;) {
     uint32_t now = millis();
@@ -60,6 +60,13 @@ void fusionTaskLoop(void* pvParameters) {
     // they round-trip through the same shared state either way, since
     // FusionTask remains their only writer.
     TelemetryState state = getTelemetrySnapshot();
+    if (rideRevision != state.ride_revision || state.ride_state != RIDE_STATE_ACTIVE) {
+      prevLat = prevLon = 0;distForGradeKm = 0;prevAlt = smoothAlt;
+      if (rideRevision != state.ride_revision) {
+        speedAbove4StartMs = speedBelow1_5StartMs = 0;lastSecondTickMs = now;
+      }
+      rideRevision = state.ride_revision;
+    }
 
     // Check battery every 2 seconds
     if (now - lastBatCheckMs >= 2000) {
@@ -89,6 +96,8 @@ void fusionTaskLoop(void* pvParameters) {
 
     // Process GPS Telemetry Fix
     if (gotGpsFix) {
+      state.gps_year=fix.year;state.gps_month=fix.month;state.gps_day=fix.day;
+      state.gps_hour=fix.hour;state.gps_minute=fix.minute;state.gps_second=fix.second;
       state.gps_has_fix = fix.isValid;
       state.satellites = fix.satellites;
       state.hdop = fix.hdop;
@@ -152,7 +161,9 @@ void fusionTaskLoop(void* pvParameters) {
     // Movement Detection & Auto Start / Pause State Machine
     float effectiveSpeed = state.speed_kmh;
 
-    if (effectiveSpeed >= 4.0f) {
+    if (!state.ride_auto_allowed) {
+      speedAbove4StartMs = speedBelow1_5StartMs = 0;
+    } else if (effectiveSpeed >= 4.0f) {
       speedBelow1_5StartMs = 0;
       if (speedAbove4StartMs == 0) {
         speedAbove4StartMs = now;
@@ -189,7 +200,7 @@ void fusionTaskLoop(void* pvParameters) {
       }
     }
 
-    setTelemetryState(state);
+    setFusionTelemetryState(state);
 
     vTaskDelay(pdMS_TO_TICKS(50));
   }

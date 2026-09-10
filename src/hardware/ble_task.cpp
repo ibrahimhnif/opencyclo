@@ -5,6 +5,26 @@
 #include "core/telemetry_state.h"
 #include "storage/settings.h"
 #include <NimBLEDevice.h>
+#include <atomic>
+#include "navigation/navigation.h"
+
+static std::atomic<int> stopState{0};
+
+bool prepareBleForPowerOff(uint32_t timeoutMs) {
+  stopState.store(1);
+  uint32_t start = millis();
+  while (stopState.load() != 2) {
+    if (millis() - start >= timeoutMs) {
+      stopState.store(0);
+      return false;
+    }
+    delay(10);
+  }
+  return true;
+}
+
+void resumeBleAfterPowerOff() { stopState.store(0); }
+void stopBleForPowerOff() { abortRouteTransfer(); NimBLEDevice::deinit(true); }
 
 bool g_ble_scanning = false;
 static NimBLEScan* pBLEScan = nullptr;
@@ -222,6 +242,9 @@ class ServerCallbacks : public NimBLEServerCallbacks {
   }
 
   void onDisconnect(NimBLEServer* pServer) override {
+    abortBleOtaOnDisconnect();
+    abortRouteTransfer();
+    if (stopState.load() != 0) return;
     Serial.println("[BLE SERVER] Mobile App disconnected. Restarting advertising...");
     NimBLEDevice::startAdvertising();
   }
@@ -291,6 +314,16 @@ void bleTaskLoop(void* pvParameters) {
   uint32_t lastHrConnectAttemptMs = 0;
 
   for (;;) {
+    // Power-off owns the radio once requested. Acknowledge before starting
+    // any potentially blocking reconnect/pairing work so shutdown does not
+    // have to wait through a BLE timeout.
+    if (stopState.load() != 0) {
+      int expected = 1;
+      stopState.compare_exchange_strong(expected, 2);
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+
     if (hrConnectPending) {
       hrConnectPending = false;
       lastHrConnectAttemptMs = millis();
@@ -315,6 +348,7 @@ void bleTaskLoop(void* pvParameters) {
     }
 
     tickCameraPairing();
+    tickRouteTransfer();
 
     if (g_ble_scanning) {
       if (!pBLEScan->isScanning()) {

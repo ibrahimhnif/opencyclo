@@ -13,6 +13,17 @@ Arduino framework.
   (standard GATT profiles — works with most off-the-shelf sensors)
 - Touchscreen UI: Ride / Climb / Sensors / Settings pages
 - GPX ride logging to microSD
+- Offline OSM road maps, free ride and GPX navigation with Flutter route sync
+
+- BOOT-button screen toggle, power-off/deep-sleep and restart menu
+- Battery voltage/estimate and charging information
+- Optional USB-triggered charging screen with ON (requires an external USB detector)
+
+See [offline navigation setup](docs/offline-navigation.md) for Indonesia map
+generation, SD installation, device controls and the GPX sync workflow.
+
+See [Power and charging](docs/power-and-charging.md) for controls, hardware
+limits, and verification steps.
 
 ## Status
 

@@ -1,5 +1,6 @@
 #include "layout_manager.h"
 #include <stdio.h>
+#include "ui/ride_menu.h"
 
 static uint16_t COLOR_BG       = TFT_BLACK;
 static uint16_t COLOR_TEXT     = TFT_WHITE;
@@ -104,13 +105,7 @@ void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, con
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextColor(TFT_BLACK, btnColor);
     canvas.setCursor(btn.x + 50, btn.y + 16);
-    if (state.ride_state == RIDE_STATE_ACTIVE) {
-      canvas.print("pause ride");
-    } else if (state.ride_state == RIDE_STATE_PAUSED) {
-      canvas.print("resume ride");
-    } else {
-      canvas.print("start ride");
-    }
+    canvas.print("ride controls");
   }
 }
 
@@ -120,9 +115,7 @@ bool handlePageTouch(const PageConfig& page, int16_t x, int16_t y) {
   if (slotDef.has_action_button) {
     const Rect& btn = slotDef.action_button_rect;
     if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
-      TelemetryState state = getTelemetrySnapshot();
-      state.ride_state = (state.ride_state == RIDE_STATE_ACTIVE) ? RIDE_STATE_PAUSED : RIDE_STATE_ACTIVE;
-      setTelemetryState(state);
+      openRideMenu();
       Serial.println("[UI] Ride state toggled via Action Button");
       return true;
     }

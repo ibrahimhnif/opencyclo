@@ -1,5 +1,6 @@
 #include "widget_registry.h"
 #include "widget_catalog.h"
+#include "ui/power_menu.h"
 #include "storage/settings.h"
 #include "hardware/battery.h"
 #include "hardware/ble_task.h"
@@ -373,6 +374,17 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   row("battery", batStr, COLOR_GREEN);
 
   row("firmware", "v0.2.0", COLOR_CYAN);
+
+  // Filled controls are the only raised surfaces in the Minimal UI. Keep the
+  // power entry in the same cyan/black treatment as the other primary action
+  // buttons, and render it to the shared sprite like the rest of the page.
+  if (b.h >= 266) {
+    canvas.fillRoundRect(b.x + 10, b.y + 224, b.w - 20, 36, 6, COLOR_CYAN);
+    canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
+    canvas.setTextPadding(b.w - 48);
+    canvas.drawString("power / charging", b.x + 24, b.y + 233);
+    canvas.setTextPadding(0);
+  }
 }
 
 // A row's visible cell is everything between the divider above it and its own
@@ -387,7 +399,11 @@ static bool settingsRowHit(const Rect& b, int16_t y, uint8_t index) {
 }
 
 static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
-  (void)x; // rows span the full widget width
+  if (b.h >= 266 && x >= b.x + 10 && x < b.x + b.w - 10 &&
+      y >= b.y + 224 && y < b.y + 260) {
+    openPowerMenu();
+    return true;
+  }
   if (settingsRowHit(b, y, 0)) { // units
     g_settings.units = (g_settings.units == 0) ? 1 : 0;
     saveSettings();

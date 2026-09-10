@@ -2,6 +2,7 @@
 #include "storage/layout_config.h"
 #include "core/telemetry_state.h"
 #include <Arduino.h>
+#include "navigation/navigation.h"
 
 static NimBLECharacteristic* pLayoutConfigChar = nullptr;
 static NimBLECharacteristic* pTelemetryStreamChar = nullptr;
@@ -40,15 +41,11 @@ class DeviceCommandCallbacks : public NimBLECharacteristicCallbacks {
     if (val.empty()) return;
 
     uint8_t cmd = (uint8_t)val[0];
-    TelemetryState state = getTelemetrySnapshot();
-
     if (cmd == 0x01) { // Start Ride
-      state.ride_state = RIDE_STATE_ACTIVE;
-      setTelemetryState(state);
+      setManualRideState(RIDE_STATE_ACTIVE);
       Serial.println("[BLE CMD] Ride STARTED via App command.");
     } else if (cmd == 0x02) { // Pause Ride
-      state.ride_state = RIDE_STATE_PAUSED;
-      setTelemetryState(state);
+      setManualRideState(RIDE_STATE_PAUSED);
       Serial.println("[BLE CMD] Ride PAUSED via App command.");
     } else if (cmd == 0x03) { // Reset Defaults
       resetLayoutToDefaults();
@@ -85,6 +82,7 @@ void initBleLayoutSyncService(NimBLEServer* pServer) {
   );
   pDeviceCommandChar->setCallbacks(new DeviceCommandCallbacks());
 
+  initNavigationService(pService);
   pService->start();
   Serial.println("[BLE SYNC] OpenCyclo GATT Communication Service registered.");
 }

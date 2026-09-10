@@ -8,5 +8,6 @@
 #define BLE_OTA_DATA_UUID    "00001912-0000-1000-8000-00805F9B34FB"
 
 void initBleOtaService(NimBLEServer* pServer);
+void abortBleOtaOnDisconnect();
 
 #endif // OPENCYCLO_HARDWARE_BLE_OTA_HANDLER_H

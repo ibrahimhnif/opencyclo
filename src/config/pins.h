@@ -45,6 +45,16 @@
 // Battery ADC
 #define PIN_BATTERY_ADC 9
 
+// On-board BOOT/download button (KEY2), active low; also an RTC wake pin.
+#define PIN_POWER_BUTTON 0
+
+// Optional EXTERNAL USB VBUS detector: HIGH when USB power is present.
+// The stock board has no such signal. Enable only after wiring a detector
+// with an ESP32-safe output voltage and a defined LOW when unplugged.
+#ifndef PIN_USB_POWER_SENSE
+#define PIN_USB_POWER_SENSE -1
+#endif
+
 // Expansion GPIOs
 #define PIN_EXP_1     2
 #define PIN_EXP_2     3

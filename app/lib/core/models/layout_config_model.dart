@@ -1,30 +1,82 @@
 import 'dart:convert';
 
-enum WidgetType {
-  none(0, "None", "-"),
-  speed(1, "Speed (Hero)", "KM/H"),
-  avgSpeed(2, "Average Speed", "KM/H"),
-  maxSpeed(3, "Max Speed", "KM/H"),
-  distance(4, "Trip Distance", "KM"),
-  rideTime(5, "Ride Time", "TIME"),
-  cadence(6, "Cadence", "RPM"),
-  heartRate(7, "Heart Rate", "BPM"),
-  power(8, "Power Meter", "W"),
-  altitude(9, "Altitude", "M"),
-  grade(10, "Grade %", "%"),
-  totalAscent(11, "Total Ascent", "M"),
-  elevationChart(12, "Elevation Profile Chart", "30s"),
-  clock(13, "GPS Clock", "TIME"),
-  battery(14, "Battery Status", "%"),
-  gpsDiagnostics(15, "GPS Diagnostics", "GPS"),
-  nmeaConsole(16, "NMEA Live Console", "LOG"),
-  bleManager(17, "BLE Sensors Manager", "SENSORS"),
-  settingsList(18, "System Settings List", "SETTINGS");
+/// Slot size classes, mirroring `SizeClass` in `src/ui/engine/widget_types.h`.
+///
+/// These are NOT ordered by area and a bigger slot is not automatically valid:
+/// LARGE (232x192), HERO (232x94) and FULL (232x274) are different footprints.
+/// Placement is exact bitmask membership, exactly as `widgetSupportsSize()`
+/// enforces on the device.
+enum SizeClass {
+  small(0, '74x54'),
+  medium(1, '114x60'),
+  large(2, '232x192'),
+  hero(3, '232x94'),
+  full(4, '232x274');
 
   final int id;
+  final String dimensions;
+  const SizeClass(this.id, this.dimensions);
+}
+
+/// A 1:1 port of `s_catalog[]` in `src/ui/engine/widget_catalog.cpp`.
+///
+/// The ids here are the wire format: `toJsonString()` writes them straight into
+/// the layout JSON, and the firmware's `importLayoutFromString()` range-checks
+/// each one against `WIDGET_TYPE_COUNT` and REJECTS THE WHOLE IMPORT on a
+/// mismatch. They must stay identical to `WidgetType` in `widget_types.h`.
+///
+/// `label` is the string the device actually draws for the widget, so the
+/// builder names a widget the same way the panel will. `sizes` is the firmware's
+/// `supported_sizes_mask`, which the device also validates on import — a widget
+/// in a slot it does not support rejects the entire layout, not just that slot.
+///
+/// There is deliberately no entry here without a firmware counterpart. The
+/// device can only render ids 0..15; anything else fails the import outright.
+enum WidgetType {
+  none(0, 'None', '', '', '', {}),
+  speed(1, 'Speed', 'speed', 'km/h', 'mph', {SizeClass.hero}),
+  avgSpeed(2, 'Avg Speed', 'avg spd', 'km/h', 'mph',
+      {SizeClass.small, SizeClass.medium}),
+  maxSpeed(3, 'Max Speed', 'max spd', 'km/h', 'mph',
+      {SizeClass.small, SizeClass.medium}),
+  distance(4, 'Distance', 'dist', 'km', 'mi', {SizeClass.medium}),
+  rideTime(5, 'Ride Time', 'ride time', '', '', {SizeClass.medium}),
+  cadence(6, 'Cadence', 'cadence', 'rpm', 'rpm', {SizeClass.small}),
+  heartRate(7, 'Heart Rate', 'heart', 'bpm', 'bpm', {SizeClass.small}),
+  power(8, 'Power', 'power', 'w', 'w', {SizeClass.small}),
+  altitude(9, 'Altitude', 'alt', 'm', 'ft',
+      {SizeClass.small, SizeClass.medium}),
+  grade(10, 'Grade', 'grade', '%', '%', {SizeClass.small, SizeClass.medium}),
+  totalAscent(11, 'Total Ascent', 'asc', 'm', 'ft',
+      {SizeClass.small, SizeClass.medium}),
+  elevationChart(12, 'Elevation Chart', 'elevation profile', '', '',
+      {SizeClass.large, SizeClass.full}),
+  battery(13, 'Battery', 'battery', '%', '%', {SizeClass.small}),
+  bleManager(14, 'BLE Manager', 'sensors', '', '', {SizeClass.full}),
+  settingsList(15, 'Settings List', 'settings', '', '', {SizeClass.full});
+
+  final int id;
+
+  /// Title-case picker name, from the catalog's `name` column.
+  final String name;
+
+  /// The literal the device draws, from the catalog's `label` column.
   final String label;
-  final String unit;
-  const WidgetType(this.id, this.label, this.unit);
+
+  final String unitMetric;
+  final String unitImperial;
+
+  /// The firmware's `supported_sizes_mask`, as a set.
+  final Set<SizeClass> sizes;
+
+  const WidgetType(this.id, this.name, this.label, this.unitMetric,
+      this.unitImperial, this.sizes);
+
+  /// Mirrors `widgetSupportsSize()`. A widget may only sit in a slot whose size
+  /// class it declares — the device rejects the whole layout otherwise.
+  bool supportsSize(SizeClass size) => sizes.contains(size);
+
+  String unit(bool imperial) => imperial ? unitImperial : unitMetric;
 
   static WidgetType fromId(int id) {
     return WidgetType.values.firstWhere(
@@ -34,17 +86,66 @@ enum WidgetType {
   }
 }
 
+/// Ports `s_templates[]` from `src/ui/engine/template_engine.cpp`, including
+/// each slot's size class so the builder can only offer placements the device
+/// will accept.
 enum LayoutTemplate {
-  hero6Grid(0, "Hero 6-Grid (1 Hero + 2 Mid + 3 Bot)", 6),
-  fourGrid(1, "4-Grid Symmetric (2x2)", 4),
-  twoGridChart(2, "2-Grid + Altitude Chart", 3),
-  eightGrid(3, "8-Grid Pro View (2x4)", 8),
-  fullContainer(4, "Full Container Card", 1);
+  hero6Grid(0, 'Hero 6-Grid', [
+    SizeClass.hero,
+    SizeClass.medium,
+    SizeClass.medium,
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+  ]),
+  fourGrid(1, '4-Grid Symmetric', [
+    SizeClass.medium,
+    SizeClass.medium,
+    SizeClass.medium,
+    SizeClass.medium,
+  ]),
+  twoGridChart(2, '2-Grid + Chart', [
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.large,
+  ]),
+  eightGrid(3, '8-Grid Pro View', [
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+    SizeClass.small,
+  ]),
+  fullContainer(4, 'Full Container', [SizeClass.full]);
 
   final int id;
+
+  /// The firmware's own template name, from `s_templates[].name`.
   final String label;
-  final int maxSlots;
-  const LayoutTemplate(this.id, this.label, this.maxSlots);
+
+  final List<SizeClass> slotSizes;
+
+  const LayoutTemplate(this.id, this.label, this.slotSizes);
+
+  int get maxSlots => slotSizes.length;
+
+  SizeClass sizeOfSlot(int index) =>
+      (index >= 0 && index < slotSizes.length) ? slotSizes[index] : slotSizes.last;
+
+  /// Widgets the device will accept in this slot, always including `none` so a
+  /// slot can be emptied.
+  List<WidgetType> widgetsForSlot(int index) {
+    final size = sizeOfSlot(index);
+    return [
+      WidgetType.none,
+      ...WidgetType.values.where(
+        (w) => w != WidgetType.none && w.supportsSize(size),
+      ),
+    ];
+  }
 
   static LayoutTemplate fromId(int id) {
     return LayoutTemplate.values.firstWhere(
@@ -110,12 +211,19 @@ class UiConfigModel {
     return UiConfigModel(pageCount: count, pages: pages);
   }
 
+  /// Mirrors the firmware's own defaults in `src/storage/layout_config.cpp`.
+  ///
+  /// Titles are short and lowercase on purpose: the device draws the title into
+  /// a 68px band (`STATUS_TITLE_W` in layout_manager.cpp, sized for "sensors" at
+  /// 63px), and the gps segment's padded erase clips anything wider on every
+  /// frame. "RIDE TELEMETRY" measures well past that and would render truncated
+  /// on the panel.
   factory UiConfigModel.defaultConfig() {
     return UiConfigModel(
-      pageCount: 5,
+      pageCount: 4,
       pages: [
         PageConfigModel(
-          title: "RIDE TELEMETRY",
+          title: "ride",
           template: LayoutTemplate.hero6Grid,
           widgets: [
             WidgetType.speed,
@@ -127,7 +235,7 @@ class UiConfigModel {
           ],
         ),
         PageConfigModel(
-          title: "CLIMB & ELEVATION",
+          title: "climb",
           template: LayoutTemplate.twoGridChart,
           widgets: [
             WidgetType.altitude,
@@ -136,17 +244,12 @@ class UiConfigModel {
           ],
         ),
         PageConfigModel(
-          title: "BLE & GPS SENSORS",
+          title: "sensors",
           template: LayoutTemplate.fullContainer,
           widgets: [WidgetType.bleManager],
         ),
         PageConfigModel(
-          title: "NMEA LIVE CONSOLE",
-          template: LayoutTemplate.fullContainer,
-          widgets: [WidgetType.nmeaConsole],
-        ),
-        PageConfigModel(
-          title: "SYSTEM PREFERENCES",
+          title: "settings",
           template: LayoutTemplate.fullContainer,
           widgets: [WidgetType.settingsList],
         ),

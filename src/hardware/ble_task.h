@@ -29,5 +29,8 @@ void startBleTask();
 void bleTaskLoop(void* pvParameters);
 void triggerBleScan();
 void forgetSensorProfile(BleProfileType profile);
+bool prepareBleForPowerOff(uint32_t timeoutMs);
+void resumeBleAfterPowerOff();
+void stopBleForPowerOff();
 
 #endif // OPENCYCLO_HARDWARE_BLE_TASK_H
