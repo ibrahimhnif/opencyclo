@@ -32,7 +32,7 @@ class AppTheme {
   static const Color text = Color(0xFFFFFFFF);
 
   /// `COLOR_LABEL = tft.color565(102, 102, 102)`
-  static const Color label = Color(0xFF666666);
+  static const Color label = Color(0xFFA8B1BD);
 
   /// `COLOR_HAIRLINE = tft.color565(28, 28, 28)`
   static const Color hairline = Color(0xFF1C1C1C);
@@ -44,7 +44,7 @@ class AppTheme {
   static const Color amber = Color(0xFFFFAB00);
 
   /// `COLOR_RED = tft.color565(255, 71, 87)` — destructive, error, heart rate.
-  static const Color red = Color(0xFFFF4757);
+  static const Color red = Color(0xFFFF6974);
 
   /// `COLOR_CYAN = tft.color565(0, 210, 255)` — active selection, cadence.
   static const Color cyan = Color(0xFF00D2FF);
@@ -96,8 +96,8 @@ class AppTheme {
   }
 
   /// FreeSans9pt7b — tile labels, status segments, row labels.
-  static TextStyle get labelStyle => _base(11, label, FontWeight.w400)
-      .copyWith(letterSpacing: 0.2);
+  static TextStyle get labelStyle =>
+      _base(11, label, FontWeight.w400).copyWith(letterSpacing: 0.2);
 
   /// A label that carries state (gps fix, ride state) — same size, colour varies.
   static TextStyle statusStyle(Color color) =>

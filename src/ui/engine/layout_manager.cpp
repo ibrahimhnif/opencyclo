@@ -1,137 +1,82 @@
 #include "layout_manager.h"
 #include <stdio.h>
 #include "ui/ride_menu.h"
+#include "ui/control_layout.h"
+#include "navigation/navigation.h"
 
-static uint16_t COLOR_BG       = TFT_BLACK;
-static uint16_t COLOR_TEXT     = TFT_WHITE;
-static uint16_t COLOR_LABEL    = tft.color565(102, 102, 102);
-static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
-static uint16_t COLOR_AMBER    = tft.color565(255, 171, 0);
-static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
-
-// ---------------------------------------------------------------------------
-// Status header geometry — ONE row, three side-by-side segments.
-//
-// Every template's first content slot starts at y = 28 (see template_engine.cpp),
-// so the whole header has to live above that. FreeSans9pt7b measures 18px tall
-// in LovyanGFX, so a single line drawn at y = 5 occupies rows 5..22 and leaves a
-// 5px margin before the content band. Two 18px lines would not fit, which is why
-// the title, gps status and ride state share this one row.
-//
-// Horizontal bands on the 240px-wide panel, each sized to the widest string its
-// segment can produce (FreeSansBold9pt7b — measured from the actual glyph
-// tables, not estimated): "settings" = 69px, "gps 99" = 57px, "pause 100%" =
-// 103px. The state band used to end exactly at the 240px panel edge with only
-// 102px of erase width, which the bold weight overflowed by 1px — silently
-// disabling the padded erase for that one string (LovyanGFX only widens the
-// erase when padx > cwidth). Reclaimed the 4px from the gps/state gap instead
-// of shrinking anything else, since bold "gps 99" (57px) still fits its 58px
-// band with room to spare.
-//   title   x   4 .. 72   (68px)
-//   gps     x  76 .. 134  (58px)
-//   state   x 134 .. 240  (106px)
-// ---------------------------------------------------------------------------
-static const int16_t STATUS_ROW_Y   = 5;
-static const int16_t STATUS_TITLE_X = 4;
-static const int16_t STATUS_TITLE_W = 68;
-static const int16_t STATUS_GPS_X   = 76;
-static const int16_t STATUS_GPS_W   = 58;
-static const int16_t STATUS_STATE_X = 134;
-static const int16_t STATUS_STATE_W = 106;
-
-void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, const TelemetryState& state, bool forceFullRedraw) {
-  const TemplateSlotDefinition& slotDef = getTemplateDefinition(page.template_id);
-
-  if (forceFullRedraw) {
-    canvas.fillScreen(COLOR_BG);
-
-    // Segment 1 of the status header: page title. Only redrawn on a page
-    // change (the fillScreen above already cleared it); the gps segment's
-    // padded erase below clips any over-long title at x=76 every frame, so a
-    // long app-supplied title can never collide with the live segments.
-    canvas.setFont(&fonts::FreeSansBold9pt7b);
-    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-    canvas.setTextPadding(STATUS_TITLE_W);
-    canvas.drawString(page.title, STATUS_TITLE_X, STATUS_ROW_Y);
-    canvas.setTextPadding(0);
-
-    if (totalPages > 1) {
-      int startX = 120 - (totalPages * 8) / 2;
-      for (int i = 0; i < totalPages; i++) {
-        uint16_t dotColor = (i == pageIdx) ? COLOR_CYAN : COLOR_LABEL;
-        canvas.fillCircle(startX + (i * 8), 312, (i == pageIdx) ? 3 : 2, dotColor);
-      }
-    }
-  }
-
-  // Segment 2: gps fix / satellite count. Green when fixed, amber otherwise.
+namespace {
+constexpr uint16_t bg=TFT_BLACK,muted=ui::muted,cyan=ui::accent,panel=ui::panel;
+void header(const PageConfig& page,const TelemetryState& state,uint8_t pageIdx,uint8_t totalPages) {
+  canvas.fillRect(0,0,240,ui::headerHeight,bg);
+  ui::drawIcon(canvas,ui::Icon::Map,10,10,cyan);
+  ui::drawIcon(canvas,ui::Icon::Ride,206,10,cyan);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(state.gps_has_fix ? COLOR_GREEN : COLOR_AMBER, COLOR_BG);
-  canvas.setTextPadding(STATUS_GPS_W);
-  if (state.gps_has_fix) {
-    // Clamp the printed count so the string can never outgrow its band
-    // (satellites is a uint8_t; a bogus 3-digit value would overflow it).
-    char gpsBuf[10];
-    snprintf(gpsBuf, sizeof(gpsBuf), "gps %u", (unsigned)(state.satellites > 99 ? 99 : state.satellites));
-    canvas.drawString(gpsBuf, STATUS_GPS_X, STATUS_ROW_Y);
-  } else {
-    canvas.drawString("gps --", STATUS_GPS_X, STATUS_ROW_Y);
-  }
+  canvas.setTextColor(TFT_WHITE,bg);
   canvas.setTextPadding(0);
-
-  // Segment 3: ride state + battery, right-hand end of the same row.
-  uint16_t stateColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_GREEN :
-                        ((state.ride_state == RIDE_STATE_PAUSED) ? COLOR_AMBER : COLOR_LABEL);
-  canvas.setTextColor(stateColor, COLOR_BG);
-  canvas.setTextPadding(STATUS_STATE_W);
-  char stateBuf[16];
-  snprintf(stateBuf, sizeof(stateBuf), "%s %u%%", (state.ride_state == RIDE_STATE_ACTIVE) ? "rec" :
-                        ((state.ride_state == RIDE_STATE_PAUSED) ? "pause" : "stop"), state.battery_pct);
-  canvas.drawString(stateBuf, STATUS_STATE_X, STATUS_ROW_Y);
-  canvas.setTextPadding(0);
-
-  uint8_t count = (page.widget_count < slotDef.max_slots) ? page.widget_count : slotDef.max_slots;
-  for (uint8_t i = 0; i < count; i++) {
-    WidgetType wType = page.widgets[i];
-    if (wType != WIDGET_NONE) {
-      renderWidget(wType, slotDef.slots[i], state, forceFullRedraw);
-    }
-  }
-
-  if (slotDef.has_action_button) {
-    const Rect& btn = slotDef.action_button_rect;
-    uint16_t btnColor = (state.ride_state == RIDE_STATE_ACTIVE) ? COLOR_AMBER : COLOR_GREEN;
-    canvas.fillRoundRect(btn.x, btn.y, btn.w, btn.h, 8, btnColor);
-    canvas.setFont(&fonts::FreeSansBold12pt7b);
-    canvas.setTextColor(TFT_BLACK, btnColor);
-    canvas.setCursor(btn.x + 50, btn.y + 16);
-    canvas.print("ride controls");
-  }
+  // Clip the actual text, not padded erase: long custom titles cannot paint
+  // over either navigation control. No saved title is modified.
+  canvas.setClipRect(48,0,144,44);
+  canvas.drawString(page.title,48,12);
+  canvas.clearClipRect();
+  canvas.fillRect(0,ui::statusY,240,18,bg);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  char status[32];
+  if(state.gps_has_fix)snprintf(status,sizeof(status),"GPS %u",unsigned(state.satellites>99?99:state.satellites));
+  else snprintf(status,sizeof(status),"GPS --");
+  canvas.setTextColor(state.gps_has_fix?ui::success:ui::warning,bg);
+  canvas.drawString(status,4,ui::statusY);
+  canvas.setTextColor(state.ride_state==RIDE_STATE_ACTIVE?ui::success:
+    state.ride_state==RIDE_STATE_PAUSED?ui::warning:muted,bg);
+  canvas.drawString(state.ride_state==RIDE_STATE_ACTIVE?"REC":
+    state.ride_state==RIDE_STATE_PAUSED?"PAUSE":"IDLE",80,ui::statusY);
+  snprintf(status,sizeof(status),"%u%%",unsigned(state.battery_pct>100?100:state.battery_pct));
+  canvas.setTextColor(muted,bg);canvas.drawString(status,150,ui::statusY);
+  canvas.setFont(&fonts::Font0);
+  snprintf(status,sizeof(status),"%u/%u",unsigned(pageIdx+1),unsigned(totalPages));
+  canvas.drawString(status,216,ui::statusY+5);
+}
 }
 
-bool handlePageTouch(const PageConfig& page, int16_t x, int16_t y) {
-  const TemplateSlotDefinition& slotDef = getTemplateDefinition(page.template_id);
-
-  if (slotDef.has_action_button) {
-    const Rect& btn = slotDef.action_button_rect;
-    if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
-      openRideMenu();
-      Serial.println("[UI] Ride state toggled via Action Button");
-      return true;
+void renderPage(const PageConfig& page,uint8_t pageIdx,uint8_t totalPages,const TelemetryState& state,bool forceFullRedraw) {
+  const auto& slots=getTemplateDefinition(page.template_id);
+  if(forceFullRedraw)canvas.fillScreen(bg);
+  canvas.setTextSize(1);canvas.setTextPadding(0);
+  const uint8_t count=page.widget_count<slots.max_slots?page.widget_count:slots.max_slots;
+  for(uint8_t i=0;i<count;i++)if(page.widgets[i]!=WIDGET_NONE)
+    renderWidget(page.widgets[i],slots.slots[i],state,forceFullRedraw);
+  if(slots.has_action_button) {
+    const auto& r=slots.action_button_rect;
+    const int half=(r.w-8)/2;
+    for(int i=0;i<2;i++){
+      const int x=r.x+i*(half+8);
+      canvas.fillRoundRect(x,r.y,half,r.h,8,i?cyan:panel);
+      const uint16_t fg=i?TFT_BLACK:TFT_WHITE;
+      ui::drawIcon(canvas,i?ui::Icon::Ride:ui::Icon::Map,x+8,r.y+13,fg);
+      canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(fg,i?cyan:panel);
+      canvas.drawString(i?"Ride":"Map",x+40,r.y+16);
     }
   }
+  header(page,state,pageIdx,totalPages);
+}
 
-  uint8_t count = (page.widget_count < slotDef.max_slots) ? page.widget_count : slotDef.max_slots;
-  for (uint8_t i = 0; i < count; i++) {
-    WidgetType wType = page.widgets[i];
-    const Rect& r = slotDef.slots[i].rect;
-    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
-      // Hit-test on the visible rectangle, but hand the full slot to the
-      // registry so it can enforce the widget/size-class contract.
-      if (handleWidgetTouch(wType, slotDef.slots[i], x, y)) {
-        return true;
-      }
+bool handlePageTouch(const PageConfig& page,int16_t x,int16_t y) {
+  if(ui::pageMap.contains(x,y)){openNavigation();return true;}
+  if(ui::pageRide.contains(x,y)){openRideMenu();return true;}
+  // The title and live status are informational, never invisible buttons.
+  if(y<ui::headerHeight||y>=ui::statusY)return false;
+  const auto& slots=getTemplateDefinition(page.template_id);
+  if(slots.has_action_button){
+    const auto& r=slots.action_button_rect;const int half=(r.w-8)/2;
+    if(y>=r.y&&y<r.y+r.h){
+      if(x>=r.x&&x<r.x+half){openNavigation();return true;}
+      if(x>=r.x+half+8&&x<r.x+r.w){openRideMenu();return true;}
     }
+  }
+  const uint8_t count=page.widget_count<slots.max_slots?page.widget_count:slots.max_slots;
+  for(uint8_t i=0;i<count;i++){
+    const auto& r=slots.slots[i].rect;
+    if(x>=r.x&&x<r.x+r.w&&y>=r.y&&y<r.y+r.h&&
+      handleWidgetTouch(page.widgets[i],slots.slots[i],x,y))return true;
   }
   return false;
 }

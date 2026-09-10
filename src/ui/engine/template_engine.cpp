@@ -7,7 +7,7 @@ static const TemplateSlotDefinition s_templates[TEMPLATE_COUNT] = {
     "Hero 6-Grid",
     6,
     {
-      {{4, 28, 232, 94}, SIZE_HERO},    // Slot 0: Hero
+      {{4, 44, 232, 78}, SIZE_HERO},    // Slot 0: Hero below the 44px header
       {{4, 126, 114, 60}, SIZE_MEDIUM}, // Slot 1: Mid Left
       {{122, 126, 114, 60}, SIZE_MEDIUM}, // Slot 2: Mid Right
       {{4, 190, 74, 54}, SIZE_SMALL},   // Slot 3: Bottom Left
@@ -24,8 +24,8 @@ static const TemplateSlotDefinition s_templates[TEMPLATE_COUNT] = {
     "4-Grid Symmetric",
     4,
     {
-      {{4, 28, 114, 130}, SIZE_MEDIUM},
-      {{122, 28, 114, 130}, SIZE_MEDIUM},
+      {{4, 44, 114, 114}, SIZE_MEDIUM},
+      {{122, 44, 114, 114}, SIZE_MEDIUM},
       {{4, 164, 114, 134}, SIZE_MEDIUM},
       {{122, 164, 114, 134}, SIZE_MEDIUM}
     },
@@ -39,8 +39,8 @@ static const TemplateSlotDefinition s_templates[TEMPLATE_COUNT] = {
     "2-Grid + Chart",
     3,
     {
-      {{4, 28, 114, 74}, SIZE_SMALL},
-      {{122, 28, 114, 74}, SIZE_SMALL},
+      {{4, 44, 114, 58}, SIZE_SMALL},
+      {{122, 44, 114, 58}, SIZE_SMALL},
       {{4, 106, 232, 192}, SIZE_LARGE}
     },
     false,
@@ -53,7 +53,7 @@ static const TemplateSlotDefinition s_templates[TEMPLATE_COUNT] = {
     "8-Grid Pro View",
     8,
     {
-      {{4, 28, 114, 64}, SIZE_SMALL},   {{122, 28, 114, 64}, SIZE_SMALL},
+      {{4, 44, 114, 48}, SIZE_SMALL},   {{122, 44, 114, 48}, SIZE_SMALL},
       {{4, 96, 114, 64}, SIZE_SMALL},   {{122, 96, 114, 64}, SIZE_SMALL},
       {{4, 164, 114, 64}, SIZE_SMALL},  {{122, 164, 114, 64}, SIZE_SMALL},
       {{4, 232, 114, 64}, SIZE_SMALL},  {{122, 232, 114, 64}, SIZE_SMALL}
@@ -68,7 +68,7 @@ static const TemplateSlotDefinition s_templates[TEMPLATE_COUNT] = {
     "Full Container",
     1,
     {
-      {{4, 28, 232, 274}, SIZE_FULL}
+      {{4, 44, 232, 258}, SIZE_FULL}
     },
     false,
     {0, 0, 0, 0}

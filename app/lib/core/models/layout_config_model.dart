@@ -31,21 +31,21 @@ enum SizeClass {
 /// in a slot it does not support rejects the entire layout, not just that slot.
 ///
 /// There is deliberately no entry here without a firmware counterpart. The
-/// device can only render ids 0..15; anything else fails the import outright.
+/// device can render ids 0..16, including the Insta360 FULL widget.
 enum WidgetType {
   none(0, 'None', '', '', '', {}),
   speed(1, 'Speed', 'speed', 'km/h', 'mph', {SizeClass.hero}),
-  avgSpeed(2, 'Avg Speed', 'avg spd', 'km/h', 'mph',
+  avgSpeed(2, 'Avg Speed', 'avg', 'km/h', 'mph',
       {SizeClass.small, SizeClass.medium}),
-  maxSpeed(3, 'Max Speed', 'max spd', 'km/h', 'mph',
+  maxSpeed(3, 'Max Speed', 'max', 'km/h', 'mph',
       {SizeClass.small, SizeClass.medium}),
   distance(4, 'Distance', 'dist', 'km', 'mi', {SizeClass.medium}),
   rideTime(5, 'Ride Time', 'ride time', '', '', {SizeClass.medium}),
-  cadence(6, 'Cadence', 'cadence', 'rpm', 'rpm', {SizeClass.small}),
+  cadence(6, 'Cadence', 'cad', 'rpm', 'rpm', {SizeClass.small}),
   heartRate(7, 'Heart Rate', 'heart', 'bpm', 'bpm', {SizeClass.small}),
   power(8, 'Power', 'power', 'w', 'w', {SizeClass.small}),
-  altitude(9, 'Altitude', 'alt', 'm', 'ft',
-      {SizeClass.small, SizeClass.medium}),
+  altitude(
+      9, 'Altitude', 'alt', 'm', 'ft', {SizeClass.small, SizeClass.medium}),
   grade(10, 'Grade', 'grade', '%', '%', {SizeClass.small, SizeClass.medium}),
   totalAscent(11, 'Total Ascent', 'asc', 'm', 'ft',
       {SizeClass.small, SizeClass.medium}),
@@ -53,7 +53,8 @@ enum WidgetType {
       {SizeClass.large, SizeClass.full}),
   battery(13, 'Battery', 'battery', '%', '%', {SizeClass.small}),
   bleManager(14, 'BLE Manager', 'sensors', '', '', {SizeClass.full}),
-  settingsList(15, 'Settings List', 'settings', '', '', {SizeClass.full});
+  settingsList(15, 'Settings List', 'settings', '', '', {SizeClass.full}),
+  cameraRemote(16, 'Insta360', 'camera', '', '', {SizeClass.full});
 
   final int id;
 
@@ -81,7 +82,7 @@ enum WidgetType {
   static WidgetType fromId(int id) {
     return WidgetType.values.firstWhere(
       (w) => w.id == id,
-      orElse: () => WidgetType.none,
+      orElse: () => throw FormatException('Unsupported widget id: $id'),
     );
   }
 }
@@ -132,8 +133,9 @@ enum LayoutTemplate {
 
   int get maxSlots => slotSizes.length;
 
-  SizeClass sizeOfSlot(int index) =>
-      (index >= 0 && index < slotSizes.length) ? slotSizes[index] : slotSizes.last;
+  SizeClass sizeOfSlot(int index) => (index >= 0 && index < slotSizes.length)
+      ? slotSizes[index]
+      : slotSizes.last;
 
   /// Widgets the device will accept in this slot, always including `none` so a
   /// slot can be emptied.
@@ -167,10 +169,10 @@ class PageConfigModel {
   });
 
   Map<String, dynamic> toJson() => {
-    'title': title,
-    'template': template.id,
-    'widgets': widgets.map((w) => w.id).toList(),
-  };
+        'title': title,
+        'template': template.id,
+        'widgets': widgets.map((w) => w.id).toList(),
+      };
 
   factory PageConfigModel.fromJson(Map<String, dynamic> json) {
     final title = json['title'] as String? ?? 'Page';
@@ -206,7 +208,9 @@ class UiConfigModel {
     final Map<String, dynamic> json = jsonDecode(jsonStr);
     final count = json['page_count'] as int? ?? 0;
     final rawPages = json['pages'] as List<dynamic>? ?? [];
-    final pages = rawPages.map((p) => PageConfigModel.fromJson(p as Map<String, dynamic>)).toList();
+    final pages = rawPages
+        .map((p) => PageConfigModel.fromJson(p as Map<String, dynamic>))
+        .toList();
 
     return UiConfigModel(pageCount: count, pages: pages);
   }
@@ -220,7 +224,7 @@ class UiConfigModel {
   /// on the panel.
   factory UiConfigModel.defaultConfig() {
     return UiConfigModel(
-      pageCount: 4,
+      pageCount: 5,
       pages: [
         PageConfigModel(
           title: "ride",
@@ -253,6 +257,10 @@ class UiConfigModel {
           template: LayoutTemplate.fullContainer,
           widgets: [WidgetType.settingsList],
         ),
+        PageConfigModel(
+            title: 'camera',
+            template: LayoutTemplate.fullContainer,
+            widgets: [WidgetType.cameraRemote]),
       ],
     );
   }

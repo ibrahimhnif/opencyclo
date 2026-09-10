@@ -8,7 +8,7 @@ import 'package:opencyclo_app/core/models/layout_config_model.dart';
 /// incoming layout and rejects the ENTIRE import — leaving the device on its
 /// old layout and the user staring at "sync failed" — if any of these hold:
 ///
-///   * a widget id is outside 0..WIDGET_TYPE_COUNT-1 (i.e. 0..15), or
+///   * a widget id is outside 0..WIDGET_TYPE_COUNT-1 (i.e. 0..16), or
 ///   * a widget sits in a slot whose size class it does not support, or
 ///   * the template id is outside 0..TEMPLATE_COUNT-1, or
 ///   * page_count is 0 or above MAX_PAGES.
@@ -17,10 +17,10 @@ import 'package:opencyclo_app/core/models/layout_config_model.dart';
 /// enum ids below must never drift from `WidgetType` in widget_types.h.
 void main() {
   group('widget catalog matches the firmware', () {
-    test('ids are contiguous 0..15 and match widget_types.h', () {
-      // WIDGET_TYPE_COUNT is 16 on the device, asserted by its own native test
-      // (test_widget_type_count_is_sixteen).
-      expect(WidgetType.values.length, 16);
+    test('ids are contiguous 0..16 and match widget_types.h', () {
+      // WIDGET_TYPE_COUNT is 17 on the device, asserted by its own native test
+      // (test_widget_type_count_is_seventeen).
+      expect(WidgetType.values.length, 17);
 
       const expected = <int, String>{
         0: 'none',
@@ -39,6 +39,7 @@ void main() {
         13: 'battery',
         14: 'bleManager',
         15: 'settingsList',
+        16: 'cameraRemote',
       };
 
       for (final w in WidgetType.values) {
@@ -53,7 +54,8 @@ void main() {
 
     test('every widget id is inside the range the device accepts', () {
       for (final w in WidgetType.values) {
-        expect(w.id, inInclusiveRange(0, 15), reason: '${w.name} would be rejected');
+        expect(w.id, inInclusiveRange(0, 16),
+            reason: '${w.name} would be rejected');
       }
     });
 
@@ -63,9 +65,11 @@ void main() {
       expect(WidgetType.rideTime.sizes, {SizeClass.medium});
       expect(WidgetType.cadence.sizes, {SizeClass.small});
       expect(WidgetType.battery.sizes, {SizeClass.small});
-      expect(WidgetType.elevationChart.sizes, {SizeClass.large, SizeClass.full});
+      expect(
+          WidgetType.elevationChart.sizes, {SizeClass.large, SizeClass.full});
       expect(WidgetType.bleManager.sizes, {SizeClass.full});
       expect(WidgetType.settingsList.sizes, {SizeClass.full});
+      expect(WidgetType.cameraRemote.sizes, {SizeClass.full});
       expect(WidgetType.avgSpeed.sizes, {SizeClass.small, SizeClass.medium});
     });
 
@@ -131,7 +135,8 @@ void main() {
           expect(
             w.supportsSize(page.template.sizeOfSlot(s)),
             isTrue,
-            reason: 'page $p ("${page.title}") slot $s: ${w.name} cannot sit in '
+            reason:
+                'page $p ("${page.title}") slot $s: ${w.name} cannot sit in '
                 '${page.template.sizeOfSlot(s).name} — the device would reject '
                 'the whole layout',
           );
@@ -152,9 +157,8 @@ void main() {
     });
 
     test('serialised json carries the firmware widget ids', () {
-      final json =
-          jsonDecode(UiConfigModel.defaultConfig().toJsonString())
-              as Map<String, dynamic>;
+      final json = jsonDecode(UiConfigModel.defaultConfig().toJsonString())
+          as Map<String, dynamic>;
       final pages = json['pages'] as List<dynamic>;
 
       // Page 0 is the hero ride page: speed, distance, ride time, cadence,
@@ -171,7 +175,7 @@ void main() {
 
       for (final p in pages) {
         for (final id in (p as Map<String, dynamic>)['widgets'] as List) {
-          expect(id, inInclusiveRange(0, 15));
+          expect(id, inInclusiveRange(0, 16));
         }
         expect(p['template'], inInclusiveRange(0, 4));
       }
@@ -184,8 +188,7 @@ void main() {
       for (final from in LayoutTemplate.values) {
         for (final to in LayoutTemplate.values) {
           final widgets = <WidgetType>[
-            for (var i = 0; i < from.maxSlots; i++)
-              from.widgetsForSlot(i).last,
+            for (var i = 0; i < from.maxSlots; i++) from.widgetsForSlot(i).last,
           ];
 
           final resized = List<WidgetType>.from(widgets);
@@ -205,7 +208,8 @@ void main() {
           for (var i = 0; i < resized.length; i++) {
             if (resized[i] == WidgetType.none) continue;
             expect(resized[i].supportsSize(to.sizeOfSlot(i)), isTrue,
-                reason: '${from.name} -> ${to.name} slot $i left an invalid widget');
+                reason:
+                    '${from.name} -> ${to.name} slot $i left an invalid widget');
           }
         }
       }

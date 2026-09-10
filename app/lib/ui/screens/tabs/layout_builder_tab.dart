@@ -74,7 +74,7 @@ class _LayoutBuilderTabState extends ConsumerState<LayoutBuilderTab> {
         ),
       ),
       bottomAction: DeviceButton(
-        text: layoutState.isSyncing ? 'syncing...' : 'sync to opencyclo',
+        text: layoutState.isSyncing ? 'syncing...' : 'sync layout',
         color: layoutState.isSyncing ? AppTheme.amber : AppTheme.green,
         icon: Icons.sync,
         busy: layoutState.isSyncing,
@@ -147,8 +147,8 @@ class _LayoutBuilderTabState extends ConsumerState<LayoutBuilderTab> {
                 const DeviceSectionLabel(text: 'page title'),
                 TextField(
                   controller: _titleController,
-                  style: AppTheme.valueStyle(AppTheme.text)
-                      .copyWith(fontSize: 14),
+                  style:
+                      AppTheme.valueStyle(AppTheme.text).copyWith(fontSize: 14),
                   cursorColor: AppTheme.cyan,
                   decoration: const InputDecoration(
                     hintText: 'ride',
@@ -156,7 +156,8 @@ class _LayoutBuilderTabState extends ConsumerState<LayoutBuilderTab> {
                   ),
                   onChanged: (newTitle) {
                     _titleSyncedFrom = newTitle;
-                    layoutNotifier.updatePageTitle(_selectedPageIndex, newTitle);
+                    layoutNotifier.updatePageTitle(
+                        _selectedPageIndex, newTitle);
                   },
                 ),
 

@@ -77,7 +77,7 @@ struct NimBLEService {
   NimBLECharacteristic* createCharacteristic(const char* id,int){chars[id].reset(new NimBLECharacteristic());return chars[id].get();}
 };
 constexpr uint16_t TFT_WHITE=0xffff,TFT_BLACK=0,TFT_CYAN=0x7ff,TFT_GREEN=0x7e0,TFT_ORANGE=0xfd20,TFT_BLUE=31;
-namespace fonts {constexpr int Font0=0;}
+namespace fonts {constexpr int Font0=0,FreeSansBold9pt7b=1;}
 struct FakeCanvas {
   std::vector<std::string> labels;
   int frames=0,lines=0,circles=0;

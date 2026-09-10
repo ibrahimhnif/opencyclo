@@ -89,11 +89,8 @@ void uiTaskLoop(void* pvParameters) {
         uint8_t totalPages = (g_ui_config.active_page_count > 0) ? g_ui_config.active_page_count : 1;
 
         // Map drags pan instead of changing dashboard pages.
-        if (abs(deltaX)<20 && abs(deltaY)<20 && touchStartY<28) {
-          if(touchStartX>=134)openRideMenu();else openNavigation();
-        }
         // Gesture 1: SWIPE LEFT (Next Page)
-        else if (deltaX < -35 && abs(deltaY) < 70) {
+        if (deltaX < -35 && abs(deltaY) < 70) {
           currentPageIdx = (currentPageIdx + 1) % totalPages;
           Serial.printf("[UI GESTURE] Swiped Left -> Page %u/%u\n", currentPageIdx + 1, totalPages);
           forceRedraw = true;
@@ -106,7 +103,7 @@ void uiTaskLoop(void* pvParameters) {
         }
         // Gesture 3: SINGLE TAP / PRESS (Delegate to current page layout & widgets)
         else if (abs(deltaX) < 20 && abs(deltaY) < 20) {
-          if (handlePageTouch(g_ui_config.pages[currentPageIdx], lastTouchX, lastTouchY)) {
+          if (handlePageTouch(g_ui_config.pages[currentPageIdx], touchStartX, touchStartY)) {
             forceRedraw = true;
           }
         }

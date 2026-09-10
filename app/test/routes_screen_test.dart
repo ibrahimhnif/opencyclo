@@ -20,11 +20,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('morning ride'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.scrollUntilVisible(find.text('start GPX navigation'), 100);
+    expect(find.byIcon(Icons.map_outlined), findsOneWidget);
+    expect(find.text('free ride'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('navigate GPX'), 100);
     expect(
         tester
             .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, 'start GPX navigation'))
+                find.widgetWithText(OutlinedButton, 'navigate GPX'))
             .onPressed,
         isNull);
     expect(find.text('map coverage not checked'), findsOneWidget);

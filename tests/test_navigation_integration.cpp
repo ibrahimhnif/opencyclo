@@ -10,7 +10,8 @@ bool fakeSdBusy=false;
 std::map<std::string,std::shared_ptr<FakeFile>> fs;
 FakeSD SD_MMC;
 FakeCanvas canvas;
-void openRideMenu(){}
+int rideOpens=0;
+void openRideMenu(){rideOpens++;}
 int rasterLines=0,rasterFrames=0,mapBlitX=0,mapBlitY=0;
 bool beginRouteSync(){if(syncOwned||updating)return false;return syncOwned=true;}
 void endRouteSync(){syncOwned=false;}
@@ -45,7 +46,7 @@ int main(int argc,char**){
   previewMapFixture();
   TelemetryState waiting;
   renderNavigation(waiting);
-  assert(label("preview - waiting for GPS") && canvas.lines>0 && canvas.circles==0);
+  assert(label("Preview / no GPS") && canvas.lines>0 && canvas.circles==0);
   assert(!waiting.gps_has_fix && waiting.lat==0 && waiting.lon==0);
   const int cachedFrames=rasterFrames,cachedLines=rasterLines,startX=mapBlitX;
   fakeMillis+=40;renderNavigation(waiting);
@@ -87,6 +88,21 @@ int main(int argc,char**){
   fakeMillis+=40;renderNavigation(waiting);assert(label("z17"));
   for(int i=0;i<2;i++){navigationTouch(true,20,284);navigationTouch(false,0,0);}
   fakeMillis+=40;renderNavigation(waiting);assert(label("z15"));
+  // Icon-only controls keep the same actions, while attribution is inert.
+  navigationGesture(70,314,70,314);
+  fakeMillis+=40;renderNavigation(waiting);assert(label("z15"));
+  navigationGesture(130,284,130,284);
+  fakeMillis+=40;renderNavigation(waiting);assert(label("follow"));
+  navigationGesture(200,284,200,284);
+  fakeMillis+=40;renderNavigation(waiting);assert(label("no route instructions"));
+  navigationGesture(120,284,120,284);
+  fakeMillis+=40;renderNavigation(waiting);assert(label("z15"));
+  navigationGesture(90,20,90,20);
+  fakeMillis+=40;renderNavigation(waiting);assert(label("Routes"));
+  navigationGesture(120,284,120,284);
+  navigationGesture(217,38,217,38);assert(rideOpens==1);
+  openNavigation();navigationGesture(20,38,20,38);assert(!navigationOpen());
+  openNavigation();
   fakeMillis+=1000;
   nav::Header h{};memcpy(h.magic,"OCR1",4);h.points=3;h.cues=1;strcpy(h.name,"test ride");
   nav::Point points[]={{0,0},{10000,0},{10000,10000}};
@@ -112,9 +128,9 @@ int main(int argc,char**){
   renderNavigation(state);assert(label("route bends right") && label("follow"));
   assert(!label("preview") && canvas.circles>0);
   fprintf(stderr,"navigation: GPS and timeout checks\n");
-  fakeMillis+=1100;state.lat=0.0001;state.lon=0.01;renderNavigation(state);assert(label("off route"));
-  fakeMillis+=1100;state.gps_has_fix=false;renderNavigation(state);assert(label("waiting for GPS"));
-  control->write({5});fakeMillis+=1000;state.gps_has_fix=true;renderNavigation(state);assert(label("free ride"));
+  fakeMillis+=1100;state.lat=0.0001;state.lon=0.01;renderNavigation(state);assert(label("Off route"));
+  fakeMillis+=1100;state.gps_has_fix=false;renderNavigation(state);assert(label("GPS lost"));
+  control->write({5});fakeMillis+=1000;state.gps_has_fix=true;renderNavigation(state);assert(label("Free ride"));
   control->write(begin);fakeMillis+=31000;tickRouteTransfer();assert(!syncOwned);
   updating=true;control->write(begin);assert(control->getValue().find("ERR")==0);updating=false;
   g_sd_ready=false;control->write(begin);assert(control->getValue()=="ERR no SD");g_sd_ready=true;

@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import '../../core/models/layout_config_model.dart';
 import '../theme/app_theme.dart';
 
-/// A true-to-scale render of what a page will look like on the 240x320 panel.
+/// A 240x320 layout preview with firmware-matched slots and action placement.
+/// Uses bundled Arimo rather than ESP32 bitmap fonts; not pixel-identical.
 ///
 /// Slot rectangles are transcribed verbatim from `s_templates[]` in
 /// `src/ui/engine/template_engine.cpp`, so the preview shows the real geometry
 /// the firmware will use — not an approximation. If a template's rects change
 /// there, change them here.
-class DevicePreview extends StatelessWidget {
+class DevicePreview extends StatefulWidget {
   final PageConfigModel page;
 
   /// Drawn muted in the header's first segment, like `page.title`.
@@ -25,13 +26,29 @@ class DevicePreview extends StatelessWidget {
     required this.pageCount,
   });
 
+  @override
+  State<DevicePreview> createState() => _DevicePreviewState();
+}
+
+class _DevicePreviewState extends State<DevicePreview> {
+  bool cameraOptions = false;
+  PageConfigModel get page => widget.page;
+  String get title => widget.title;
+  int get pageIndex => widget.pageIndex;
+  int get pageCount => widget.pageCount;
+  @override
+  void didUpdateWidget(covariant DevicePreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageIndex != widget.pageIndex) cameraOptions = false;
+  }
+
   static const double _panelW = 240;
   static const double _panelH = 320;
 
   /// Verbatim from template_engine.cpp.
   static const Map<LayoutTemplate, List<Rect>> _slots = {
     LayoutTemplate.hero6Grid: [
-      Rect.fromLTWH(4, 28, 232, 94),
+      Rect.fromLTWH(4, 44, 232, 78),
       Rect.fromLTWH(4, 126, 114, 60),
       Rect.fromLTWH(122, 126, 114, 60),
       Rect.fromLTWH(4, 190, 74, 54),
@@ -39,19 +56,19 @@ class DevicePreview extends StatelessWidget {
       Rect.fromLTWH(162, 190, 74, 54),
     ],
     LayoutTemplate.fourGrid: [
-      Rect.fromLTWH(4, 28, 114, 130),
-      Rect.fromLTWH(122, 28, 114, 130),
+      Rect.fromLTWH(4, 44, 114, 114),
+      Rect.fromLTWH(122, 44, 114, 114),
       Rect.fromLTWH(4, 164, 114, 134),
       Rect.fromLTWH(122, 164, 114, 134),
     ],
     LayoutTemplate.twoGridChart: [
-      Rect.fromLTWH(4, 28, 114, 74),
-      Rect.fromLTWH(122, 28, 114, 74),
+      Rect.fromLTWH(4, 44, 114, 58),
+      Rect.fromLTWH(122, 44, 114, 58),
       Rect.fromLTWH(4, 106, 232, 192),
     ],
     LayoutTemplate.eightGrid: [
-      Rect.fromLTWH(4, 28, 114, 64),
-      Rect.fromLTWH(122, 28, 114, 64),
+      Rect.fromLTWH(4, 44, 114, 48),
+      Rect.fromLTWH(122, 44, 114, 48),
       Rect.fromLTWH(4, 96, 114, 64),
       Rect.fromLTWH(122, 96, 114, 64),
       Rect.fromLTWH(4, 164, 114, 64),
@@ -60,7 +77,7 @@ class DevicePreview extends StatelessWidget {
       Rect.fromLTWH(122, 232, 114, 64),
     ],
     LayoutTemplate.fullContainer: [
-      Rect.fromLTWH(4, 28, 232, 274),
+      Rect.fromLTWH(4, 44, 232, 258),
     ],
   };
 
@@ -101,6 +118,8 @@ class DevicePreview extends StatelessWidget {
         return (w.label, '', AppTheme.green);
       case WidgetType.battery:
         return (w.label, '82%', AppTheme.green);
+      case WidgetType.cameraRemote:
+        return ('Insta360', '', AppTheme.text);
       case WidgetType.bleManager:
         return (w.label, '', AppTheme.text);
       case WidgetType.settingsList:
@@ -148,8 +167,8 @@ class DevicePreview extends StatelessWidget {
                       i < page.widgets.length
                           ? page.widgets[i]
                           : WidgetType.none,
-                      isHero: page.template == LayoutTemplate.hero6Grid &&
-                          i == 0,
+                      isHero:
+                          page.template == LayoutTemplate.hero6Grid && i == 0,
                     ),
                   if (hasAction) _action(),
                   _dots(),
@@ -162,188 +181,229 @@ class DevicePreview extends StatelessWidget {
     );
   }
 
-  /// renderPage segments 1-3, at their real x positions: 4, 76 and 138.
-  Widget _statusHeader() {
-    return Positioned(
+  Widget _text(String text, double x, double y, double width,
+          {double size = 18, Color color = AppTheme.text}) =>
+      Positioned(
+          left: x,
+          top: y,
+          width: width,
+          height: size + 4,
+          child: ClipRect(
+              child: Text(text,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.clip,
+                  style: _font(size, color, FontWeight.w700)
+                      .copyWith(height: 1))));
+
+  Widget _statusHeader() => Positioned(
       left: 0,
-      top: 5,
-      right: 0,
-      height: 18,
-      child: Stack(
-        children: [
-          // Clipped to STATUS_TITLE_W. The device gives the title a 68px band
-          // and the gps segment's padded erase wipes anything past it on every
-          // frame, so an over-long title really does get cut off — the preview
-          // shows that rather than hiding it.
-          Positioned(
-            left: 4,
-            width: 68,
-            height: 18,
-            child: ClipRect(
-              child: OverflowBox(
-                alignment: Alignment.centerLeft,
-                maxWidth: double.infinity,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    title.toLowerCase(),
-                    style: _font(10, AppTheme.label, FontWeight.w400),
-                    maxLines: 1,
-                    softWrap: false,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 76,
-            width: 58,
-            child: Text(
-              'gps 11',
-              style: _font(10, AppTheme.green, FontWeight.w400),
-            ),
-          ),
-          Positioned(
-            left: 138,
-            width: 102,
-            child: Text(
-              'rec 82%',
-              style: _font(10, AppTheme.green, FontWeight.w400),
-            ),
-          ),
+      top: 0,
+      width: 240,
+      height: 44,
+      child: Stack(children: [
+        const Positioned(
+            left: 10,
+            top: 10,
+            child: Icon(Icons.map_outlined, size: 24, color: AppTheme.cyan)),
+        _text(title, 48, 12, 144),
+        const Positioned(
+            left: 206,
+            top: 10,
+            child: Icon(Icons.directions_bike, size: 24, color: AppTheme.cyan)),
+      ]));
+
+  Widget _button(String label, IconData icon, double x, double y, double w,
+          {Color bg = const Color(0xFF161A20),
+          Color fg = AppTheme.text,
+          VoidCallback? onTap}) =>
+      Positioned(
+          left: x,
+          top: y,
+          width: w,
+          height: 48,
+          child: GestureDetector(
+              onTap: onTap,
+              child: Container(
+                  decoration: BoxDecoration(
+                      color: bg, borderRadius: BorderRadius.circular(8)),
+                  child: Stack(children: [
+                    Positioned(
+                        left: 8,
+                        top: 12,
+                        child: Icon(icon, size: 24, color: fg)),
+                    _text(label, 38, 15, w - 42, color: fg),
+                  ]))));
+
+  Widget _management(WidgetType type, double width) {
+    if (type == WidgetType.cameraRemote) {
+      final half = (width - 24) / 2;
+      return Stack(children: [
+        _text('Connected', 8, 8, width - 16, color: AppTheme.green),
+        if (!cameraOptions) ...[
+          _button('Pair', Icons.search, 8, 40, width - 16),
+          _button('Shutter', Icons.camera_alt_outlined, 8, 98, width - 16,
+              bg: AppTheme.cyan, fg: AppTheme.bg),
+          _button('Options', Icons.list, 8, 156, width - 16,
+              onTap: () => setState(() => cameraOptions = true)),
+        ] else ...[
+          _button('Back', Icons.chevron_left, 8, 40, width - 16,
+              onTap: () => setState(() => cameraOptions = false)),
+          _button('Mode', Icons.videocam_outlined, 8, 100, half),
+          _button(
+              'Screen', Icons.desktop_windows_outlined, 16 + half, 100, half),
+          _button('Wake', Icons.bolt, 8, 158, half),
+          _button('Off', Icons.power_settings_new, 16 + half, 158, half,
+              fg: AppTheme.amber),
         ],
-      ),
-    );
+        _text(cameraOptions ? 'Camera controls' : 'Shutter follows mode', 8,
+            226, width - 16,
+            color: AppTheme.label),
+      ]);
+    }
+    if (type == WidgetType.settingsList) {
+      const labels = [
+        'units',
+        'brightness',
+        'wheel size',
+        'sd logging',
+        'battery',
+        'firmware'
+      ];
+      const values = [
+        'metric',
+        '74%',
+        '2096 mm',
+        'enabled',
+        '82% (4.00V)',
+        'v0.2.0'
+      ];
+      return Stack(children: [
+        for (int i = 0; i < labels.length; i++) ...[
+          _text(labels[i], 10, 8 + i * 32, 104, color: AppTheme.label),
+          _text(values[i], 116, 8 + i * 32, width - 120),
+          Positioned(
+              left: 6,
+              top: 28 + i * 32,
+              width: width - 12,
+              height: 1,
+              child: const ColoredBox(color: AppTheme.hairline)),
+        ],
+        _button('Power', Icons.power_settings_new, 10, 208, width - 20,
+            bg: AppTheme.cyan, fg: AppTheme.bg),
+      ]);
+    }
+    return Stack(children: [
+      _button('Scan', Icons.search, 6, 6, width - 12,
+          bg: AppTheme.cyan, fg: AppTheme.bg),
+      for (int i = 0; i < 3; i++) ...[
+        _text(['Speed', 'Heart', 'Power'][i], 10, 64 + i * 52, 120),
+        _text('Not paired', 10, 87 + i * 52, width - 20, color: AppTheme.label),
+      ],
+      _text('GPS ready', 10, 230, width - 20, color: AppTheme.label),
+    ]);
   }
 
   Widget _slot(Rect r, WidgetType w, {required bool isHero}) {
     final (label, value, color) = _widgetFace(w);
-
+    final management = [
+      WidgetType.cameraRemote,
+      WidgetType.settingsList,
+      WidgetType.bleManager
+    ].contains(w);
     return Positioned(
-      left: r.left,
-      top: r.top,
-      width: r.width,
-      height: r.height,
-      child: w == WidgetType.none
-          ? const SizedBox.shrink()
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // renderTile draws its hairline on the tile's top edge.
-                Container(height: 1, width: r.width, color: AppTheme.hairline),
-                // Label at +4, value at +24 — the firmware's own offsets.
-                const SizedBox(height: 3),
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Text(
-                    label,
-                    style: _font(9, AppTheme.label, FontWeight.w400),
-                    maxLines: 1,
-                    overflow: TextOverflow.clip,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Text(
-                    value,
-                    style: _font(
-                      isHero ? 34 : 15,
-                      color,
-                      FontWeight.w700,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.clip,
-                  ),
-                ),
-                if (isHero) ...[
-                  const Spacer(),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 2),
-                    child: Row(
-                      children: [
-                        const Spacer(),
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: Text(
-                            'km/h',
-                            style: _font(9, AppTheme.label, FontWeight.w400),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                if (w == WidgetType.elevationChart)
-                  Expanded(child: _sparkline(r.width - 8)),
-              ],
-            ),
-    );
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        height: r.height,
+        child: ClipRect(
+            child: w == WidgetType.none
+                ? const SizedBox.shrink()
+                : management
+                    ? _management(w, r.width)
+                    : Stack(children: [
+                        if (!isHero)
+                          Positioned(
+                              left: 0,
+                              top: 0,
+                              width: r.width,
+                              height: 1,
+                              child:
+                                  const ColoredBox(color: AppTheme.hairline)),
+                        _text(label, 4, 4, r.width - 8, color: AppTheme.label),
+                        if (w != WidgetType.elevationChart)
+                          _text(value, 4, 24, r.width - 8,
+                              size: isHero ? 48 : 24, color: color),
+                        if (isHero)
+                          _text('km/h', r.width - 44, r.height - 18, 44,
+                              color: AppTheme.label),
+                        if (w == WidgetType.elevationChart)
+                          Positioned(
+                              left: 4,
+                              top: 26,
+                              width: r.width - 8,
+                              height: r.height - 32,
+                              child: CustomPaint(painter: _SparklinePainter())),
+                      ])));
   }
 
-  /// A stand-in for renderWidgetElevationChart's 30-sample polyline.
-  Widget _sparkline(double width) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, right: 4, bottom: 4),
-      child: CustomPaint(
-        size: Size(width, double.infinity),
-        painter: _SparklinePainter(),
-      ),
-    );
-  }
-
-  /// The green/amber start-ride button, fillRoundRect radius 8, black text.
-  Widget _action() {
-    return Positioned(
+  Widget _action() => Positioned(
       left: _actionButton.left,
       top: _actionButton.top,
       width: _actionButton.width,
       height: _actionButton.height,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.amber,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          'pause ride',
-          style: _font(14, AppTheme.bg, FontWeight.w700),
-        ),
-      ),
-    );
-  }
+      child: Stack(children: [
+        _button('Map', Icons.map_outlined, 0, 0, 112),
+        _button('Ride', Icons.directions_bike, 120, 0, 112,
+            bg: AppTheme.cyan, fg: AppTheme.bg),
+      ]));
 
-  /// The page dots the firmware draws at y = 312, centred on x = 120.
-  Widget _dots() {
-    if (pageCount <= 1) return const SizedBox.shrink();
-    final startX = 120 - (pageCount * 8) / 2;
-
-    return Stack(
-      children: List.generate(pageCount, (i) {
-        final selected = i == pageIndex;
-        final r = selected ? 3.0 : 2.0;
-        return Positioned(
-          left: startX + (i * 8) - r,
-          top: 312 - r,
-          width: r * 2,
-          height: r * 2,
-          child: Container(
-            decoration: BoxDecoration(
-              color: selected ? AppTheme.cyan : AppTheme.label,
-              shape: BoxShape.circle,
-            ),
-          ),
-        );
-      }),
-    );
-  }
+  Widget _dots() => Positioned(
+      left: 0,
+      top: 302,
+      width: 240,
+      height: 18,
+      child: Stack(children: [
+        _text('GPS 12', 4, 0, 76, color: AppTheme.green),
+        _text('REC', 80, 0, 70, color: AppTheme.green),
+        _text('82%', 150, 0, 64, color: AppTheme.label),
+        _text('${pageIndex + 1}/$pageCount', 216, 5, 24,
+            size: 8, color: AppTheme.label),
+      ]));
 }
 
 class _SparklinePainter extends CustomPainter {
   static const List<double> _samples = [
-    0.35, 0.38, 0.34, 0.42, 0.48, 0.45, 0.52, 0.61, 0.58, 0.66,
-    0.72, 0.69, 0.75, 0.82, 0.79, 0.71, 0.64, 0.58, 0.62, 0.55,
-    0.49, 0.53, 0.6, 0.68, 0.74, 0.8, 0.86, 0.83, 0.9, 0.95,
+    0.35,
+    0.38,
+    0.34,
+    0.42,
+    0.48,
+    0.45,
+    0.52,
+    0.61,
+    0.58,
+    0.66,
+    0.72,
+    0.69,
+    0.75,
+    0.82,
+    0.79,
+    0.71,
+    0.64,
+    0.58,
+    0.62,
+    0.55,
+    0.49,
+    0.53,
+    0.6,
+    0.68,
+    0.74,
+    0.8,
+    0.86,
+    0.83,
+    0.9,
+    0.95,
   ];
 
   @override

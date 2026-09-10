@@ -51,7 +51,7 @@ class DeviceTab extends ConsumerWidget {
           // The device draws its scan button first, cyan when idle and amber
           // while a scan is running. Same colour logic here.
           DeviceButton(
-            text: bleState.isScanning ? 'scanning...' : 'scan & add sensors',
+            text: bleState.isScanning ? 'scanning...' : 'scan',
             color: bleState.isScanning ? AppTheme.amber : AppTheme.cyan,
             icon: Icons.search,
             busy: bleState.isScanning,

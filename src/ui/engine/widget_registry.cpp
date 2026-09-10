@@ -1,6 +1,7 @@
 #include "widget_registry.h"
 #include "widget_catalog.h"
 #include "ui/power_menu.h"
+#include "ui/control_layout.h"
 #include "storage/settings.h"
 #include "hardware/battery.h"
 #include "hardware/ble_task.h"
@@ -11,11 +12,11 @@ static uint16_t COLOR_BG = TFT_BLACK;
 
 static uint16_t COLOR_HAIRLINE = tft.color565(28, 28, 28);
 static uint16_t COLOR_TEXT     = TFT_WHITE;
-static uint16_t COLOR_LABEL    = tft.color565(102, 102, 102);
-static uint16_t COLOR_GREEN    = tft.color565(46, 213, 115);
-static uint16_t COLOR_AMBER    = tft.color565(255, 171, 0);
-static uint16_t COLOR_RED      = tft.color565(255, 71, 87);
-static uint16_t COLOR_CYAN     = tft.color565(0, 210, 255);
+static uint16_t COLOR_LABEL    = ui::muted;
+static uint16_t COLOR_GREEN    = ui::success;
+static uint16_t COLOR_AMBER    = ui::warning;
+static uint16_t COLOR_RED      = ui::danger;
+static uint16_t COLOR_CYAN     = ui::accent;
 
 // 1. SPEED (hero) — the one widget with its own layout, everything else is a "tile."
 static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool force) {
@@ -241,78 +242,40 @@ static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool
 }
 
 // 14. BLE MANAGER
-static void renderWidgetBleManager(const Rect& b, const TelemetryState& state, bool force) {
-  if (force) {
-    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-  }
-  uint16_t scanBtnColor = g_ble_scanning ? COLOR_AMBER : COLOR_CYAN;
-  canvas.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, 28, 6, scanBtnColor);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(TFT_BLACK, scanBtnColor);
-  canvas.setCursor(b.x + 40, b.y + 16);
-  canvas.print(g_ble_scanning ? "scanning..." : "scan & add sensors");
-
-  // Labels are "speed"/"heart"/"power" not "speed/cad"/"heart rate"/"power
-  // meter": the label column has ~80px of real visual room before the mac
-  // address starts drawing at x+90, and bold "power meter" alone measures
-  // 107px — wider than the column even before considering erase padding.
-  struct Row { const char* label; const char* mac; uint8_t profile; };
-  Row rows[3] = {
-    {"speed", g_settings.paired_csc_mac, 0},
-    {"heart", g_settings.paired_hr_mac, 1},
-    {"power", g_settings.paired_power_mac, 2},
-  };
-
-  int y = b.y + 48;
-  for (int i = 0; i < 3; i++) {
-    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-    canvas.setTextPadding(76);
-    canvas.drawString(rows[i].label, b.x + 10, y);
-    canvas.setTextPadding(0);
-
-    canvas.setTextPadding(b.w - 100);
-    if (rows[i].mac[0] != '\0') {
-      canvas.setTextColor(COLOR_GREEN, COLOR_BG);
-      char macBuf[14];
-      snprintf(macBuf, sizeof(macBuf), "%.10s..", rows[i].mac);
-      canvas.drawString(macBuf, b.x + 90, y);
-      // "forget" is redrawn onto a fillRoundRect'd button every frame, so it's
-      // already safe without padding/drawString — and since the still-active
-      // b.w-100 padding above was sized for the mac text at x+90, not this
-      // button at x+b.w-54, converting it to drawString would erase past the
-      // widget's right edge. Leave it as print(), which never reads padding_x.
-      canvas.fillRoundRect(b.x + b.w - 60, y - 4, 52, 18, 4, COLOR_RED);
-      canvas.setTextColor(TFT_WHITE, COLOR_RED);
-      canvas.setCursor(b.x + b.w - 54, y);
-      canvas.print("forget");
-    } else {
-      canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-      canvas.drawString("not paired", b.x + 90, y);
+static void renderWidgetBleManager(const Rect& b,const TelemetryState& state,bool force) {
+  (void)force;
+  canvas.fillRect(b.x,b.y,b.w,b.h,COLOR_BG);canvas.setTextPadding(0);
+  const uint16_t scanColor=g_ble_scanning?COLOR_AMBER:COLOR_CYAN;
+  canvas.fillRoundRect(b.x+6,b.y+6,b.w-12,44,8,scanColor);
+  ui::drawIcon(canvas,ui::Icon::Search,b.x+14,b.y+16,TFT_BLACK);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_BLACK,scanColor);
+  canvas.drawString(g_ble_scanning?"Scanning...":"Scan",b.x+48,b.y+19);
+  const char* labels[]={"Speed","Heart","Power"};
+  const char* macs[]={g_settings.paired_csc_mac,g_settings.paired_hr_mac,g_settings.paired_power_mac};
+  for(int i=0;i<3;i++){
+    const int y=b.y+64+i*52;
+    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_WHITE,COLOR_BG);
+    canvas.drawString(labels[i],b.x+10,y);
+    if(macs[i][0]){
+      canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+      canvas.drawString(macs[i],b.x+10,y+27);
+      canvas.fillRoundRect(b.x+b.w-94,y,88,44,8,ui::panel);
+      canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_RED,ui::panel);
+      canvas.drawString("Forget",b.x+b.w-80,y+13);
+    }else{
+      canvas.setTextColor(COLOR_LABEL,COLOR_BG);canvas.drawString("Not paired",b.x+10,y+23);
     }
-    canvas.setTextPadding(0);
-    canvas.drawFastHLine(b.x + 6, y + 22, b.w - 12, COLOR_HAIRLINE);
-    y += 34;
+    canvas.drawFastHLine(b.x+6,y+47,b.w-12,COLOR_HAIRLINE);
   }
-
-  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-  canvas.setTextPadding(b.w - 20);
-  canvas.drawString(state.gps_has_fix ? "gps: 3d fix valid" : "gps: searching...", b.x + 10, y + 6);
-  canvas.setTextPadding(0);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+  canvas.drawString(state.gps_has_fix?"GPS ready":"GPS waiting",b.x+10,b.y+230);
 }
-
-static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
-  if (x >= b.x + 6 && x <= b.x + b.w - 6 && y >= b.y + 6 && y <= b.y + 34) {
-    triggerBleScan();
-    return true;
-  }
-  static const BleProfileType kRowProfiles[3] = {BLE_PROFILE_CSC, BLE_PROFILE_HR, BLE_PROFILE_POWER};
-  int rowY = b.y + 48;
-  for (uint8_t i = 0; i < 3; i++) {
-    if (x >= b.x + b.w - 60 && x <= b.x + b.w - 8 && y >= rowY - 4 && y <= rowY + 14) {
-      forgetSensorProfile(kRowProfiles[i]);
-      return true;
-    }
-    rowY += 34;
+static bool touchWidgetBleManager(const Rect& b,int16_t x,int16_t y) {
+  if(x>=b.x+6&&x<b.x+b.w-6&&y>=b.y+6&&y<b.y+50){triggerBleScan();return true;}
+  static const BleProfileType profiles[]={BLE_PROFILE_CSC,BLE_PROFILE_HR,BLE_PROFILE_POWER};
+  for(int i=0;i<3;i++){
+    const int row=b.y+64+i*52;
+    if(x>=b.x+b.w-94&&x<b.x+b.w-6&&y>=row&&y<row+44){forgetSensorProfile(profiles[i]);return true;}
   }
   return false;
 }
@@ -325,8 +288,8 @@ static bool touchWidgetBleManager(const Rect& b, int16_t x, int16_t y) {
 // (FreeSans9pt7b), with a divider hairline SETTINGS_ROW_DIVIDER px below that
 // top edge. Rows in order: 0 units, 1 brightness, 2 wheel size, 3 sd logging,
 // 4 battery, 5 firmware.
-static const int SETTINGS_ROW_Y0      = 16;
-static const int SETTINGS_ROW_STRIDE  = 36;
+static const int SETTINGS_ROW_Y0      = 8;
+static const int SETTINGS_ROW_STRIDE  = 32;
 static const int SETTINGS_ROW_DIVIDER = 20;
 
 static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state, bool force) {
@@ -378,11 +341,12 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   // Filled controls are the only raised surfaces in the Minimal UI. Keep the
   // power entry in the same cyan/black treatment as the other primary action
   // buttons, and render it to the shared sprite like the rest of the page.
-  if (b.h >= 266) {
-    canvas.fillRoundRect(b.x + 10, b.y + 224, b.w - 20, 36, 6, COLOR_CYAN);
+  if (b.h >= 252) {
+    canvas.fillRoundRect(b.x + 10, b.y + 208, b.w - 20, 44, 8, COLOR_CYAN);
     canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
-    canvas.setTextPadding(b.w - 48);
-    canvas.drawString("power / charging", b.x + 24, b.y + 233);
+    ui::drawIcon(canvas,ui::Icon::Power,b.x+20,b.y+218,TFT_BLACK);
+    canvas.setTextPadding(b.w - 64);
+    canvas.drawString("Power", b.x + 54, b.y + 221);
     canvas.setTextPadding(0);
   }
 }
@@ -395,12 +359,12 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
 // previous [rowY - 8, rowY + 12] band left ~16px of each 36px row untappable.
 static bool settingsRowHit(const Rect& b, int16_t y, uint8_t index) {
   const int rowY = b.y + SETTINGS_ROW_Y0 + index * SETTINGS_ROW_STRIDE;
-  return (y >= rowY - 14) && (y <= rowY + SETTINGS_ROW_DIVIDER);
+  return (y >= rowY - 10) && (y < rowY + SETTINGS_ROW_DIVIDER);
 }
 
 static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
-  if (b.h >= 266 && x >= b.x + 10 && x < b.x + b.w - 10 &&
-      y >= b.y + 224 && y < b.y + 260) {
+  if (b.h >= 252 && x >= b.x + 10 && x < b.x + b.w - 10 &&
+      y >= b.y + 208 && y < b.y + 252) {
     openPowerMenu();
     return true;
   }
@@ -441,113 +405,60 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
 // Row geometry is shared between render and touch, same discipline as the
 // BLE Manager / Settings List widgets above, so drawn buttons and tappable
 // bands can't drift apart.
-static const int CAM_PAIR_BTN_H   = 28;
-static const int CAM_SHUTTER_Y    = 64;
-static const int CAM_SHUTTER_H    = 58;
-static const int CAM_MODE_Y       = 128;
-static const int CAM_MODE_H       = 34;
-static const int CAM_SCREEN_Y     = 168;
-static const int CAM_SCREEN_H     = 34;
-static const int CAM_WAKE_Y       = 208;
-static const int CAM_WAKE_H       = 34;
-static const int CAM_POWEROFF_Y   = 248;
-static const int CAM_POWEROFF_H   = 26;
-
-static void renderWidgetCameraRemote(const Rect& b, const TelemetryState& state, bool force) {
-  (void)state;
-  if (force) {
-    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-  }
-
-  // Every button + the status line is unconditionally redrawn every call
-  // (not gated on `force`) -- same pattern as the BLE Manager's scan button:
-  // fully opaque fillRoundRect+print() every frame, so color swaps (pairing/
-  // waking amber, disabled grey) are always painted correctly. The status
-  // line uses drawString()+setTextPadding() (never print()/printf()) since
-  // it sits directly on the flat background and its length changes --
-  // print() never honors setTextPadding()'s erase-width widening.
-  uint16_t pairColor = isCameraPairing() ? COLOR_AMBER : COLOR_CYAN;
-  canvas.fillRoundRect(b.x + 6, b.y + 6, b.w - 12, CAM_PAIR_BTN_H, 6, pairColor);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(TFT_BLACK, pairColor);
-  canvas.setCursor(b.x + 24, b.y + 16);
-  canvas.print(isCameraPairing() ? "pairing... (30s)" : "pair camera");
-
-  canvas.setTextColor(isCameraSubscribed() ? COLOR_GREEN : COLOR_LABEL, COLOR_BG);
-  canvas.setTextPadding(b.w - 20);
-  canvas.drawString(isCameraSubscribed() ? "camera: connected" : "camera: not connected",
-                     b.x + 10, b.y + 44);
-  canvas.setTextPadding(0);
-
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_SHUTTER_Y, b.w - 12, CAM_SHUTTER_H, 10, COLOR_RED);
-  canvas.setFont(&fonts::FreeSansBold12pt7b);
-  canvas.setTextColor(TFT_WHITE, COLOR_RED);
-  canvas.setCursor(b.x + 60, b.y + CAM_SHUTTER_Y + 20);
-  canvas.print("SHUTTER");
-
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_MODE_Y, b.w - 12, CAM_MODE_H, 8, COLOR_CYAN);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
-  canvas.setCursor(b.x + 90, b.y + CAM_MODE_Y + 12);
-  canvas.print("MODE");
-
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_SCREEN_Y, b.w - 12, CAM_SCREEN_H, 8, COLOR_CYAN);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
-  canvas.setCursor(b.x + 46, b.y + CAM_SCREEN_Y + 12);
-  canvas.print("SCREEN TOGGLE");
-
-  // Wake Camera -- grey/disabled-looking (COLOR_LABEL on COLOR_BG-ish dark
-  // fill) until wake bytes have actually been set via the dedicated BLE
-  // characteristic, so tapping it before setup doesn't look like a silent
-  // no-op. Green once armed, amber while a beacon is actively on the air.
-  uint16_t wakeColor = isCameraWaking() ? COLOR_AMBER
-                      : hasCameraWakeBytes() ? COLOR_GREEN
-                      : COLOR_LABEL; // visible mid-grey, reads as disabled without disappearing into COLOR_BG
-  uint16_t wakeTextColor = (wakeColor == COLOR_LABEL) ? COLOR_BG : TFT_BLACK;
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_WAKE_Y, b.w - 12, CAM_WAKE_H, 8, wakeColor);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(wakeTextColor, wakeColor);
-  canvas.setCursor(b.x + 61, b.y + CAM_WAKE_Y + 12);
-  canvas.print(isCameraWaking() ? "waking... (10s)" : "wake camera");
-
-  // Power off -- the camera's 3s-hold-to-power-off command, not its short-
-  // press screen toggle above. Amber rather than red/cyan: signals "be sure
-  // before tapping" without claiming the destructive-red styling this app
-  // uses for "forget sensor" elsewhere -- powering off is disruptive but not
-  // data-destructive the way forgetting a pairing is.
-  canvas.fillRoundRect(b.x + 6, b.y + CAM_POWEROFF_Y, b.w - 12, CAM_POWEROFF_H, 6, COLOR_AMBER);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(TFT_BLACK, COLOR_AMBER);
-  canvas.setCursor(b.x + 70, b.y + CAM_POWEROFF_Y + 9);
-  canvas.print("POWER OFF");
+// Pair, shutter and a 2 x 2 options grid fit the existing FULL widget.
+// Visual rectangles are also the hit-test source; all six dispatches below
+// still call the original camera functions with no protocol/state changes.
+static bool cameraOptions=false;
+static void cameraButton(const Rect& b,ui::HitRect r,ui::Icon icon,const char* text,uint16_t bg,uint16_t fg=TFT_WHITE) {
+  r.x+=b.x;r.y+=b.y;
+  canvas.fillRoundRect(r.x,r.y,r.w,r.h,8,bg);
+  ui::drawIcon(canvas,icon,r.x+8,r.y+12,fg);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(fg,bg);
+  canvas.drawString(text,r.x+38,r.y+15);
 }
-
-static bool touchWidgetCameraRemote(const Rect& b, int16_t x, int16_t y) {
-  if (x < b.x + 6 || x > b.x + b.w - 6) return false;
-  if (y >= b.y + 6 && y <= b.y + 6 + CAM_PAIR_BTN_H) {
-    startCameraPairing();
-    return true;
+static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,bool force) {
+  (void)state;(void)force;
+  // Two small presentation states, no new camera state/acknowledgement.
+  canvas.fillRect(b.x,b.y,b.w,b.h,COLOR_BG);canvas.setTextPadding(0);
+  const bool pairing=isCameraPairing(),waking=isCameraWaking();
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setTextColor(pairing||waking?COLOR_AMBER:isCameraSubscribed()?COLOR_GREEN:COLOR_LABEL,COLOR_BG);
+  canvas.drawString(pairing?"Pairing (30s)":waking?"Waking (10s)":
+    isCameraSubscribed()?"Connected":"Not connected",b.x+8,b.y+8);
+  if(!cameraOptions) {
+    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Search,pairing?"Pairing...":"Pair",ui::panel);
+    cameraButton(b,ui::captureRect(1,b.w),ui::Icon::Camera,"Shutter",COLOR_CYAN,TFT_BLACK);
+    cameraButton(b,ui::captureRect(2,b.w),ui::Icon::List,"Options",ui::panel);
+  } else {
+    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Back,"Back",ui::panel);
+    const char* labels[]={"Mode","Screen","Wake","Off"};
+    const ui::Icon icons[]={ui::Icon::Mode,ui::Icon::Screen,ui::Icon::Wake,ui::Icon::Power};
+    for(int i=0;i<4;i++){
+      auto r=ui::optionRect(i,b.w);
+      const uint16_t fg=i==3?COLOR_AMBER:i==2&&!hasCameraWakeBytes()?COLOR_LABEL:TFT_WHITE;
+      cameraButton(b,r,icons[i],labels[i],ui::panel,fg);
+    }
   }
-  if (y >= b.y + CAM_SHUTTER_Y && y <= b.y + CAM_SHUTTER_Y + CAM_SHUTTER_H) {
-    triggerCameraShutter();
-    return true;
-  }
-  if (y >= b.y + CAM_MODE_Y && y <= b.y + CAM_MODE_Y + CAM_MODE_H) {
-    triggerCameraMode();
-    return true;
-  }
-  if (y >= b.y + CAM_SCREEN_Y && y <= b.y + CAM_SCREEN_Y + CAM_SCREEN_H) {
-    triggerCameraScreenToggle();
-    return true;
-  }
-  if (y >= b.y + CAM_WAKE_Y && y <= b.y + CAM_WAKE_Y + CAM_WAKE_H) {
-    wakeSleepingCamera();
-    return true;
-  }
-  if (y >= b.y + CAM_POWEROFF_Y && y <= b.y + CAM_POWEROFF_Y + CAM_POWEROFF_H) {
-    triggerCameraPowerOff();
-    return true;
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+  canvas.drawString(cameraOptions?(hasCameraWakeBytes()?"Camera controls":"Wake needs setup"):"Shutter follows mode",b.x+8,b.y+226);
+}
+static bool touchWidgetCameraRemote(const Rect& b,int16_t x,int16_t y) {
+  x-=b.x;y-=b.y;
+  if(!cameraOptions){
+    if(ui::captureRect(0,b.w).contains(x,y)){startCameraPairing();return true;}
+    if(ui::captureRect(1,b.w).contains(x,y)){triggerCameraShutter();return true;}
+    if(ui::captureRect(2,b.w).contains(x,y)){cameraOptions=true;return true;}
+  } else {
+    if(ui::captureRect(0,b.w).contains(x,y)){cameraOptions=false;return true;}
+    for(int i=0;i<4;i++)if(ui::optionRect(i,b.w).contains(x,y)){
+      switch(i){
+        case 0:triggerCameraMode();break;
+        case 1:triggerCameraScreenToggle();break;
+        case 2:wakeSleepingCamera();break;
+        case 3:triggerCameraPowerOff();break;
+      }
+      return true;
+    }
   }
   return false;
 }

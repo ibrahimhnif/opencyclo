@@ -53,7 +53,7 @@ class OtaUpdateTab extends ConsumerWidget {
         stateColor: AppTheme.amber,
       ),
       bottomAction: DeviceButton(
-        text: flashing ? 'flashing wirelessly...' : 'start wireless flash',
+        text: flashing ? 'updating...' : 'update',
         color: flashing ? AppTheme.amber : AppTheme.green,
         icon: Icons.flash_on,
         busy: flashing,
@@ -88,7 +88,7 @@ class OtaUpdateTab extends ConsumerWidget {
 
           const SizedBox(height: 16),
           DeviceButton(
-            text: hasFile ? 'choose another binary' : 'choose firmware (.bin)',
+            text: hasFile ? 'change file' : 'choose .bin',
             color: AppTheme.cyan,
             icon: Icons.folder_open,
             outlined: true,

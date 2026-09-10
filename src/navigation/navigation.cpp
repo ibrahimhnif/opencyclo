@@ -1,6 +1,7 @@
 #include "navigation.h"
 #include "map_renderer.h"
 #include "ui/ride_menu.h"
+#include "ui/control_layout.h"
 #include "geo.h"
 #include "storage/sd_access.h"
 #include "hardware/display.h"
@@ -199,17 +200,18 @@ void navigationGesture(int x0,int y0,int x1,int y1) {
   NavGuard nav;
   int dx=x1-x0,dy=y1-y0;
   if(abs(dx)>12||abs(dy)>12) {
-    if(y0>35 && y0<255 && !choosing && !cueList) {follow=false;cx-=dx/std::pow(2,zoom-14);cy-=dy/std::pow(2,zoom-14);cx=std::max(0.0,std::min(nav::world,cx));cy=std::max(0.0,std::min(nav::world,cy));}
-  } else if(y1<32) {
-    if(x1>=195){openRideMenu();return;}
-    if(x1<55) {opened=false;return;}
-    choosing=!choosing;cueList=false;listOffset=0;
-  } else if(y1>=270) {
-    if(choosing||cueList) { if(x1<80) listOffset=std::max(0,listOffset-4);else if(x1>160) listOffset+=4;else {choosing=false;cueList=false;} }
-    else if(x1<48) zoom=std::max(13,zoom-1);
-    else if(x1<96) zoom=std::min(17,zoom+1);
-    else if(x1<165) follow=true;
-    else {cueList=true;listOffset=0;}
+    if(y0>=44 && y0<255 && !choosing && !cueList) {follow=false;cx-=dx/std::pow(2,zoom-14);cy-=dy/std::pow(2,zoom-14);cx=std::max(0.0,std::min(nav::world,cx));cy=std::max(0.0,std::min(nav::world,cy));}
+  } else if(y1<44) {
+    if(ui::mapRide.contains(x1,y1)){openRideMenu();return;}
+    if(ui::mapBack.contains(x1,y1)) {opened=false;return;}
+    if(ui::mapRoutes.contains(x1,y1)){choosing=!choosing;cueList=false;listOffset=0;}
+  } else if(y1>=266) {
+    const int action=ui::mapControlHit(x1,y1,choosing||cueList);
+    if(choosing||cueList) { if(action==0) listOffset=std::max(0,listOffset-4);else if(action==2) listOffset+=4;else if(action==1){choosing=false;cueList=false;} }
+    else if(action==0) zoom=std::max(13,zoom-1);
+    else if(action==1) zoom=std::min(17,zoom+1);
+    else if(action==2) follow=true;
+    else if(action==3){cueList=true;listOffset=0;}
   } else if(choosing) {
     if(y1<65) {points.clear();cues.clear();cumulative.clear();routeName="";choosing=false;}
     else if(y1<245) {auto files=routeFiles();int i=listOffset+(y1-65)/45;if(i>=0&&i<int(files.size())) loadRoute(files[i]);}
@@ -228,7 +230,7 @@ void navigationTouch(bool touched,int x,int y) {
     }
     if(!touchMoved && (abs(x-downX)>6 || abs(y-downY)>6))touchMoved=true;
     if(touchMoved) {
-      if(downY>35 && downY<250 && !choosing && !cueList) {
+      if(downY>=44 && downY<250 && !choosing && !cueList) {
         double scale=std::pow(2,zoom-14);
         follow=false;cx=std::max(0.0,std::min(nav::world,cx-(x-previousX)/scale));
         cy=std::max(0.0,std::min(nav::world,cy-(y-previousY)/scale));
@@ -286,27 +288,32 @@ void renderNavigation(const TelemetryState& state) {
     hasLiveLocation=true;
   }
   canvas.fillScreen(TFT_BLACK);canvas.setTextSize(1);canvas.setFont(&fonts::Font0);canvas.setTextPadding(0);
-  label("< ride",4,12);label(choosing?"routes":routeName.length()?routeName.substring(0,21):"free ride / routes",62,12,TFT_CYAN);
-  label("ride",202,12,TFT_GREEN);
+  ui::drawIcon(canvas,ui::Icon::Back,10,10,TFT_WHITE);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  canvas.setClipRect(48,0,144,44);
+  label(choosing?"Routes":routeName.length()?routeName.substring(0,16):"Free ride",48,12,ui::accent);
+  canvas.clearClipRect();
+  ui::drawIcon(canvas,ui::Icon::Ride,206,10,ui::success);
+  canvas.setFont(&fonts::Font0);
   if(choosing) {
-    label("free ride",10,45,TFT_GREEN);
+    label("free ride",10,45,ui::success);
     auto files=routeFiles();listOffset=std::min(listOffset,std::max(0,int(files.size())-1));
     for(int i=0;i<4 && listOffset+i<int(files.size());i++) {
       SdGuard sd;if(!sd.locked)break;
       File f=SD_MMC.open(files[listOffset+i]);nav::Header h{};f.read((uint8_t*)&h,sizeof(h));h.name[47]=0;
       label(String(h.name).substring(0,32),10,76+i*45);
     }
-    if(files.empty())label(g_sd_ready?"sync GPX from the app":"SD unavailable",10,110,TFT_ORANGE);
-    if(notice.length())label(notice,10,253,TFT_ORANGE);
+    if(files.empty())label(g_sd_ready?"sync GPX from the app":"SD unavailable",10,110,ui::warning);
+    if(notice.length())label(notice,10,253,ui::warning);
   } else if(cueList) {
     listOffset=std::min(listOffset,std::max(0,int(cues.size())-1));
     for(int i=0;i<4 && listOffset+i<int(cues.size());i++) {
-      auto& c=cues[listOffset+i];label(String(cumulative[c.point]/1000,1)+" km",10,50+i*48,TFT_CYAN);label(String(c.text).substring(0,35),10,65+i*48);
+      auto& c=cues[listOffset+i];label(String(cumulative[c.point]/1000,1)+" km",10,50+i*48,ui::accent);label(String(c.text).substring(0,35),10,65+i*48);
     }
     if(cues.empty()) label("no route instructions",10,60);
   } else {
     MapStatus mapStatus=MapStatus::Loading;
-    canvas.setClipRect(0,32,240,218);
+    canvas.setClipRect(0,44,240,206);
     if(located && g_sd_ready) {
       mapStatus=drawMapBackground(cx,cy,zoom);
     }
@@ -322,18 +329,19 @@ void renderNavigation(const TelemetryState& state) {
         if(route)canvas.drawLine(sx(ax)+1,sy(ay),sx(bx)+1,sy(by),color);
       }
     };
-    line(trail,TFT_GREEN);line(points,TFT_CYAN);
+    line(trail,ui::success);line(points,ui::accent);
     if(fix) {int x=sx(nav::x(here)),y=sy(nav::y(here));canvas.fillCircle(x,y,5,TFT_WHITE);canvas.fillCircle(x,y,2,TFT_BLUE);}
     canvas.clearClipRect();
-    if(!g_sd_ready)label("SD unavailable",4,35,TFT_ORANGE);
-    else if(mapStatus==MapStatus::Loading)label("loading map...",4,35,TFT_ORANGE);
-    else if(mapStatus==MapStatus::Missing)label("map missing: copy area to SD",4,35,TFT_ORANGE);
-    else if(mapStatus==MapStatus::NoMemory)label("map cache: PSRAM unavailable",4,35,TFT_ORANGE);
+    if(!g_sd_ready)label("SD unavailable",4,45,ui::warning);
+    else if(mapStatus==MapStatus::Loading)label("loading map...",4,45,ui::warning);
+    else if(mapStatus==MapStatus::Missing)label("map missing: copy area to SD",4,45,ui::warning);
+    else if(mapStatus==MapStatus::NoMemory)label("map cache: PSRAM unavailable",4,45,ui::warning);
     label("N ^  z"+String(zoom)+(follow?" follow":" pan"),4,235);
-    if(!fix) label(hasLiveLocation?"waiting for GPS":"preview - waiting for GPS",4,255,TFT_ORANGE);
-    else if(points.empty()) label("free ride",4,255,TFT_GREEN);
-    else if(offDistance>50)label("off route - return to cyan line",4,255,TFT_ORANGE);
-    else if(matched && cumulative.back()-progress<20)label("arrived",4,255,TFT_GREEN);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    if(!fix) label(hasLiveLocation?"GPS lost":"Preview / no GPS",4,244,ui::warning);
+    else if(points.empty()) label("Free ride",4,244,ui::success);
+    else if(offDistance>50)label("Off route / rejoin GPX",4,244,ui::warning);
+    else if(matched && cumulative.back()-progress<20)label("Arrived / GPX end",4,244,ui::success);
     else {
       String text=String((cumulative.back()-progress)/1000,1)+" km left";
       for(auto& c:cues) if(cumulative[c.point]>progress+8) {
@@ -341,18 +349,31 @@ void renderNavigation(const TelemetryState& state) {
         if(c.direction) {
           // High-contrast upcoming-turn arrow, independent of map orientation.
           canvas.fillRoundRect(199,38,36,38,4,TFT_BLACK);
-          canvas.drawWideLine(217,69,217,51,3,TFT_CYAN);
+          canvas.drawWideLine(217,69,217,51,3,ui::accent);
           int tip=c.direction<0?204:230;
-          canvas.drawWideLine(217,51,tip,51,3,TFT_CYAN);
-          canvas.fillTriangle(tip,51,tip+(c.direction<0?7:-7),45,tip+(c.direction<0?7:-7),57,TFT_CYAN);
+          canvas.drawWideLine(217,51,tip,51,3,ui::accent);
+          canvas.fillTriangle(tip,51,tip+(c.direction<0?7:-7),45,tip+(c.direction<0?7:-7),57,ui::accent);
         }
         break;
       }
-      label(text.substring(0,39),4,255,TFT_CYAN);
+      // Important guidance is readable; extra cue detail remains in the list.
+      canvas.setClipRect(0,244,240,20);
+      label(text.substring(0,39),4,244,ui::accent);
+      canvas.clearClipRect();
     }
   }
-  canvas.drawFastHLine(0,269,240,0x4208);
-  label(choosing||cueList?"< prev       map       next >":" -      +      follow      cues",4,284,TFT_CYAN);
-  label("map data (c) OpenStreetMap contributors",4,307,0x8410);
+  canvas.setFont(&fonts::Font0);
+  const bool list=choosing||cueList;
+  const ui::Icon mapIcons[]={ui::Icon::Minus,ui::Icon::Plus,ui::Icon::Center,ui::Icon::List};
+  const ui::Icon listIcons[]={ui::Icon::Back,ui::Icon::Map,ui::Icon::Next};
+  const char* listLabels[]={"Prev","Map","Next"};
+  for(int i=0;i<(list?3:4);i++) {
+    const auto& r=list?ui::listControls[i]:ui::mapControls[i];
+    const uint16_t bg=!list&&i==2&&follow?0x0230:ui::panel;
+    canvas.fillRoundRect(r.x+2,r.y,r.w-4,r.h,8,bg);
+    ui::drawIcon(canvas,list?listIcons[i]:mapIcons[i],list?r.x+7:r.x+(r.w-24)/2,r.y+10,ui::accent);
+    if(list){canvas.setTextColor(TFT_WHITE,bg);canvas.drawString(listLabels[i],r.x+36,r.y+18);}
+  }
+  label("(c) OpenStreetMap contributors",4,312,0x8410);
   canvas.pushSprite(0,0);
 }

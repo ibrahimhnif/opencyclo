@@ -431,20 +431,20 @@ class DeviceButton extends StatelessWidget {
           children: [
             if (busy)
               SizedBox(
-                width: 14,
-                height: 14,
+                width: 20,
+                height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
                   valueColor: AlwaysStoppedAnimation<Color>(foreground),
                 ),
               )
             else if (icon != null)
-              Icon(icon, size: 16, color: foreground),
+              Icon(icon, size: 20, color: foreground),
             if (busy || icon != null) const SizedBox(width: 10),
             Flexible(
               child: Text(
                 DeviceText.normalise(text),
-                style: AppTheme.statusStyle(foreground).copyWith(fontSize: 13),
+                style: AppTheme.statusStyle(foreground).copyWith(fontSize: 16),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),

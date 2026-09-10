@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
         target.write_text('#include "gpx_fakes.h"\n')
 
     for name, sources, flags in (
+        ("control_layout", ["tests/test_control_layout.cpp"], []),
         ("button", ["tests/test_power_button.cpp"], []),
         ("power", ["tests/test_power.cpp", "src/hardware/power.cpp",
                    "src/ui/charging_screen.cpp"], []),

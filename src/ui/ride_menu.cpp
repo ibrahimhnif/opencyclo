@@ -1,87 +1,103 @@
 #include "ride_menu.h"
+#include "ride_view.h"
 #include "hardware/display.h"
-#include "core/telemetry_state.h"
-#include <cstdlib>
+#include <cmath>
 
 namespace {
-bool opened=false,confirm=false,down=false,moved=false;
-int startX=0,startY=0;
+using namespace rideui;
+bool opened=false,confirm=false,dirty=true;
+Touch touch;
 uint32_t lastDraw=0;
-int actionAt(int x,int y) {
-  if(x<12 || x>=228)return -1;
-  if(y>=110 && y<152)return 0;
-  if(y>=170 && y<212)return 1;
-  if(y>=260 && y<302)return 2;
-  return -1;
+Screen lastScreen=Screen::Ready;
+constexpr uint16_t panel=ui::panel,muted=ui::muted,accent=ui::accent;
+uint16_t screenColor(Screen s) {
+  if(s==Screen::Recording || s==Screen::Saved)return ui::success;
+  if(s==Screen::Error)return ui::danger;
+  if(s==Screen::Paused || s==Screen::NoFile)return ui::warning;
+  return accent;
 }
-void text(const String& s,int x,int y,uint16_t color=TFT_WHITE) {
-  canvas.setTextColor(color,TFT_BLACK);canvas.drawString(s,x,y);
+void small(const char* text,int x,int y,uint16_t color=muted) {
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(color,TFT_BLACK);
+  canvas.drawString(text,x,y);
 }
-void button(int y,const char* title,uint16_t color) {
-  canvas.fillRoundRect(12,y,216,42,6,color);
-  canvas.setTextColor(TFT_BLACK,color);canvas.drawString(title,24,y+16);
+void button(const Button& b,const Rect& r,bool primary,Screen screen) {
+  if(b.action==Action::None)return;
+  const uint16_t bg=touch.pressed()==b.action?0x8410:(primary?accent:panel);
+  canvas.fillRoundRect(r.x,r.y,r.w,r.h,8,bg);
+  canvas.setFont(&fonts::FreeSansBold12pt7b);
+  canvas.setTextColor(primary?TFT_BLACK:TFT_WHITE,bg);
+  ui::drawIcon(canvas,iconFor(b,screen),r.x+12,r.y+12,primary?TFT_BLACK:TFT_WHITE);
+  canvas.drawString(b.label,r.x+48,r.y+13);
 }
-void draw(const TelemetryState& s) {
-  if(lastDraw && millis()-lastDraw<100)return;
-  lastDraw=millis();
-  canvas.fillScreen(TFT_BLACK);canvas.setFont(&fonts::Font0);
-  canvas.setTextSize(1);canvas.setTextPadding(0);
-  text(confirm?"FINISH RIDE?":"RIDE CONTROLS",12,18,TFT_CYAN);
-  char summary[64];
-  snprintf(summary,sizeof(summary),"%.2f km   %lu:%02lu:%02lu",s.trip_distance_km,
-    (unsigned long)(s.ride_time_s/3600),(unsigned long)(s.ride_time_s/60%60),
-    (unsigned long)(s.ride_time_s%60));
-  text(summary,12,52);
-  if(s.ride_save==RIDE_SAVE_PENDING) {
-    text("Saving GPX to SD...",12,112,TFT_ORANGE);
-    text("Please keep the SD card inserted.",12,140);
-  } else if(s.ride_save==RIDE_SAVE_ERROR) {
-    text("Save failed. Check SD / free space.",12,88,TFT_ORANGE);
-    text("Ride stopped. File kept for retry.",12,112);
-    button(170,"RETRY SAVE GPX",TFT_ORANGE);button(260,"BACK",TFT_CYAN);
-  } else if(confirm) {
-    text("Stop recording and save this ride?",12,88);
-    button(170,"SAVE GPX & FINISH",TFT_GREEN);button(260,"CANCEL",TFT_CYAN);
+void render(const TelemetryState& s,const View& v) {
+  if(!dirty && v.screen==lastScreen && millis()-lastDraw<250)return;
+  dirty=false;lastDraw=millis();lastScreen=v.screen;
+  canvas.fillScreen(TFT_BLACK);canvas.setTextSize(1);canvas.setTextPadding(0);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_WHITE,TFT_BLACK);
+  if(v.back)ui::drawIcon(canvas,ui::Icon::Back,10,10,TFT_WHITE);
+  canvas.drawString(v.title,46,12);
+  const char* status=v.status;
+  if(v.screen==Screen::Confirm)status="End ride / save GPX";
+  else if(v.screen==Screen::Error)status="Ride stopped / retry";
+  small(status,12,44,screenColor(v.screen));
+  small("DISTANCE",16,68);
+  char number[24];
+  float distance=std::isfinite(s.trip_distance_km)?s.trip_distance_km:0;
+  snprintf(number,sizeof(number),"%.1f",double(distance<0?0:distance>9999?9999:distance));
+  canvas.setFont(&fonts::FreeSansBold24pt7b);canvas.setTextColor(TFT_WHITE,TFT_BLACK);
+  canvas.drawString(number,14,90);
+  small("km",205,121);
+  small("TIME",16,146);small("AVG",142,146);
+  unsigned long hours=s.ride_time_s/3600;
+  if(hours>99)snprintf(number,sizeof(number),"%luh",hours);
+  else snprintf(number,sizeof(number),"%02lu:%02lu:%02lu",hours,
+    (unsigned long)(s.ride_time_s/60%60),(unsigned long)(s.ride_time_s%60));
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_WHITE,TFT_BLACK);
+  canvas.drawString(number,16,168);
+  float average=std::isfinite(s.avg_speed_kmh)?s.avg_speed_kmh:0;
+  snprintf(number,sizeof(number),"%.1f",double(average<0?0:average>999?999:average));
+  canvas.drawString(number,142,168);
+  if(v.screen==Screen::Saving) {
+    canvas.fillRoundRect(12,198,216,106,8,panel);
+    canvas.setFont(&fonts::FreeSansBold12pt7b);canvas.setTextColor(TFT_WHITE,panel);
+    canvas.drawString("Saving GPX...",28,220);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.drawString("Keep device on",28,266);
   } else {
-    if(s.ride_save==RIDE_SAVE_OK) {
-      text("GPX saved",12,80,TFT_GREEN);
-      text(String(s.ride_file).substring(0,36),12,222);
-      text(String(s.ride_file).substring(36),12,236);
-    } else if(s.ride_save==RIDE_SAVE_NO_FILE) {
-      text("Ride ended - no open GPX to save.",12,80,TFT_ORANGE);
-      text("Check SD and enable SD logging.",12,222);
-    }
-    button(110,s.ride_state==RIDE_STATE_ACTIVE?"PAUSE RIDE":
-      s.ride_state==RIDE_STATE_PAUSED?"RESUME RIDE":"START NEW RIDE",TFT_CYAN);
-    if(s.ride_state!=RIDE_STATE_IDLE)button(170,"FINISH RIDE",TFT_ORANGE);
-    button(260,"BACK",TFT_CYAN);
+    button(v.primary,primaryRect,true,v.screen);button(v.secondary,secondaryRect,false,v.screen);
   }
+  const char* hint="Recording and navigation are separate";
+  if(v.screen==Screen::Confirm)hint="Save ends this ride. No data deleted.";
+  else if(v.screen==Screen::Ready && !s.gps_has_fix)hint="GPS points begin when a fix is ready";
+  else if(v.screen==Screen::Error)hint="Check SD card and available space";
+  else if(v.screen==Screen::NoFile)hint="Check SD card / enable SD logging";
+  else if(v.screen==Screen::Saved)hint=s.ride_file;
+  char footer[39];snprintf(footer,sizeof(footer),"%.38s",hint);
+  canvas.setFont(&fonts::Font0);canvas.setTextColor(muted,TFT_BLACK);
+  canvas.drawString(footer,6,310);
   canvas.pushSprite(0,0);
 }
+void dispatch(Action action) {
+  switch(action) {
+    case Action::Back:opened=false;break;
+    case Action::Cancel:confirm=false;break;
+    case Action::Finish:confirm=true;break;
+    case Action::Save:if(requestFinishRide())confirm=false;break;
+    case Action::Start:
+    case Action::Resume:setManualRideState(RIDE_STATE_ACTIVE);break;
+    case Action::Pause:setManualRideState(RIDE_STATE_PAUSED);break;
+    default:break;
+  }
 }
-void openRideMenu(){opened=true;confirm=false;down=false;moved=false;lastDraw=0;}
-void cancelRideMenuTouch(){down=false;moved=false;lastDraw=0;}
+}
+void openRideMenu(){opened=true;confirm=false;touch.cancel();dirty=true;}
+void cancelRideMenuTouch(){touch.cancel();dirty=true;}
 bool updateRideMenu(bool touched,int16_t x,int16_t y) {
   if(!opened)return false;
-  if(touched) {
-    if(!down){down=true;moved=false;startX=x;startY=y;}
-    if(abs(x-startX)>6 || abs(y-startY)>6)moved=true;
-  } else if(down) {
-    down=false;
-    int action=moved?-1:actionAt(startX,startY);
-    auto s=getTelemetrySnapshot();
-    if(s.ride_save!=RIDE_SAVE_PENDING) {
-      if(action==2){if(confirm)confirm=false;else opened=false;}
-      else if(action==1) {
-        if(confirm || s.ride_save==RIDE_SAVE_ERROR) {
-          if(requestFinishRide())confirm=false;
-        } else if(s.ride_state!=RIDE_STATE_IDLE)confirm=true;
-      } else if(action==0 && !confirm && s.ride_save!=RIDE_SAVE_ERROR) {
-        setManualRideState(s.ride_state==RIDE_STATE_ACTIVE?RIDE_STATE_PAUSED:RIDE_STATE_ACTIVE);
-      }
-    }
-    lastDraw=0;
-  }
-  if(opened)draw(getTelemetrySnapshot());
-  return true;
+  auto state=getTelemetrySnapshot();
+  auto before=touch.pressed();
+  Action action=touch.update(touched,x,y,rideui::view(state,confirm));
+  if(before!=touch.pressed() || action!=Action::None)dirty=true;
+  dispatch(action);
+  if(opened){state=getTelemetrySnapshot();render(state,rideui::view(state,confirm));}
+  return true; // Consume the release that closes this overlay too.
 }

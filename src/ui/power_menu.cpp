@@ -1,4 +1,5 @@
 #include "power_menu.h"
+#include "control_layout.h"
 #include "config/pins.h"
 #include "hardware/battery.h"
 #include "hardware/display.h"
@@ -41,7 +42,7 @@ static void drawMenu() {
   tft.setTextSize(2);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setCursor(12, 14);
-  tft.print("POWER & BATTERY");
+  tft.print("Power");
   tft.setTextSize(1);
   tft.setCursor(12, 50);
   tft.printf("Battery estimate: %u%%  %.2f V", readBatteryPercentage(), readBatteryVoltage());
@@ -55,13 +56,15 @@ static void drawMenu() {
   tft.print("Charge status unavailable.");
   tft.setCursor(12, 116);
   tft.print("Power off / restart ends this ride.");
-  const char* labels[] = {"POWER OFF", "RESTART", "BACK"};
+  const char* labels[] = {"Power off", "Restart", "Back"};
+  const ui::Icon icons[]={ui::Icon::Power,ui::Icon::Retry,ui::Icon::Back};
   for (int i = 0; i < 3; ++i) {
-    int y = 144 + i * 44;
-    tft.fillRoundRect(12, y, 216, 36, 6, TFT_DARKGREY);
-    tft.setTextColor(TFT_WHITE, TFT_DARKGREY);
+    const auto r=ui::powerRect(i);
+    tft.fillRoundRect(r.x,r.y,r.w,r.h,8,ui::panel);
+    ui::drawIcon(tft,icons[i],r.x+12,r.y+10,TFT_WHITE);
+    tft.setTextColor(TFT_WHITE, ui::panel);
     tft.setTextSize(2);
-    tft.setCursor(24, y + 10);
+    tft.setCursor(r.x+48, r.y+14);
     tft.print(labels[i]);
   }
   tft.setTextSize(1);
@@ -71,9 +74,8 @@ static void drawMenu() {
 }
 
 static int actionAt(int16_t x, int16_t y) {
-  if (x < 12 || x >= 228 || y < 144) return -1;
-  int action = (y - 144) / 44;
-  return action < 3 && (y - 144) % 44 < 36 ? action : -1;
+  for(int i=0;i<3;i++)if(ui::powerRect(i).contains(x,y))return i;
+  return -1;
 }
 
 bool updatePowerUi(bool touched, int16_t x, int16_t y, uint32_t now) {

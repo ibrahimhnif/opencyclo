@@ -54,7 +54,8 @@ class _RoutesTabState extends State<RoutesTab> {
         const Text(
             'free ride follows your GPS position. import a GPX for route navigation.'),
         const SizedBox(height: 12),
-        FilledButton(
+        FilledButton.icon(
+            icon: const Icon(Icons.map_outlined),
             onPressed: busy
                 ? null
                 : () => run(() async {
@@ -63,8 +64,9 @@ class _RoutesTabState extends State<RoutesTab> {
                         setState(() => status = 'free ride opened on device');
                       }
                     }),
-            child: const Text('open free ride')),
-        OutlinedButton(
+            label: const Text('free ride', maxLines: 1)),
+        OutlinedButton.icon(
+            icon: const Icon(Icons.file_open_outlined),
             onPressed: busy
                 ? null
                 : () => run(() async {
@@ -94,7 +96,7 @@ class _RoutesTabState extends State<RoutesTab> {
                         });
                       }
                     }),
-            child: const Text('import GPX')),
+            label: const Text('import GPX', maxLines: 1)),
         if (route != null) ...[
           const SizedBox(height: 12),
           Text(route!.name),
@@ -106,7 +108,8 @@ class _RoutesTabState extends State<RoutesTab> {
               'preview: route geometry only. copy the offline map pack to the device SD separately.'),
           Text(coverage),
           const SizedBox(height: 8),
-          FilledButton(
+          FilledButton.icon(
+              icon: const Icon(Icons.sync),
               onPressed: busy
                   ? null
                   : () => run(() async {
@@ -131,14 +134,16 @@ class _RoutesTabState extends State<RoutesTab> {
                                   : 'map coverage unknown; install the map pack');
                         }
                       }),
-              child: const Text('sync route to device')),
+              label: const Text('sync route', maxLines: 1)),
           if (busy) ...[
             LinearProgressIndicator(value: progress),
-            TextButton(
+            TextButton.icon(
+                icon: const Icon(Icons.close),
                 onPressed: () => setState(() => cancel = true),
-                child: const Text('cancel transfer'))
+                label: const Text('cancel', maxLines: 1))
           ],
-          OutlinedButton(
+          OutlinedButton.icon(
+              icon: const Icon(Icons.navigation_outlined),
               onPressed: busy || !synced
                   ? null
                   : () => run(() async {
@@ -148,7 +153,7 @@ class _RoutesTabState extends State<RoutesTab> {
                               () => status = 'navigation opened on device');
                         }
                       }),
-              child: const Text('start GPX navigation')),
+              label: const Text('navigate GPX', maxLines: 1)),
           const SizedBox(height: 8),
           const Text(
               '“route bends” cues are estimated from the GPX shape, not verified intersection instructions.'),

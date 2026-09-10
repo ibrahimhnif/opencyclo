@@ -5,7 +5,8 @@ void test_hero_6_grid_slot0_is_hero_sized() {
     const TemplateSlotDefinition& def = getTemplateDefinition(TEMPLATE_HERO_6_GRID);
     TEST_ASSERT_EQUAL(SIZE_HERO, def.slots[0].size_class);
     TEST_ASSERT_EQUAL(232, def.slots[0].rect.w);
-    TEST_ASSERT_EQUAL(94, def.slots[0].rect.h);
+    TEST_ASSERT_EQUAL(78, def.slots[0].rect.h);
+    TEST_ASSERT_EQUAL(44, def.slots[0].rect.y);
 }
 
 void test_hero_6_grid_bottom_row_is_small() {

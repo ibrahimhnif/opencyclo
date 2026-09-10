@@ -44,6 +44,37 @@ Trackpoints require a valid GPS position. Timestamps come from GPS UTC; without
 a valid clock filenames use uptime plus collision suffixes and points omit the
 time element. A ride ended before any valid GPS points can produce an empty GPX.
 
+### Ride screen UX
+
+The device ride overlay uses a large distance readout, separate moving-time and
+average-speed values, two 48-pixel-high action buttons and a 44-pixel back target.
+Recording, paused, saving, saved, missing-file and save-error states are named
+explicitly. **Finish ride → Save ride** still requires confirmation; **Keep
+recording / Keep paused** cancels without changing the recording state.
+On success, **Done** is primary and **New ride** is secondary. Saving disables
+actions; retry uses the existing logger API. No discard/delete action is added.
+
+This is a presentation-only refactor: `src/ui/ride_view.h` maps telemetry to
+screens/actions and owns touch geometry; `ride_menu.cpp` renders that model and
+dispatches the existing commands. Insta360 control, BLE protocols, navigation,
+GPS, recording, GPX persistence and the Flutter app are unchanged.
+
+The flow takes inspiration from the separate timer-stop and save steps in the
+[Garmin Edge manual](https://www8.garmin.com/manuals-apac/webhelp/edge540/EN-SG/GUID-97F1F542-4BAD-483D-A7A5-8505DEE6E53F-599.html)
+and quick ride controls in the
+[iGPSPORT BSC300T manual](https://arg.igpsport.com/descargas/BSC300T.pdf);
+it is not a copy of either device's complete menu system.
+
+After a firmware build has fetched LovyanGFX, generate all nine host layout
+previews with actual device bitmap fonts:
+
+```sh
+python3 tests/run_ride_tests.py /tmp/opencyclo-ride-preview
+```
+
+This checks screen bounds and produces `all.png`; it does not measure physical
+touch sensitivity, LCD appearance or ESP32 frame timing.
+
 The recent trail is limited to 512 points in RAM; full ride recording remains in
 `/rides/*.gpx`. GPS-based heading is not a magnetic compass. At a crossing the
 matcher searches within 100 m behind / 500 m ahead of its last match to avoid
