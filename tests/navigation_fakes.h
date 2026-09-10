@@ -62,15 +62,20 @@ struct FakeSD {
 extern FakeSD SD_MMC;
 namespace NIMBLE_PROPERTY {constexpr int READ=1,WRITE=2;}
 class NimBLECharacteristic;
+void tickRouteTransfer();
 struct NimBLECharacteristicCallbacks {virtual ~NimBLECharacteristicCallbacks()=default;virtual void onWrite(NimBLECharacteristic*){}};
 class NimBLECharacteristic {
   std::string value;
   std::unique_ptr<NimBLECharacteristicCallbacks> callbacks;
 public:
   void setCallbacks(NimBLECharacteristicCallbacks* c){callbacks.reset(c);}
-  void setValue(const char* s){value=s;}
+  // Match NimBLE 1.4's explicitly forwarded template: a const char* is raw
+  // pointer bytes, NOT a C string. Production must use buffer + length.
+  template<typename T> void setValue(const T& s){value.assign(reinterpret_cast<const char*>(&s),sizeof(T));}
+  void setValue(const uint8_t* s,size_t n){value.assign(reinterpret_cast<const char*>(s),n);}
   std::string getValue(){return value;}
-  void write(const std::vector<uint8_t>& v){value.assign(v.begin(),v.end());callbacks->onWrite(this);}
+  void writeOnly(const std::vector<uint8_t>& v){value.assign(v.begin(),v.end());callbacks->onWrite(this);}
+  void write(const std::vector<uint8_t>& v){writeOnly(v);tickRouteTransfer();}
 };
 struct NimBLEService {
   std::map<std::string,std::unique_ptr<NimBLECharacteristic>> chars;

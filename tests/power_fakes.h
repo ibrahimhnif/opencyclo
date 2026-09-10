@@ -6,6 +6,7 @@
 extern std::vector<std::string> calls;
 extern uint32_t fakeTime;
 extern bool loggerReady, bleReady, buttonDown, wakeReady;
+extern bool gpsReady;
 extern bool fakeUsbConnected, usbWakeReady;
 extern int fakeWakeCause;
 struct FakeTouch { bool touched; int16_t x, y; };
@@ -50,6 +51,7 @@ inline bool prepareBleForPowerOff(uint32_t) {
 }
 inline void resumeBleAfterPowerOff() { calls.push_back("resume ble"); }
 inline void stopBleForPowerOff() { calls.push_back("stop ble"); }
+inline bool prepareGpsForPowerOff() {calls.push_back("gps standby");return gpsReady;}
 enum { TFT_BLACK, TFT_WHITE, TFT_GREEN };
 struct FakeDisplay {
   void sleep() { calls.push_back("display sleep"); }

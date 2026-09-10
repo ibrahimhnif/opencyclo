@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
     for header in (
         "hardware/ble_task.h", "hardware/display.h", "storage/logger_task.h",
         "driver/gpio.h", "driver/rtc_io.h", "esp_sleep.h", "esp_attr.h",
-        "hardware/battery.h", "storage/settings.h",
+        "hardware/battery.h", "storage/settings.h", "hardware/gps_task.h",
     ):
         target = work / header
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -25,6 +25,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
     for name, sources, flags in (
         ("control_layout", ["tests/test_control_layout.cpp"], []),
         ("button", ["tests/test_power_button.cpp"], []),
+        ("gnss_power", ["tests/test_gnss_power.cpp"], []),
         ("power", ["tests/test_power.cpp", "src/hardware/power.cpp",
                    "src/ui/charging_screen.cpp"], []),
         ("power_usb", ["tests/test_power.cpp", "src/hardware/power.cpp",

@@ -10,9 +10,9 @@ repository. Its BOOT/download button (KEY2) connects GPIO0 to ground.
 | Touch a sleeping screen | Wake the screen; the wake touch does not press a ride button |
 | Hold BOOT for 2 seconds | Open Power & Battery |
 | Settings → POWER / CHARGING | Open the same menu |
-| POWER OFF | Close the GPX log, stop Bluetooth, turn off the display, enter deep sleep |
-| Press BOOT after POWER OFF | Wake and start a fresh session |
-| RESTART | Close the log and restart into a fresh session |
+| POWER OFF | Close the GPX log, quiesce BLE, request GPS standby, stop BLE/display, enter deep sleep |
+| Press BOOT after POWER OFF | Wake into Idle; Start explicitly begins a session |
+| RESTART | Close the log and restart into Idle |
 | BACK or short BOOT press in menu | Return to the current page |
 
 With the optional USB power detector configured:
@@ -38,7 +38,10 @@ Power off and restart end the current ride; ride totals are not restored.
 Shutdown waits for the logger and BLE task to become quiescent. If either
 does not respond within five seconds, or BOOT remains held, the operation
 is canceled. Firmware updates exclude shutdown/restart; disconnecting the
-phone aborts an incomplete update and releases that restriction.
+phone aborts an incomplete update and releases that restriction. GPS standby
+is the final fallible step before deep sleep; failure cancels shutdown, attempts
+UART wake/reconfiguration, and releases logger/BLE quiescence. Restart does not
+request GNSS standby.
 
 ## Charging hardware
 
@@ -109,5 +112,69 @@ On-device checks still required:
    turn off. Reconnect USB and verify charging mode reappears. Check BOOT wake
    and power-off while USB is already connected as well.
 
-The logger still uses its pre-existing placeholder GPS timestamps; unique
-filenames now preserve separate rides, but GPX times are not yet real UTC.
+## Firmware power optimization: first pass
+
+- RouteIO now waits for task notifications instead of polling every 5 ms.
+  Each packet/disconnect wakes it immediately; a one-second maintenance wake
+  retains transfer timeout and SD cleanup retries. This reduces idle task
+  wake frequency, not the ESP32 clock or GPS update rate.
+- When BME280 detection fails at both addresses after the existing retries,
+  the barometer publishes one invalid sample and deletes its task instead of
+  producing invalid samples at 4 Hz forever. Attaching a sensor still requires
+  reboot, as before. Sampling for an installed BME280 is unchanged.
+- Recording, navigation, camera controls, display timing and Bluetooth
+  connection settings are unchanged by this pass.
+
+No whole-device current reduction has been measured yet. Compare battery-side
+current under the same brightness, GPS fix, BLE connections and SD workload:
+Idle, recording, screen off, and deep sleep. USB input current while charging
+includes battery charge current and is not a direct measurement of device load.
+
+## RushFPV GNSS Micro: software standby
+
+The user identified the module as RushFPV GNSS Micro (four wires: 5 V, GND,
+TX, RX). Its official specification identifies a u-blox M10 engine with an
+internal backup battery. No additional wake wire is required for UART wake.
+[RushFPV product/specification](https://rushfpv.net/products/rushfpv-gnss-micro).
+
+Implemented (physical validation pending):
+
+- Boot releases the GPS TX hold, sends a UART wake byte, waits 500 ms, and
+  polls UBX-MON-VER with a checksum-checked, bounded parser. Logs show actual
+  software/hardware/protocol strings. No GNSS cold reset or backup erasure.
+- Only confirmed protocol **34.10** enables the current standby/configuration
+  implementation. Other versions retain ordinary NMEA reception but need
+  review against their matching interface manual before standby is enabled.
+- Acknowledged CFG-VALSET restores 5 Hz and portable mode in RAM only. It
+  replaces the old unchecked legacy configuration frames. Missing ACK is
+  logged, not reported as successful configuration.
+- Power Off polls identity again, sends the 16-byte UBX-RXM-PMREQ request
+  (backup + force, duration zero, UART RX edge wake), then requires 1.2 seconds
+  of UART silence within 2.5 seconds. PMREQ is a command, not a CFG ACK exchange.
+  Silence after a fresh identity reply is evidence, not proof of low current.
+- TX is held at its idle level during deep sleep to avoid spurious UART wake.
+  Charging-only mode does not start the GPS task or intentionally send UART
+  traffic. Screen Off and ride Pause leave GNSS operating.
+- Missing/unrecognized GNSS, write failure, continuing output, or inability to
+  acquire UART ownership cancels Power Off with `GPS standby failed. Retry.`
+  Restart remains available. Failed standby attempts wake the receiver again;
+  stale fixes and queued pre-standby data are cleared.
+
+UART access is serialized between the GPS task and shutdown. Transactions have
+bounded read/write waits. Backup retention supports hot start but does not
+guarantee a fixed time-to-fix after long storage or under poor satellite view.
+
+Protocol reference: [u-blox M10 SPG 5.10 interface, MON-VER, CFG-VALSET and
+RXM-PMREQ](https://content.u-blox.com/sites/default/files/u-blox-M10-SPG-5.10_InterfaceDescription_UBX-21035062.pdf).
+
+Before relying on power savings: capture boot version/configuration logs, test
+Power Off/BOOT wake repeatedly, verify a fresh GPS fix after wake, and measure
+whole-device battery-side current in active, screen-off and deep-sleep states.
+Check charging-only behavior separately if a USB detector has been installed.
+An unsupported protocol log should lead to updating the allowlist against its
+manual, not bypassing identification. Host tests cover packet checksums,
+identity gating, ACK/NAK, quiet/continuing UART, timeouts and shutdown rollback;
+they do not emulate GNSS electrical behavior, RF acquisition or GPIO retention.
+
+Timer USB polling remains disabled: the stock board still has no USB sensing
+input. A timer cannot replace that missing hardware signal.

@@ -24,7 +24,7 @@ bool prepareBleForPowerOff(uint32_t timeoutMs) {
 }
 
 void resumeBleAfterPowerOff() { stopState.store(0); }
-void stopBleForPowerOff() { abortRouteTransfer(); NimBLEDevice::deinit(true); }
+void stopBleForPowerOff() { detachNavigationService(); NimBLEDevice::deinit(true); }
 
 bool g_ble_scanning = false;
 static NimBLEScan* pBLEScan = nullptr;
@@ -348,7 +348,6 @@ void bleTaskLoop(void* pvParameters) {
     }
 
     tickCameraPairing();
-    tickRouteTransfer();
 
     if (g_ble_scanning) {
       if (!pBLEScan->isScanning()) {

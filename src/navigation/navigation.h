@@ -3,6 +3,8 @@
 #include <NimBLEDevice.h>
 void initNavigationService(NimBLEService* service);
 void abortRouteTransfer();
+void detachNavigationService();
+// RouteIO worker only; never invoke from a BLE callback or another task.
 void tickRouteTransfer();
 // Dedicated map screen, entered from the status bar; horizontal drags pan here.
 bool navigationOpen();

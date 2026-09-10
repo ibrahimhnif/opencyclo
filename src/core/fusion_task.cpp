@@ -29,7 +29,7 @@ void startFusionTask() {
 }
 
 void fusionTaskLoop(void* pvParameters) {
-  GpsFix fix;
+  GpsFix fix{};
   BaroSample baro;
 
   uint32_t speedAbove4StartMs = 0;
@@ -78,6 +78,10 @@ void fusionTaskLoop(void* pvParameters) {
     if (g_gps_queue != NULL && xQueueReceive(g_gps_queue, &fix, pdMS_TO_TICKS(50)) == pdTRUE) {
       gotGpsFix = true;
     }
+    now=millis();
+    if (now-fix.receivedAtMs>=1500) {
+      fix.isValid=false;fix.speedValid=false;gotGpsFix=true;
+    }
 
     bool gotBaroSample = false;
     if (g_baro_queue != NULL && xQueueReceive(g_baro_queue, &baro, 0) == pdTRUE) {
@@ -101,13 +105,19 @@ void fusionTaskLoop(void* pvParameters) {
       state.gps_has_fix = fix.isValid;
       state.satellites = fix.satellites;
       state.hdop = fix.hdop;
+      if (!fix.isValid || !fix.speedValid) {
+        if (state.speed_source != SPEED_SOURCE_BLE_CSC) {
+          state.speed_kmh=0;state.speed_source=SPEED_SOURCE_NONE;
+        }
+        prevLat=prevLon=0;
+      }
 
       if (fix.isValid) {
         state.lat = fix.latitude;
         state.lon = fix.longitude;
 
         // If no BLE CSC speed sensor is connected, use GPS speed
-        if (state.speed_source != SPEED_SOURCE_BLE_CSC) {
+        if (fix.speedValid && state.speed_source != SPEED_SOURCE_BLE_CSC) {
           state.speed_kmh = fix.speedKmh;
           state.speed_source = SPEED_SOURCE_GPS;
         }
@@ -118,7 +128,7 @@ void fusionTaskLoop(void* pvParameters) {
         }
 
         // Accumulate trip distance when ride is ACTIVE
-        if (state.ride_state == RIDE_STATE_ACTIVE) {
+        if (state.ride_state == RIDE_STATE_ACTIVE && fix.speedValid) {
           if (prevLat != 0.0 && prevLon != 0.0) {
             double deltaKm = haversineDistanceKm(prevLat, prevLon, fix.latitude, fix.longitude);
             // Ignore unrealistic teleports (> 150 km/h equivalent per sample)
@@ -158,19 +168,19 @@ void fusionTaskLoop(void* pvParameters) {
       state.speed_kmh = 0.0f;
     }
 
-    // Movement Detection & Auto Start / Pause State Machine
+    // Movement only pauses/resumes an explicitly started session.
     float effectiveSpeed = state.speed_kmh;
 
-    if (!state.ride_auto_allowed) {
+    if (!state.ride_auto_allowed || state.ride_state == RIDE_STATE_IDLE) {
       speedAbove4StartMs = speedBelow1_5StartMs = 0;
     } else if (effectiveSpeed >= 4.0f) {
       speedBelow1_5StartMs = 0;
       if (speedAbove4StartMs == 0) {
         speedAbove4StartMs = now;
       } else if (now - speedAbove4StartMs >= 3000) { // Speed >= 4.0 km/h for 3 continuous seconds
-        if (state.ride_state != RIDE_STATE_ACTIVE) {
+        if (state.ride_state == RIDE_STATE_PAUSED) {
           state.ride_state = RIDE_STATE_ACTIVE;
-          Serial.println("[STATE MACHINE] Auto-started ride! Speed >= 4.0 km/h for 3s.");
+          Serial.println("[STATE MACHINE] Auto-resumed ride. Speed >= 4.0 km/h for 3s.");
         }
       }
     } else if (effectiveSpeed < 1.5f) {

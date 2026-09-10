@@ -24,6 +24,23 @@ struct NavGuard {
     locked(wait?(lock.lock(),true):lock.try_lock()){}
 };
 NimBLECharacteristic* control;
+std::mutex replyMutex;
+// GATT callbacks must never wait for navigation/SD locks or execute FAT I/O.
+// One bounded mailbox matches the protocol's write -> read ACK flow.
+std::mutex requestMutex;
+std::string requestBytes;
+bool requestData=false, requestPending=false, requestRunning=false;
+std::atomic<bool> disconnectPending{false};
+bool workerReady=false;
+#ifndef UNIT_TEST
+TaskHandle_t routeWorker=nullptr;
+#endif
+void wakeRouteWorker() {
+#ifndef UNIT_TEST
+  if(routeWorker)xTaskNotifyGive(routeWorker);
+#endif
+}
+String workResult;
 File incoming;
 uint32_t expectedSize=0, received=0, expectedCrc=0, crc=0xffffffff, lastPacket=0;
 std::atomic<bool> opened{false};
@@ -44,7 +61,10 @@ bool matched=false;
 uint32_t lastDraw=0, lastTrack=0;
 uint32_t lastMatch=0;
 uint32_t word(const std::string& s, int i) { uint32_t v; memcpy(&v,s.data()+i,4); return v; }
-void reply(const String& s) { control->setValue(s.c_str()); }
+void reply(const String& s) {
+  std::lock_guard<std::mutex> lock(replyMutex);
+  if(control)control->setValue(reinterpret_cast<const uint8_t*>(s.c_str()),s.length());
+}
 void resetTransfer() {
   if(incoming) {SdGuard sd;if(!sd.locked)return;incoming.close();}
   expectedSize=received=0;endRouteSync();
@@ -102,11 +122,12 @@ std::vector<String> routeFiles() {
   }
   std::sort(result.begin(),result.end()); return result;
 }
-class Control : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* ch) override {
+class ControlWork {
+  void reply(const String& s) {workResult=s;}
+public:
+  void process(const std::string& v) {
     NavGuard nav;
     SdGuard sd; if(!sd.locked) { reply("ERR busy");return; }
-    std::string v=ch->getValue();
     if(v.empty()) return;
     if(!g_sd_ready) { reply("ERR no SD");return; }
     if(isPowerOffRequested()) { reply("ERR powering off");return; }
@@ -156,16 +177,34 @@ class Control : public NimBLECharacteristicCallbacks {
     } else { reply("ERR command"); }
   }
 };
-class Data : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* ch) override {
+class DataWork {
+  void reply(const String& s) {workResult=s;}
+public:
+  void process(const std::string& v) {
     NavGuard nav;
-    SdGuard sd; if(!sd.locked) return;
-    std::string v=ch->getValue();
+    SdGuard sd; if(!sd.locked) {reply("ERR SD busy");return;}
     if(!incoming || v.size()<5 || word(v,0)!=received || v.size()-4>expectedSize-received || millis()-lastPacket>30000 || isPowerOffRequested()) { resetTransfer();reply("ERR offset or timeout");return; }
     size_t n=v.size()-4;
     if(incoming.write((const uint8_t*)v.data()+4,n)!=n) { resetTransfer();reply("ERR SD full");return; }
     crc=nav::crc32((const uint8_t*)v.data()+4,n,crc); received+=n; lastPacket=millis();reply(String("OK ")+String(received));
   }
+};
+void enqueue(NimBLECharacteristic* ch,bool data) {
+  const std::string bytes=ch->getValue();
+  std::lock_guard<std::mutex> lock(requestMutex);
+  if(!workerReady) {reply("ERR route worker unavailable");return;}
+  if(requestPending || requestRunning || disconnectPending.load()) {reply("ERR request pending");return;}
+  if(bytes.empty() || bytes.size()>(data?484u:9u)) {reply("ERR packet size");return;}
+  requestBytes=bytes;requestData=data;
+  reply("BUSY");
+  requestPending=true;
+  wakeRouteWorker();
+}
+class Control : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* ch) override {enqueue(ch,false);}
+};
+class Data : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* ch) override {enqueue(ch,true);}
 };
 int sx(double x) { return int((x-cx)*std::pow(2,zoom-14)+120); }
 int sy(double y) { return int((y-cy)*std::pow(2,zoom-14)+153); }
@@ -188,12 +227,71 @@ void match(nav::Point p) {
 }
 void initNavigationService(NimBLEService* service) {
   control=service->createCharacteristic("00001904-0000-1000-8000-00805f9b34fb",NIMBLE_PROPERTY::READ|NIMBLE_PROPERTY::WRITE);
-  control->setCallbacks(new Control());control->setValue("READY");
+  control->setCallbacks(new Control());
+  control->setValue(reinterpret_cast<const uint8_t*>("READY"),5);
   auto data=service->createCharacteristic("00001905-0000-1000-8000-00805f9b34fb",NIMBLE_PROPERTY::WRITE);
   data->setCallbacks(new Data());
+#ifndef UNIT_TEST
+  workerReady=xTaskCreate([](void*) {
+    for(;;) {
+      // Writes/disconnects wake immediately. The slow periodic wake only
+      // checks transfer expiry and retries cleanup if the SD was busy.
+      ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(1000));
+      tickRouteTransfer();
+    }
+  },"RouteIO",12288,nullptr,1,&routeWorker)==pdPASS;
+  Serial.printf("[ROUTE] SD worker %s (12 KB stack)\n",workerReady?"ready":"FAILED");
+#else
+  workerReady=true;
+#endif
 }
-void abortRouteTransfer() { NavGuard nav;resetTransfer(); }
-void tickRouteTransfer() { NavGuard nav(false);if(nav.locked && incoming && millis()-lastPacket>30000) resetTransfer(); }
+void abortRouteTransfer() { disconnectPending=true;wakeRouteWorker(); }
+void detachNavigationService() {
+  // The worker can finish cleanup after BLE shutdown, but must not touch a
+  // characteristic that NimBLEDevice::deinit(true) is about to delete.
+  std::lock_guard<std::mutex> requestLock(requestMutex);
+  workerReady=false;disconnectPending=true;
+  std::lock_guard<std::mutex> replyLock(replyMutex);
+  control=nullptr;
+  wakeRouteWorker();
+}
+void tickRouteTransfer() {
+  // Only the RouteIO task (or the deterministic host test) calls this function.
+  if(disconnectPending.load()) {
+    NavGuard nav;
+    resetTransfer();
+    if(incoming)return; // SD busy: retry cleanup before accepting another request.
+    std::lock_guard<std::mutex> lock(requestMutex);
+    requestPending=false;requestBytes.clear();disconnectPending=false;
+    reply("ERR disconnected");
+    return;
+  }
+  std::string bytes;bool data=false;
+  {
+    std::lock_guard<std::mutex> lock(requestMutex);
+    if(requestPending) {
+      bytes.swap(requestBytes);data=requestData;
+      requestPending=false;requestRunning=true;
+    }
+  }
+  if(!bytes.empty()) {
+    workResult="ERR command";
+#ifndef UNIT_TEST
+    const uint32_t started=millis();
+#endif
+    if(data)DataWork().process(bytes);else ControlWork().process(bytes);
+#ifndef UNIT_TEST
+    if(!data)Serial.printf("[ROUTE] cmd=%u ms=%lu stack_free=%u\n",unsigned(uint8_t(bytes[0])),
+      (unsigned long)(millis()-started),unsigned(uxTaskGetStackHighWaterMark(nullptr)));
+#endif
+    // Publish the ACK only once the mailbox can accept the next packet.
+    std::lock_guard<std::mutex> lock(requestMutex);
+    requestRunning=false;
+    reply(disconnectPending.load()?String("ERR disconnected"):workResult);
+  }
+  NavGuard nav(false);
+  if(nav.locked && incoming && millis()-lastPacket>30000)resetTransfer();
+}
 bool navigationOpen() { return opened; }
 void openNavigation() { NavGuard nav;opened=true;lastDraw=0; }
 void navigationGesture(int x0,int y0,int x1,int y1) {

@@ -1,9 +1,37 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opencyclo_app/core/ble/route_transfer.dart';
 import 'package:opencyclo_app/core/models/route_model.dart';
 
 void main() {
+  test('worker BUSY is polled until ACK, including legacy immediate ACK',
+      () async {
+    final replies = ['BUSY', 'BUSY', 'OK 16'];
+    expect(
+        await waitForRouteReply(() async => replies.removeAt(0),
+            interval: Duration.zero),
+        'OK 16');
+    expect(replies, isEmpty);
+    expect(await waitForRouteReply(() async => 'SAVED /routes/test.ocr'),
+        'SAVED /routes/test.ocr');
+  });
+  test('worker errors, stalled work and disconnect do not become success',
+      () async {
+    await expectLater(
+        waitForRouteReply(() async => 'ERR SD busy'), throwsStateError);
+    await expectLater(
+        waitForRouteReply(() async => 'BUSY',
+            timeout: const Duration(milliseconds: 5), interval: Duration.zero),
+        throwsA(isA<TimeoutException>()));
+    await expectLater(
+        waitForRouteReply(() => Completer<String>().future,
+            timeout: const Duration(milliseconds: 5)),
+        throwsA(isA<TimeoutException>()));
+    await expectLater(
+        waitForRouteReply(() async => throw StateError('disconnected')),
+        throwsStateError);
+  });
   test(
       'minimum MTU transfers offset frames and waits for saved acknowledgement',
       () async {

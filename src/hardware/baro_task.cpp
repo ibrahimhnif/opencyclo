@@ -54,6 +54,12 @@ void baroTaskLoop(void* pvParameters) {
     }
   } else {
     Serial.println("[BARO WARNING] BME280 sensor not detected on I2C bus (0x76 / 0x77)");
+    // No hot-plug probing existed here: the old loop only woke at 4 Hz to
+    // enqueue invalid samples forever. Publish absence once and free the task.
+    BaroSample absent{};
+    if(g_baro_queue != NULL)xQueueSend(g_baro_queue,&absent,0);
+    vTaskDelete(nullptr);
+    return;
   }
 
   for (;;) {

@@ -43,6 +43,7 @@ int main(int argc,char**){
   NimBLEService service;initNavigationService(&service);
   auto control=service.chars["00001904-0000-1000-8000-00805f9b34fb"].get();
   auto data=service.chars["00001905-0000-1000-8000-00805f9b34fb"].get();
+  assert(control->getValue()=="READY"); // Text bytes only, no pointer or trailing NUL.
   previewMapFixture();
   TelemetryState waiting;
   renderNavigation(waiting);
@@ -111,6 +112,19 @@ int main(int argc,char**){
   memcpy(bytes.data(),&h,sizeof(h));memcpy(bytes.data()+sizeof(h),points,sizeof(points));memcpy(bytes.data()+sizeof(h)+sizeof(points),&cue,sizeof(cue));
   uint32_t checksum=nav::crc32(bytes.data(),bytes.size())^0xffffffff;
   std::vector<uint8_t> begin{1};put(begin,bytes.size());put(begin,checksum);
+  // No SD access or transfer ownership until the worker runs.
+  control->writeOnly(begin);
+  assert(control->getValue()=="BUSY" && !syncOwned && !fs.count("/routes/incoming.part"));
+  abortRouteTransfer(); // Disconnect cancels queued work without doing SD I/O.
+  assert(!syncOwned);
+  tickRouteTransfer();assert(control->getValue()=="ERR disconnected" && !syncOwned);
+  control->writeOnly(begin);
+  control->writeOnly({5});assert(control->getValue()=="ERR request pending");
+  tickRouteTransfer();assert(control->getValue()=="OK 0" && syncOwned);
+  abortRouteTransfer();assert(syncOwned);
+  fakeSdBusy=true;tickRouteTransfer();assert(syncOwned);
+  fakeSdBusy=false;tickRouteTransfer();assert(!syncOwned);
+  data->write(std::vector<uint8_t>(485,0));assert(control->getValue()=="ERR packet size");
   control->write(begin);assert(control->getValue()=="OK 0" && syncOwned);
   std::vector<uint8_t> wrong;put(wrong,1);wrong.push_back(0);data->write(wrong);
   assert(control->getValue().find("ERR")==0 && !syncOwned);
@@ -134,7 +148,7 @@ int main(int argc,char**){
   control->write(begin);fakeMillis+=31000;tickRouteTransfer();assert(!syncOwned);
   updating=true;control->write(begin);assert(control->getValue().find("ERR")==0);updating=false;
   g_sd_ready=false;control->write(begin);assert(control->getValue()=="ERR no SD");g_sd_ready=true;
-  control->write(begin);abortRouteTransfer();assert(!syncOwned);
+  control->write(begin);abortRouteTransfer();tickRouteTransfer();assert(!syncOwned);
   // Read an indexed map column through the production renderer.
   nav::Point center{10000000,10000000};int tx=int(nav::x(center)/256),ty=int(nav::y(center)/256);
   std::string mapPath="/maps/14/"+std::to_string(tx)+".ocp";
@@ -151,5 +165,9 @@ int main(int argc,char**){
   drawMapBackground(512,512,13);
   assert(drawMapBackground(0,0,13)==MapStatus::Missing);
   assert(drawMapBackground(nav::world,nav::world,13)==MapStatus::Missing);
+  control->writeOnly(begin);
+  detachNavigationService();service.chars.clear();
+  tickRouteTransfer(); // Cleanup must not access characteristics deleted by BLE.
+  assert(!syncOwned);
   puts("Navigation transfer, validation, memory failure, rendering and GPS loss tests passed");
 }

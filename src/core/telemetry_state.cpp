@@ -44,7 +44,7 @@ void initTelemetryState() {
 
     g_telemetry.ride_state = RIDE_STATE_IDLE;
     g_telemetry.ride_revision = 0;
-    g_telemetry.ride_auto_allowed = true;
+    g_telemetry.ride_auto_allowed = false;
     g_telemetry.ride_save = RIDE_SAVE_NONE;
     g_telemetry.ride_file[0] = 0;
     g_telemetry.gps_year = 0;
@@ -74,10 +74,26 @@ TelemetryState getTelemetrySnapshot() {
 static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
   if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
     TelemetryState next = newState;
+    // BLE callbacks must not restore a GPS snapshot taken before fusion
+    // invalidated it. GPS owns these fields; CSC still owns wheel speed.
+    if (!fusion) {
+      next.gps_has_fix=g_telemetry.gps_has_fix;
+      next.lat=g_telemetry.lat;next.lon=g_telemetry.lon;
+      next.satellites=g_telemetry.satellites;next.hdop=g_telemetry.hdop;
+      next.gps_year=g_telemetry.gps_year;next.gps_month=g_telemetry.gps_month;
+      next.gps_day=g_telemetry.gps_day;next.gps_hour=g_telemetry.gps_hour;
+      next.gps_minute=g_telemetry.gps_minute;next.gps_second=g_telemetry.gps_second;
+      if(next.speed_source!=SPEED_SOURCE_BLE_CSC) {
+        next.speed_source=g_telemetry.speed_source;next.speed_kmh=g_telemetry.speed_kmh;
+      }
+    } else if(g_telemetry.speed_source==SPEED_SOURCE_BLE_CSC) {
+      next.speed_source=g_telemetry.speed_source;next.speed_kmh=g_telemetry.speed_kmh;
+    }
     // Commands own lifecycle; only fusion owns accumulated ride statistics.
     // Reject a fusion snapshot taken before a pause/finish/new ride command.
     if (!fusion || next.ride_revision != g_telemetry.ride_revision ||
-        g_telemetry.ride_save != RIDE_SAVE_NONE) {
+        g_telemetry.ride_save != RIDE_SAVE_NONE ||
+        g_telemetry.ride_state == RIDE_STATE_IDLE) {
       next.ride_state = g_telemetry.ride_state;
       next.trip_distance_km = g_telemetry.trip_distance_km;
       next.ride_time_s = g_telemetry.ride_time_s;

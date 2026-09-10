@@ -159,9 +159,7 @@ class BleService {
       throw StateError('Connect to a device with navigation firmware');
     }
     await c.write(bytes, withoutResponse: false);
-    final reply = utf8.decode(await c.read());
-    if (reply.startsWith('ERR')) throw StateError(reply);
-    return reply;
+    return waitForRouteReply(() async => utf8.decode(await c.read()));
   }
 
   Future<void> freeRide() async {
@@ -200,7 +198,7 @@ class BleService {
           command: _routeCommand,
           data: (packet) async {
             await d.write(packet, withoutResponse: false);
-            return utf8.decode(await c.read());
+            return waitForRouteReply(() async => utf8.decode(await c.read()));
           },
           progress: progress,
           cancelled: cancelled);

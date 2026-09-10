@@ -10,8 +10,26 @@ void frame(){fakeMillis+=101;updateRideMenu(false,0,0);}
 void tap(int y){updateRideMenu(true,30,y);frame();}
 int main() {
   initTelemetryState();
+  auto boot=getTelemetrySnapshot();
+  assert(boot.ride_state==RIDE_STATE_IDLE && !boot.ride_auto_allowed);
+  // Movement, GPS fix and a faulty/stale fusion proposal cannot start a ride
+  // or accrue statistics before the user explicitly starts the session.
+  boot.gps_has_fix=true;boot.speed_kmh=25;
+  boot.ride_state=RIDE_STATE_ACTIVE;boot.ride_auto_allowed=true;
+  boot.trip_distance_km=10;boot.ride_time_s=100;boot.max_speed_kmh=25;
+  setFusionTelemetryState(boot);
+  auto idle=getTelemetrySnapshot();
+  assert(idle.ride_state==RIDE_STATE_IDLE && !idle.ride_auto_allowed);
+  assert(idle.trip_distance_km==0 && idle.ride_time_s==0 && idle.max_speed_kmh==0);
+  assert(idle.gps_has_fix && idle.speed_kmh==25); // Live map/sensors still work.
+  assert(rideui::view(idle,false).primary.action==rideui::Action::Start);
   assert(!requestFinishRide());
   openRideMenu();tap(200);
+  assert(getTelemetrySnapshot().ride_state==RIDE_STATE_ACTIVE);
+  assert(getTelemetrySnapshot().ride_auto_allowed);
+  auto autoPause=getTelemetrySnapshot();autoPause.ride_state=RIDE_STATE_PAUSED;
+  setFusionTelemetryState(autoPause);assert(getTelemetrySnapshot().ride_state==RIDE_STATE_PAUSED);
+  autoPause.ride_state=RIDE_STATE_ACTIVE;setFusionTelemetryState(autoPause);
   assert(getTelemetrySnapshot().ride_state==RIDE_STATE_ACTIVE);
   auto moving=getTelemetrySnapshot();
   moving.trip_distance_km=12.5;moving.ride_time_s=3600;
@@ -65,5 +83,17 @@ int main() {
   assert(hit(saving,20,20)==Action::None && hit(saving,30,200)==Action::None);
   touch.update(true,30,260,summary);touch.cancel();
   assert(touch.update(false,0,0,summary)==Action::None);
+  initTelemetryState(); // A reboot never restores automatic recording.
+  assert(getTelemetrySnapshot().ride_state==RIDE_STATE_IDLE);
+  assert(rideui::view(getTelemetrySnapshot(),false).primary.action==Action::Start);
+  auto oldGps=getTelemetrySnapshot();
+  oldGps.gps_has_fix=true;oldGps.speed_source=SPEED_SOURCE_GPS;oldGps.speed_kmh=139;
+  auto invalid=getTelemetrySnapshot();
+  setFusionTelemetryState(invalid);setTelemetryState(oldGps);
+  assert(!getTelemetrySnapshot().gps_has_fix && getTelemetrySnapshot().speed_kmh==0);
+  auto wheel=getTelemetrySnapshot();wheel.speed_source=SPEED_SOURCE_BLE_CSC;wheel.speed_kmh=24;
+  setTelemetryState(wheel);setFusionTelemetryState(invalid);
+  assert(getTelemetrySnapshot().speed_source==SPEED_SOURCE_BLE_CSC);
+  assert(getTelemetrySnapshot().speed_kmh==24);
   puts("Ride lifecycle, stale snapshots, confirmation, retry and summary tests passed");
 }

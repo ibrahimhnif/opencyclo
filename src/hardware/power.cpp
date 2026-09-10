@@ -1,6 +1,7 @@
 #include "power.h"
 #include "config/pins.h"
 #include "hardware/ble_task.h"
+#include "hardware/gps_task.h"
 #include "hardware/display.h"
 #include "storage/logger_task.h"
 #include <atomic>
@@ -145,6 +146,14 @@ const char* powerOff(bool restart) {
     return "Cannot enable button wake";
   }
 
+  // Last fallible shutdown step. Restart keeps GNSS running; screen-off and
+  // ride pause never call this path. Charging mode never starts the GPS task.
+  if(!restart && !prepareGpsForPowerOff()) {
+    resumeBleAfterPowerOff();
+    resumeLoggerAfterPowerOff();
+    cancelPowerOff();
+    return "GPS standby failed. Retry.";
+  }
   stopBleForPowerOff();
   tft.sleep();
   Serial.println(restart ? "[POWER] Restarting" : "[POWER] Deep sleep; BOOT wakes");

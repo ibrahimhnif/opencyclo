@@ -10,6 +10,7 @@ std::vector<std::string> calls;
 uint32_t fakeTime = 0;
 bool loggerReady = true, bleReady = true, buttonDown = false, wakeReady = true;
 bool fakeUsbConnected = false, usbWakeReady = true;
+bool gpsReady=true;
 int fakeWakeCause = 0;
 std::vector<FakeTouch> touches;
 size_t touchIndex = 0;
@@ -26,6 +27,7 @@ static void reset() {
   calls.clear();
   fakeTime = 0;
   loggerReady = bleReady = wakeReady = true;
+  gpsReady=true;
   buttonDown = false;
   fakeUsbConnected = false;
   usbWakeReady = true;
@@ -86,6 +88,11 @@ int main() {
   assert(called("resume ble") && called("resume log"));
   assert(!called("stop ble") && !isPowerOffRequested());
 
+  reset();gpsReady=false;
+  assert(powerOff(false)!=nullptr);
+  assert(called("gps standby") && called("resume log") && called("resume ble"));
+  assert(!called("stop ble") && !called("sleep") && !isPowerOffRequested());
+
   reset();
   try { powerOff(false); assert(false); } catch (const SleepReached&) {}
   const std::vector<std::string> sleepOrder = {
@@ -93,7 +100,7 @@ int main() {
 #if PIN_USB_POWER_SENSE >= 0
     "usb wake " + std::to_string(1ULL << PIN_USB_POWER_SENSE),
 #endif
-    "stop ble", "display sleep",
+    "gps standby", "stop ble", "display sleep",
     "backlight low", "hold backlight", "sleep"
   };
   assert(calls == sleepOrder);

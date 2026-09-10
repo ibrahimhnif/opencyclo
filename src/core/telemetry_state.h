@@ -23,6 +23,8 @@ enum RideSaveState { RIDE_SAVE_NONE, RIDE_SAVE_PENDING, RIDE_SAVE_OK, RIDE_SAVE_
 
 struct GpsFix {
   bool isValid;
+  bool speedValid;
+  uint32_t receivedAtMs;
   double latitude;
   double longitude;
   float speedKmh;
@@ -81,7 +83,7 @@ struct TelemetryState {
   // State Machine
   RideState ride_state;
   uint32_t ride_revision;
-  bool ride_auto_allowed;
+  bool ride_auto_allowed; // Auto-pause/resume only; never creates a session.
   RideSaveState ride_save;
   char ride_file[64];
   uint16_t gps_year;

@@ -1,5 +1,26 @@
+import 'dart:async';
 import 'dart:typed_data';
 import '../models/route_model.dart';
+
+/// Async firmware returns BUSY while its SD worker runs. Older firmware's
+/// immediate acknowledgements remain compatible. Never retry the write itself.
+Future<String> waitForRouteReply(Future<String> Function() read,
+    {Duration timeout = const Duration(seconds: 30),
+    Duration interval = const Duration(milliseconds: 20)}) async {
+  final elapsed = Stopwatch()..start();
+  while (true) {
+    final remaining = timeout - elapsed.elapsed;
+    if (remaining <= Duration.zero) {
+      throw TimeoutException('Device route operation timed out', timeout);
+    }
+    final reply = await read().timeout(remaining);
+    if (reply != 'BUSY') {
+      if (reply.startsWith('ERR')) throw StateError(reply);
+      return reply;
+    }
+    await Future<void>.delayed(interval);
+  }
+}
 
 /// Transport-independent protocol, so MTU boundaries, cancellation and device
 /// rejection are testable without pretending a successful GATT write saved a file.
