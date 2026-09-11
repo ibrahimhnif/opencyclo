@@ -37,9 +37,10 @@ struct FakePort : gnss::Port {
       memcpy(version+40,known?"PROTVER=34.10":"PROTVER=34.00",13);
       reply(0x0a,4,version,sizeof(version));
     } else if(f.cls==6 && f.id==0x8a) {
-      assert(f.length==21 && f.payload[1]==1); // RAM only.
+      assert(f.length==31 && f.payload[1]==1); // RAM only.
       const uint8_t keys[]={0,1,0,0,1,0,0x21,0x30,200,0,
-        2,0,0x21,0x30,1,0,0x21,0,0x11,0x20,0};
+        2,0,0x21,0x30,1,0,0x21,0,0x11,0x20,0,
+        7,0,0x91,0x20,1,1,0,0x74,0x10,1};
       assert(!memcmp(f.payload,keys,sizeof(keys)));
       const uint8_t target[]={6,0x8a};reply(5,ack?1:0,target,2);
     } else if(f.cls==2 && f.id==0x41) {

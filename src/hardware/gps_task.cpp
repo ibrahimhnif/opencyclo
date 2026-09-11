@@ -1,6 +1,7 @@
 #include "gps_task.h"
 #include "config/pins.h"
 #include "gps_decoder.h"
+#include "gps_filter.h"
 #include "gnss_power.h"
 #include <mutex>
 #include <driver/gpio.h>
@@ -9,6 +10,7 @@
 QueueHandle_t g_gps_queue = NULL;
 
 static GpsDecoder gps;
+static GpsFilter gpsFilter;
 static HardwareSerial gpsSerial(1);
 static std::mutex gpsMutex;
 static bool uartReady=false,quiesced=false;
@@ -37,12 +39,13 @@ static void wakeGps() {
   Serial.printf("[GPS POWER] UART wake: %s; protocol 34.10: %s\n",
     responded?"receiver replied":"no version reply",gpsPower.supported()?"recognized":"not confirmed");
   if(responded)Serial.printf("[GPS POWER] SW=%s HW=%s %s\n",gpsPower.software,gpsPower.hardware,gpsPower.protocol);
+  bool configured=false;
   if(gpsPower.supported()) {
-    const bool configured=gpsPower.configure();
-    Serial.printf("[GPS POWER] RAM 5 Hz/portable configuration: %s\n",configured?"ACK":"not acknowledged");
+    configured=gpsPower.configure();
+    Serial.printf("[GPS POWER] RAM 5 Hz/portable + NAV-PVT: %s\n",configured?"ACK":"not acknowledged; NMEA quality fallback");
   }
   // Never publish pre-standby fixes as fresh positions after recovery.
-  gps.reset();nmeaLineIdx=0;
+  gps.reset(configured);gpsFilter.reset();nmeaLineIdx=0;
   if(g_gps_queue) {GpsFix invalid{};invalid.receivedAtMs=millis();xQueueOverwrite(g_gps_queue,&invalid);}
 }
 
@@ -114,7 +117,9 @@ void gpsTaskLoop(void* pvParameters) {
           addNmeaDebugLine(nmeaLineBuf);
           nmeaLineIdx = 0;
         }
-      } else if (nmeaLineIdx < sizeof(nmeaLineBuf) - 1) {
+      } else if (c=='$') {
+        nmeaLineIdx=0;nmeaLineBuf[nmeaLineIdx++]=c;
+      } else if (nmeaLineIdx && c>=32 && c<=126 && nmeaLineIdx < sizeof(nmeaLineBuf) - 1) {
         nmeaLineBuf[nmeaLineIdx++] = c;
       }
     }
@@ -126,16 +131,16 @@ void gpsTaskLoop(void* pvParameters) {
       g_gps_debug.total_chars = totalChars;
       g_gps_debug.sentences_passed = gps.accepted;
       g_gps_debug.active_rx_pin = PIN_GPS_RX;
-      const GpsFix status=gps.snapshot(now);
-      Serial.printf("[GPS] fix=%d speed_valid=%d speed=%.1f sats=%u hdop=%.2f age=%u chars=%u\n",
-        status.isValid,status.speedValid,status.speedKmh,unsigned(status.satellites),
-        status.hdop,unsigned(status.ageMs),unsigned(totalChars));
+      const GpsFix raw=gps.snapshot(now),status=gpsFilter.apply(raw,now);
+      Serial.printf("[GPS] raw_fix=%d quality=%u raw_speed=%.1f speed=%.1f sats=%u hdop=%.2f accuracy=%d hAcc=%.1fm sAcc=%.2fm/s age=%u chars=%u\n",
+        raw.isValid,unsigned(status.quality),raw.speedKmh,status.speedKmh,unsigned(raw.satellites),
+        raw.hdop,raw.accuracyValid,raw.horizontalAccuracyM,raw.speedAccuracyMps,unsigned(raw.ageMs),unsigned(totalChars));
     }
 
     // Send GPS fix status to queue
     if (now - lastPushMs >= 500 || changed) {
       lastPushMs = now;
-      GpsFix fix=gps.snapshot(now);
+      GpsFix fix=gpsFilter.apply(gps.snapshot(now),now);
 
       if (g_gps_queue != NULL) {
         xQueueOverwrite(g_gps_queue, &fix);

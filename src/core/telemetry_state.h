@@ -24,6 +24,10 @@ enum RideSaveState { RIDE_SAVE_NONE, RIDE_SAVE_PENDING, RIDE_SAVE_OK, RIDE_SAVE_
 struct GpsFix {
   bool isValid;
   bool speedValid;
+  bool accuracyValid;
+  float horizontalAccuracyM;
+  float speedAccuracyMps;
+  uint8_t quality; // 0=no fix, 1=weak/acquiring, 2=usable (application policy).
   uint32_t receivedAtMs;
   double latitude;
   double longitude;

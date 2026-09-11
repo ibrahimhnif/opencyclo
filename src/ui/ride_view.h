@@ -40,7 +40,7 @@ inline View view(const TelemetryState& s,bool confirm) {
     v.screen=Screen::Paused;v.title="Ride paused";v.status=s.ride_auto_allowed?"AUTO PAUSED":"PAUSED";
     v.primary={Action::Resume,"Resume"};v.secondary={Action::Finish,"Finish"};
   } else {
-    v.screen=Screen::Ready;v.title="Ready to ride";v.status=s.gps_has_fix?"GPS ready":"Waiting for GPS";
+    v.screen=Screen::Ready;v.title="Ready to ride";v.status=s.gps_has_fix?"GPS ready":s.gps_fix_quality==1?"GPS weak / settling":"Waiting for GPS";
     v.primary={Action::Start,"Start"};v.secondary={Action::Back,"Back"};
   }
   return v;

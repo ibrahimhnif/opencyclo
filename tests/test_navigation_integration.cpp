@@ -144,6 +144,7 @@ int main(int argc,char**){
   fprintf(stderr,"navigation: GPS and timeout checks\n");
   fakeMillis+=1100;state.lat=0.0001;state.lon=0.01;renderNavigation(state);assert(label("Off route"));
   fakeMillis+=1100;state.gps_has_fix=false;renderNavigation(state);assert(label("GPS lost"));
+  fakeMillis+=1100;state.gps_fix_quality=1;renderNavigation(state);assert(label("GPS weak / held"));
   control->write({5});fakeMillis+=1000;state.gps_has_fix=true;renderNavigation(state);assert(label("Free ride"));
   control->write(begin);fakeMillis+=31000;tickRouteTransfer();assert(!syncOwned);
   updating=true;control->write(begin);assert(control->getValue().find("ERR")==0);updating=false;

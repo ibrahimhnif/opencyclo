@@ -22,7 +22,7 @@ void header(const PageConfig& page,const TelemetryState& state,uint8_t pageIdx,u
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   char status[32];
   if(state.gps_has_fix)snprintf(status,sizeof(status),"GPS %u",unsigned(state.satellites>99?99:state.satellites));
-  else snprintf(status,sizeof(status),"GPS --");
+  else snprintf(status,sizeof(status),"%s",state.gps_fix_quality==1?"GPS weak":"GPS --");
   canvas.setTextColor(state.gps_has_fix?ui::success:ui::warning,bg);
   canvas.drawString(status,4,ui::statusY);
   canvas.setTextColor(state.ride_state==RIDE_STATE_ACTIVE?ui::success:

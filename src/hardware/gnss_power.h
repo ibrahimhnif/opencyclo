@@ -108,7 +108,9 @@ public:
     const uint8_t values[]={0,1,0,0,
       1,0,0x21,0x30,0xc8,0,
       2,0,0x21,0x30,1,0,
-      0x21,0,0x11,0x20,0};
+      0x21,0,0x11,0x20,0,
+      7,0,0x91,0x20,1,
+      1,0,0x74,0x10,1}; // NAV-PVT each epoch; UART1 UBX output enabled.
     discard();if(!send(6,0x8a,values,sizeof(values)))return false;
     const uint32_t started=port.now();
     while(port.now()-started<1200) {

@@ -268,7 +268,7 @@ static void renderWidgetBleManager(const Rect& b,const TelemetryState& state,boo
     canvas.drawFastHLine(b.x+6,y+47,b.w-12,COLOR_HAIRLINE);
   }
   canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
-  canvas.drawString(state.gps_has_fix?"GPS ready":"GPS waiting",b.x+10,b.y+230);
+  canvas.drawString(state.gps_has_fix?"GPS ready":state.gps_fix_quality==1?"GPS weak":"GPS waiting",b.x+10,b.y+230);
 }
 static bool touchWidgetBleManager(const Rect& b,int16_t x,int16_t y) {
   if(x>=b.x+6&&x<b.x+b.w-6&&y>=b.y+6&&y<b.y+50){triggerBleScan();return true;}

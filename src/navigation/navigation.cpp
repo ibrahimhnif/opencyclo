@@ -436,7 +436,7 @@ void renderNavigation(const TelemetryState& state) {
     else if(mapStatus==MapStatus::NoMemory)label("map cache: PSRAM unavailable",4,45,ui::warning);
     label("N ^  z"+String(zoom)+(follow?" follow":" pan"),4,235);
     canvas.setFont(&fonts::FreeSansBold9pt7b);
-    if(!fix) label(hasLiveLocation?"GPS lost":"Preview / no GPS",4,244,ui::warning);
+    if(!fix) label(state.gps_fix_quality==1?(hasLiveLocation?"GPS weak / held":"Preview / GPS weak"):hasLiveLocation?"GPS lost":"Preview / no GPS",4,244,ui::warning);
     else if(points.empty()) label("Free ride",4,244,ui::success);
     else if(offDistance>50)label("Off route / rejoin GPX",4,244,ui::warning);
     else if(matched && cumulative.back()-progress<20)label("Arrived / GPX end",4,244,ui::success);

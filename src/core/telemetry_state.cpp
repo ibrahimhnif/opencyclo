@@ -78,6 +78,7 @@ static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
     // invalidated it. GPS owns these fields; CSC still owns wheel speed.
     if (!fusion) {
       next.gps_has_fix=g_telemetry.gps_has_fix;
+      next.gps_fix_quality=g_telemetry.gps_fix_quality;
       next.lat=g_telemetry.lat;next.lon=g_telemetry.lon;
       next.satellites=g_telemetry.satellites;next.hdop=g_telemetry.hdop;
       next.gps_year=g_telemetry.gps_year;next.gps_month=g_telemetry.gps_month;

@@ -80,7 +80,7 @@ void fusionTaskLoop(void* pvParameters) {
     }
     now=millis();
     if (now-fix.receivedAtMs>=1500) {
-      fix.isValid=false;fix.speedValid=false;gotGpsFix=true;
+      fix.isValid=false;fix.speedValid=false;fix.quality=0;gotGpsFix=true;
     }
 
     bool gotBaroSample = false;
@@ -103,6 +103,7 @@ void fusionTaskLoop(void* pvParameters) {
       state.gps_year=fix.year;state.gps_month=fix.month;state.gps_day=fix.day;
       state.gps_hour=fix.hour;state.gps_minute=fix.minute;state.gps_second=fix.second;
       state.gps_has_fix = fix.isValid;
+      state.gps_fix_quality = fix.quality;
       state.satellites = fix.satellites;
       state.hdop = fix.hdop;
       if (!fix.isValid || !fix.speedValid) {
@@ -111,6 +112,7 @@ void fusionTaskLoop(void* pvParameters) {
         }
         prevLat=prevLon=0;
       }
+      if(fix.speedKmh==0)prevLat=prevLon=0;
 
       if (fix.isValid) {
         state.lat = fix.latitude;
@@ -122,13 +124,8 @@ void fusionTaskLoop(void* pvParameters) {
           state.speed_source = SPEED_SOURCE_GPS;
         }
 
-        // Noise floor suppression: clamp GPS speed noise < 2.5 km/h to 0.0 km/h
-        if (state.speed_source == SPEED_SOURCE_GPS && state.speed_kmh < 2.5f) {
-          state.speed_kmh = 0.0f;
-        }
-
         // Accumulate trip distance when ride is ACTIVE
-        if (state.ride_state == RIDE_STATE_ACTIVE && fix.speedValid) {
+        if (state.ride_state == RIDE_STATE_ACTIVE && fix.speedValid && fix.speedKmh>0) {
           if (prevLat != 0.0 && prevLon != 0.0) {
             double deltaKm = haversineDistanceKm(prevLat, prevLon, fix.latitude, fix.longitude);
             // Ignore unrealistic teleports (> 150 km/h equivalent per sample)
@@ -161,11 +158,6 @@ void fusionTaskLoop(void* pvParameters) {
           }
         }
       }
-    }
-
-    // Enforce 0.0 km/h when stationary
-    if (state.speed_source == SPEED_SOURCE_GPS && state.speed_kmh < 2.5f) {
-      state.speed_kmh = 0.0f;
     }
 
     // Movement only pauses/resumes an explicitly started session.

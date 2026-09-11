@@ -26,7 +26,7 @@ extern bool failMemory, syncOwned, updating;
 inline uint32_t millis(){return fakeMillis;}
 inline void* ps_malloc(size_t n){return failMemory?nullptr:malloc(n);}
 enum {RIDE_STATE_IDLE,RIDE_STATE_ACTIVE,RIDE_STATE_PAUSED};
-struct TelemetryState {double lat=0,lon=0;bool gps_has_fix=false;int ride_state=0;};
+struct TelemetryState {double lat=0,lon=0;bool gps_has_fix=false;int ride_state=0;uint8_t gps_fix_quality=0;};
 extern bool fakeSdBusy;
 struct SdGuard {explicit SdGuard(uint32_t=1000):locked(!fakeSdBusy){} bool locked;};
 extern bool g_sd_ready;
