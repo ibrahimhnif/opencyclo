@@ -42,6 +42,11 @@ struct GpsFix {
   uint8_t minute;
   uint8_t second;
   uint32_t ageMs;
+  // Which source produced this fix this epoch: see GpsFixSource in
+  // hardware/gps_source_arbiter.h (0=hardware, 1=phone-fallback, 2=phone,
+  // 3=none). Diagnostics only -- FusionTask keeps consuming lat/lon/speed
+  // identically regardless of source.
+  uint8_t source;
 };
 
 struct GpsDebugInfo {
