@@ -34,7 +34,7 @@ struct PhoneSpeedResult {
 // Speed-from-displacement for a phone-derived fix, since the 0x190A payload
 // carries no speed field. `speedValid` is false when there's no usable
 // previous sample, the clock didn't advance, or the gap is too large for a
-// meaningful instantaneous speed (>= 10s).
+// meaningful instantaneous speed (> 10s).
 PhoneSpeedResult computePhoneSpeedKmh(double prevLat, double prevLon, uint32_t prevAtMs,
                                        double lat, double lon, uint32_t atMs);
 
