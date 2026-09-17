@@ -1,8 +1,10 @@
 #include "ble_layout_sync.h"
 #include "storage/layout_config.h"
+#include "storage/settings.h"
 #include "core/telemetry_state.h"
 #include <Arduino.h>
 #include "navigation/navigation.h"
+#include "gps_task.h"
 
 static NimBLECharacteristic* pLayoutConfigChar = nullptr;
 static NimBLECharacteristic* pTelemetryStreamChar = nullptr;
@@ -59,6 +61,42 @@ class DeviceCommandCallbacks : public NimBLECharacteristicCallbacks {
   }
 };
 
+static NimBLECharacteristic* pGpsSourceModeChar = nullptr;
+
+class PhoneGpsCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string v = c->getValue();
+    if (v.size() < 11) return;
+    int32_t latE7, lonE7;
+    uint16_t accCm;
+    memcpy(&latE7, v.data() + 0, 4);
+    memcpy(&lonE7, v.data() + 4, 4);
+    memcpy(&accCm, v.data() + 8, 2);
+    // Byte 10 is a sequence number, informational only (no reassembly needed).
+    setPhoneGpsSample(latE7 / 1e7, lonE7 / 1e7, accCm / 100.0f);
+  }
+};
+
+void setGpsSourceMode(uint8_t mode) {
+  g_settings.gps_source_mode = mode;
+  saveSettings();
+  if (pGpsSourceModeChar != nullptr) {
+    pGpsSourceModeChar->setValue(&g_settings.gps_source_mode, 1);
+    pGpsSourceModeChar->notify();
+  }
+}
+
+class GpsSourceModeCallbacks : public NimBLECharacteristicCallbacks {
+  void onRead(NimBLECharacteristic* c) override {
+    c->setValue(&g_settings.gps_source_mode, 1);
+  }
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string v = c->getValue();
+    if (v.empty()) return;
+    setGpsSourceMode((uint8_t)v[0]);
+  }
+};
+
 void initBleLayoutSyncService(NimBLEServer* pServer) {
   NimBLEService* pService = pServer->createService(BLE_OPENCYCLO_SERVICE_UUID);
 
@@ -81,6 +119,18 @@ void initBleLayoutSyncService(NimBLEServer* pServer) {
     NIMBLE_PROPERTY::WRITE
   );
   pDeviceCommandChar->setCallbacks(new DeviceCommandCallbacks());
+
+  // 4. Phone GPS Position Characteristic (Write No Response)
+  auto* phoneGpsChar = pService->createCharacteristic(
+    BLE_PHONE_GPS_CHAR_UUID, NIMBLE_PROPERTY::WRITE_NR);
+  phoneGpsChar->setCallbacks(new PhoneGpsCallbacks());
+
+  // 5. GPS Source Mode Characteristic (Read / Write / Notify)
+  pGpsSourceModeChar = pService->createCharacteristic(
+    BLE_GPS_SOURCE_MODE_CHAR_UUID,
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+  pGpsSourceModeChar->setValue(&g_settings.gps_source_mode, 1);
+  pGpsSourceModeChar->setCallbacks(new GpsSourceModeCallbacks());
 
   initNavigationService(pService);
   pService->start();
