@@ -31,6 +31,23 @@ void setPhoneGpsSample(double lat, double lon, float accuracyM) {
 static bool havePreviousPhoneSample = false;
 static double previousPhoneLat = 0, previousPhoneLon = 0;
 static uint32_t previousPhoneAtMs = 0;
+// The phone queue is peeked (non-destructive) and pushes run far faster than
+// the ~1 Hz phone sample rate, so the SAME sample is re-read many times.
+// Recomputing the speed on a re-read yields speedValid=false (zero delta),
+// which makes FusionTask zero the speed and reset its prevLat/prevLon, so trip
+// distance never accumulates. Cache the last real result and reuse it instead.
+static bool havePhoneSpeed = false;
+static float cachedPhoneSpeedKmh = 0.0f;
+
+// Last UTC the M10 reported this boot. The 11-byte phone payload carries no
+// timestamp, and GpxWriter drops fixes whose date is zero, so phone-sourced
+// fixes inherit this. Not real-time-accurate across a long phone-only session,
+// but strictly better than a timeless ride; stays zero if the M10 never had a
+// time this boot.
+static bool haveHardwareUtc = false;
+static uint16_t lastHardwareYear = 0;
+static uint8_t lastHardwareMonth = 0, lastHardwareDay = 0;
+static uint8_t lastHardwareHour = 0, lastHardwareMinute = 0, lastHardwareSecond = 0;
 
 static GpsDecoder gps;
 static GpsFilter gpsFilter;
@@ -179,6 +196,17 @@ void gpsTaskLoop(void* pvParameters) {
       if (source == GPS_FIX_SOURCE_HARDWARE) {
         outFix = fix;
         outFix.source = GPS_FIX_SOURCE_HARDWARE;
+        // GpsDecoder only populates the date/time fields when the receiver
+        // reported a valid UTC, so a non-zero year is the freshness marker.
+        if (outFix.year != 0) {
+          lastHardwareYear = outFix.year;
+          lastHardwareMonth = outFix.month;
+          lastHardwareDay = outFix.day;
+          lastHardwareHour = outFix.hour;
+          lastHardwareMinute = outFix.minute;
+          lastHardwareSecond = outFix.second;
+          haveHardwareUtc = true;
+        }
       } else if (source == GPS_FIX_SOURCE_PHONE || source == GPS_FIX_SOURCE_PHONE_FALLBACK) {
         outFix.isValid = true;
         outFix.accuracyValid = true;
@@ -188,20 +216,42 @@ void gpsTaskLoop(void* pvParameters) {
         outFix.quality = 2;
         outFix.receivedAtMs = now;
         outFix.source = (uint8_t)source;
-        if (havePreviousPhoneSample) {
-          const PhoneSpeedResult speed = computePhoneSpeedKmh(
-            previousPhoneLat, previousPhoneLon, previousPhoneAtMs,
-            phone.latitude, phone.longitude, phone.receivedAtMs);
-          outFix.speedValid = speed.speedValid;
-          outFix.speedKmh = speed.speedKmh;
-        }
         if (!havePreviousPhoneSample || phone.receivedAtMs != previousPhoneAtMs) {
+          if (havePreviousPhoneSample) {
+            const PhoneSpeedResult speed = computePhoneSpeedKmh(
+              previousPhoneLat, previousPhoneLon, previousPhoneAtMs,
+              phone.latitude, phone.longitude, phone.receivedAtMs);
+            havePhoneSpeed = speed.speedValid;
+            cachedPhoneSpeedKmh = speed.speedKmh;
+          }
           previousPhoneLat = phone.latitude;
           previousPhoneLon = phone.longitude;
           previousPhoneAtMs = phone.receivedAtMs;
           havePreviousPhoneSample = true;
         }
+        // Either freshly computed above, or carried over from the last new
+        // sample when this push is a re-read of the same queue entry.
+        outFix.speedValid = havePhoneSpeed;
+        outFix.speedKmh = cachedPhoneSpeedKmh;
+        if (haveHardwareUtc) {
+          outFix.year = lastHardwareYear;
+          outFix.month = lastHardwareMonth;
+          outFix.day = lastHardwareDay;
+          outFix.hour = lastHardwareHour;
+          outFix.minute = lastHardwareMinute;
+          outFix.second = lastHardwareSecond;
+        }
       } else {
+        // Reuse the hardware fix GpsFilter already computed so satellites,
+        // HDOP and UTC survive as diagnostics instead of being blanked. The
+        // hardware fix can still be *valid* here (phone-forced mode with a
+        // stale phone sample), so re-assert that nothing usable is published:
+        // FusionTask keys off isValid, not source.
+        outFix = fix;
+        outFix.isValid = false;
+        outFix.speedValid = false;
+        outFix.speedKmh = 0;
+        if (outFix.quality > 1) outFix.quality = 1;
         outFix.receivedAtMs = now;
         outFix.source = GPS_FIX_SOURCE_NONE;
       }
