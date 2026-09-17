@@ -8,8 +8,9 @@ import '../models/telemetry_model.dart';
 import '../models/layout_config_model.dart';
 import '../models/route_model.dart';
 import 'route_transfer.dart';
+import '../../state/gps_source_provider.dart' show GpsSourceBleChannel;
 
-class BleService {
+class BleService implements GpsSourceBleChannel {
   static final BleService instance = BleService._internal();
   BleService._internal();
 
@@ -28,6 +29,7 @@ class BleService {
   Stream<TelemetryModel> get telemetryStream => _telemetryController.stream;
 
   final _gpsSourceModeController = StreamController<int>.broadcast();
+  @override
   Stream<int> get gpsSourceModeStream => _gpsSourceModeController.stream;
 
   final _connectionStateController =
@@ -239,6 +241,7 @@ class BleService {
     }
   }
 
+  @override
   Future<void> writePhoneGpsSample(
       double lat, double lon, double accuracyM, int seq) async {
     final c = _phoneGpsChar;
@@ -251,6 +254,7 @@ class BleService {
     }
   }
 
+  @override
   Future<int?> readGpsSourceMode() async {
     final c = _gpsSourceModeChar;
     if (c == null) return null;
@@ -263,6 +267,7 @@ class BleService {
     }
   }
 
+  @override
   Future<void> writeGpsSourceMode(int mode) async {
     final c = _gpsSourceModeChar;
     if (c == null) return;
