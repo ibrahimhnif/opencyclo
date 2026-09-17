@@ -66,5 +66,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>opencyclo uses your location as an alternative GPS source for the connected bike computer when the onboard GPS module has a slow or weak fix.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>opencyclo needs Always location access to keep supplying your position to the connected bike computer while the app is in the background or the screen is locked during a ride.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>bluetooth-central</string>
+	</array>
 </dict>
 </plist>
