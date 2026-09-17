@@ -37,6 +37,12 @@ class BleService implements GpsSourceBleChannel {
   Stream<BluetoothConnectionState> get connectionStateStream =>
       _connectionStateController.stream;
 
+  /// Connection state as a plain bool for consumers that only care whether the
+  /// link is up (the phone GPS stream follows this, in both GPS source modes).
+  @override
+  Stream<bool> get isConnectedStream => connectionStateStream
+      .map((s) => s == BluetoothConnectionState.connected);
+
   Future<void> startScan() async {
     // Scan without withServices filter for reliable CoreBluetooth discovery on macOS / iOS
     await FlutterBluePlus.startScan(

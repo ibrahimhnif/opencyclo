@@ -155,6 +155,16 @@ class DeviceTab extends ConsumerWidget {
             ),
             showDivider: false,
           ),
+          // Phone position streams in both modes (hardware mode auto-falls
+          // back to it), so a permission/service failure matters even when
+          // 'hardware' is selected. Same muted voice as the link footer.
+          if (gpsSourceState.error != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              DeviceText.normalise(gpsSourceState.error!),
+              style: AppTheme.statusStyle(AppTheme.red),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // The device closes its BLE page with a muted one-line status. So
