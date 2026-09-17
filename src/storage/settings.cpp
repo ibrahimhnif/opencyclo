@@ -10,7 +10,8 @@ void initSettings() {
   g_settings.brightness = prefs.getUChar("bright", 200);
   g_settings.wheel_circumference_mm = prefs.getUShort("wheel", 2096);
   g_settings.sd_logging_enabled = prefs.getBool("sdlog", true);
-  
+  g_settings.gps_source_mode = prefs.getUChar("gps_src", 0);
+
   String csc = prefs.getString("csc_mac", "");
   String hr = prefs.getString("hr_mac", "");
   String pow = prefs.getString("pow_mac", "");
@@ -36,6 +37,7 @@ void saveSettings() {
   prefs.putUChar("bright", g_settings.brightness);
   prefs.putUShort("wheel", g_settings.wheel_circumference_mm);
   prefs.putBool("sdlog", g_settings.sd_logging_enabled);
+  prefs.putUChar("gps_src", g_settings.gps_source_mode);
   prefs.putString("csc_mac", g_settings.paired_csc_mac);
   prefs.putString("hr_mac", g_settings.paired_hr_mac);
   prefs.putString("pow_mac", g_settings.paired_power_mac);
