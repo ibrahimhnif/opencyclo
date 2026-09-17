@@ -3,11 +3,34 @@
 #include "gps_decoder.h"
 #include "gps_filter.h"
 #include "gnss_power.h"
+#include "gps_source_arbiter.h"
+#include "storage/settings.h"
 #include <mutex>
 #include <driver/gpio.h>
 #include <driver/uart.h>
 
 QueueHandle_t g_gps_queue = NULL;
+QueueHandle_t g_phone_gps_queue = NULL;
+
+struct PhoneGpsSample {
+  double latitude;
+  double longitude;
+  float accuracyM;
+  uint32_t receivedAtMs;
+};
+
+void setPhoneGpsSample(double lat, double lon, float accuracyM) {
+  if (g_phone_gps_queue == NULL) return;
+  PhoneGpsSample sample{lat, lon, accuracyM, millis()};
+  xQueueOverwrite(g_phone_gps_queue, &sample);
+}
+
+// Tracks the previous phone sample actually used to derive a phone-sourced
+// GpsFix, so computePhoneSpeedKmh() has a delta to work with across loop
+// iterations. Lives here (not in the pure arbiter) because it's stateful.
+static bool havePreviousPhoneSample = false;
+static double previousPhoneLat = 0, previousPhoneLon = 0;
+static uint32_t previousPhoneAtMs = 0;
 
 static GpsDecoder gps;
 static GpsFilter gpsFilter;
@@ -71,6 +94,9 @@ bool prepareGpsForPowerOff() {
 void startGpsTask() {
   if (g_gps_queue == NULL) {
     g_gps_queue = xQueueCreate(1, sizeof(GpsFix));
+  }
+  if (g_phone_gps_queue == NULL) {
+    g_phone_gps_queue = xQueueCreate(1, sizeof(PhoneGpsSample));
   }
 
   xTaskCreatePinnedToCore(
@@ -142,8 +168,46 @@ void gpsTaskLoop(void* pvParameters) {
       lastPushMs = now;
       GpsFix fix=gpsFilter.apply(gps.snapshot(now),now);
 
+      PhoneGpsSample phone{};
+      const bool havePhone = g_phone_gps_queue != NULL &&
+        xQueuePeek(g_phone_gps_queue, &phone, 0) == pdTRUE;
+      const uint32_t phoneAgeMs = havePhone ? now - phone.receivedAtMs : UINT32_MAX;
+      const GpsFixSource source = selectGpsSource(
+        (GpsSourceMode)g_settings.gps_source_mode, fix.isValid, havePhone, phoneAgeMs);
+
+      GpsFix outFix{};
+      if (source == GPS_FIX_SOURCE_HARDWARE) {
+        outFix = fix;
+        outFix.source = GPS_FIX_SOURCE_HARDWARE;
+      } else if (source == GPS_FIX_SOURCE_PHONE || source == GPS_FIX_SOURCE_PHONE_FALLBACK) {
+        outFix.isValid = true;
+        outFix.accuracyValid = true;
+        outFix.latitude = phone.latitude;
+        outFix.longitude = phone.longitude;
+        outFix.horizontalAccuracyM = phone.accuracyM;
+        outFix.quality = 2;
+        outFix.receivedAtMs = now;
+        outFix.source = (uint8_t)source;
+        if (havePreviousPhoneSample) {
+          const PhoneSpeedResult speed = computePhoneSpeedKmh(
+            previousPhoneLat, previousPhoneLon, previousPhoneAtMs,
+            phone.latitude, phone.longitude, phone.receivedAtMs);
+          outFix.speedValid = speed.speedValid;
+          outFix.speedKmh = speed.speedKmh;
+        }
+        if (!havePreviousPhoneSample || phone.receivedAtMs != previousPhoneAtMs) {
+          previousPhoneLat = phone.latitude;
+          previousPhoneLon = phone.longitude;
+          previousPhoneAtMs = phone.receivedAtMs;
+          havePreviousPhoneSample = true;
+        }
+      } else {
+        outFix.receivedAtMs = now;
+        outFix.source = GPS_FIX_SOURCE_NONE;
+      }
+
       if (g_gps_queue != NULL) {
-        xQueueOverwrite(g_gps_queue, &fix);
+        xQueueOverwrite(g_gps_queue, &outFix);
       }
     }
 
