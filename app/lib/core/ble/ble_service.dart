@@ -20,10 +20,15 @@ class BleService {
   BluetoothCharacteristic? _otaDataChar;
   BluetoothCharacteristic? _routeControlChar;
   BluetoothCharacteristic? _routeDataChar;
+  BluetoothCharacteristic? _phoneGpsChar;
+  BluetoothCharacteristic? _gpsSourceModeChar;
   bool _routeBusy = false;
 
   final _telemetryController = StreamController<TelemetryModel>.broadcast();
   Stream<TelemetryModel> get telemetryStream => _telemetryController.stream;
+
+  final _gpsSourceModeController = StreamController<int>.broadcast();
+  Stream<int> get gpsSourceModeStream => _gpsSourceModeController.stream;
 
   final _connectionStateController =
       StreamController<BluetoothConnectionState>.broadcast();
@@ -46,6 +51,8 @@ class BleService {
       connectedDevice = device;
       _routeControlChar = null;
       _routeDataChar = null;
+      _phoneGpsChar = null;
+      _gpsSourceModeChar = null;
       await device.connect(
           timeout: const Duration(seconds: 15), autoConnect: false);
 
@@ -55,6 +62,8 @@ class BleService {
         if (state == BluetoothConnectionState.disconnected) {
           _routeControlChar = null;
           _routeDataChar = null;
+          _phoneGpsChar = null;
+          _gpsSourceModeChar = null;
         }
       });
 
@@ -84,6 +93,11 @@ class BleService {
               _routeControlChar = char;
             } else if (uuid.contains("1905")) {
               _routeDataChar = char;
+            } else if (uuid.contains("190a")) {
+              _phoneGpsChar = char;
+            } else if (uuid.contains("190b")) {
+              _gpsSourceModeChar = char;
+              await _subscribeGpsSourceMode(char);
             }
           }
         } else if (sUuid.contains("1910")) {
@@ -113,6 +127,8 @@ class BleService {
       _commandChar = null;
       _otaControlChar = null;
       _otaDataChar = null;
+      _phoneGpsChar = null;
+      _gpsSourceModeChar = null;
     }
   }
 
@@ -123,6 +139,13 @@ class BleService {
         final model = TelemetryModel.fromBytes(value);
         _telemetryController.add(model);
       }
+    });
+  }
+
+  Future<void> _subscribeGpsSourceMode(BluetoothCharacteristic char) async {
+    await char.setNotifyValue(true);
+    char.lastValueStream.listen((value) {
+      if (value.isNotEmpty) _gpsSourceModeController.add(value[0]);
     });
   }
 
@@ -213,6 +236,40 @@ class BleService {
       await _commandChar!.write([cmd], withoutResponse: false);
     } catch (e) {
       debugPrint("[BLE ERROR] Failed to send command: $e");
+    }
+  }
+
+  Future<void> writePhoneGpsSample(
+      double lat, double lon, double accuracyM, int seq) async {
+    final c = _phoneGpsChar;
+    if (c == null) return;
+    try {
+      await c.write(encodePhoneGpsSample(lat, lon, accuracyM, seq),
+          withoutResponse: true);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write phone GPS sample: $e");
+    }
+  }
+
+  Future<int?> readGpsSourceMode() async {
+    final c = _gpsSourceModeChar;
+    if (c == null) return null;
+    try {
+      final v = await c.read();
+      return v.isNotEmpty ? v[0] : null;
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to read GPS source mode: $e");
+      return null;
+    }
+  }
+
+  Future<void> writeGpsSourceMode(int mode) async {
+    final c = _gpsSourceModeChar;
+    if (c == null) return;
+    try {
+      await c.write([mode], withoutResponse: false);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write GPS source mode: $e");
     }
   }
 
