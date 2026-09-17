@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/ble_provider.dart';
+import '../../../state/gps_source_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/device_ui.dart';
 
@@ -17,6 +18,15 @@ class DeviceTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bleState = ref.watch(bleProvider);
     final bleNotifier = ref.read(bleProvider.notifier);
+
+    final gpsSourceState = ref.watch(gpsSourceProvider);
+    final gpsSourceNotifier = ref.read(gpsSourceProvider.notifier);
+
+    ref.listen<BleState>(bleProvider, (previous, next) {
+      final justConnected = next.status == DeviceConnectionStatus.connected &&
+          previous?.status != DeviceConnectionStatus.connected;
+      if (justConnected) gpsSourceNotifier.loadFromDevice();
+    });
 
     final connected = bleState.status == DeviceConnectionStatus.connected;
     final connecting = bleState.status == DeviceConnectionStatus.connecting;
@@ -121,6 +131,30 @@ class DeviceTab extends ConsumerWidget {
               );
             }),
 
+          const SizedBox(height: 16),
+
+          DeviceSectionLabel(text: 'gps source'),
+          DeviceListRow(
+            label: gpsSourceState.mode == GpsSourceMode.hardware
+                ? 'hardware (m10)'
+                : 'phone',
+            detail: gpsSourceState.mode == GpsSourceMode.hardware
+                ? 'auto-falls back to phone if m10 has no fix'
+                : 'always uses phone location; m10 ignored',
+            trailing: DeviceChip(
+              text: gpsSourceState.mode == GpsSourceMode.hardware
+                  ? 'use phone'
+                  : 'use hardware',
+              color: AppTheme.cyan,
+              onTap: connected && !gpsSourceState.syncing
+                  ? () => gpsSourceNotifier.setMode(
+                      gpsSourceState.mode == GpsSourceMode.hardware
+                          ? GpsSourceMode.phoneForced
+                          : GpsSourceMode.hardware)
+                  : null,
+            ),
+            showDivider: false,
+          ),
           const SizedBox(height: 16),
 
           // The device closes its BLE page with a muted one-line status. So
