@@ -6,6 +6,7 @@
 #include "storage/sd_access.h"
 #include <SD_MMC.h>
 #include <algorithm>
+#include <cstring>
 #ifndef UNIT_TEST
 #include <freertos/task.h>
 #endif
@@ -48,6 +49,37 @@ Tile& tile(int x,int y) {
     uint32_t n;memcpy(&n,h+4,4);
     if(n<=20000 && f.size()==8+n*9 && t.bytes.resize(n*9)) { t.present=!n || f.read(t.bytes.data(),t.bytes.size())==t.bytes.size(); }
   }
+  return t;
+}
+
+struct NamedTile { int x=-1,y=-1; bool present=false; PsBuffer<uint8_t> pool; PsBuffer<uint8_t> segments; };
+NamedTile namedTiles[4];
+int nextNamedTile=0;
+NamedTile& namedTile(int x,int y) {
+  for(auto& t:namedTiles) if(t.x==x&&t.y==y) return t;
+  NamedTile& t=namedTiles[nextNamedTile++%4];t.x=x;t.y=y;t.pool.clear();t.segments.clear();t.present=false;
+  char path[64];snprintf(path,sizeof(path),"/maps/14/%d.ocn",x);
+  File f=SD_MMC.open(path);
+  if(!f)return t; // No named-road data for this column -- not an error.
+  uint8_t h[12];
+  if(f.read(h,12)!=12 || memcmp(h,"OCN1",4))return t;
+  uint32_t indexCount,poolSize;memcpy(&indexCount,h+4,4);memcpy(&poolSize,h+8,4);
+  if(indexCount>16384 || poolSize>65535 || f.size()<12+uint64_t(indexCount)*12+poolSize)return t;
+  uint32_t lo=0,hi=indexCount;
+  while(lo<hi) {
+    uint32_t mid=(lo+hi)/2,entry[3];
+    if(!f.seek(12+mid*12)||f.read((uint8_t*)entry,12)!=12)return t;
+    if(entry[0]<(uint32_t)y)lo=mid+1;
+    else if(entry[0]>(uint32_t)y)hi=mid;
+    else {
+      if(entry[2]>20000 || 12+uint64_t(indexCount)*12+poolSize+uint64_t(entry[1])+entry[2]*10>f.size())return t;
+      if(!t.pool.resize(poolSize) || !t.segments.resize(entry[2]*10))return t;
+      if(!f.seek(12+indexCount*12) || (poolSize && f.read(t.pool.data(),poolSize)!=poolSize))return t;
+      if(!f.seek(12+indexCount*12+poolSize+entry[1]) || (entry[2] && f.read(t.segments.data(),t.segments.size())!=t.segments.size()))return t;
+      t.present=true;return t;
+    }
+  }
+  t.present=true; // Empty row inside a completed pack -- no named roads here.
   return t;
 }
 
@@ -157,6 +189,36 @@ bool covered(const Raster& r,const View& v) {
   }
   return true;
 }
+}
+bool nearestRoadName(double lat,double lon,char* name,size_t nameLen) {
+  if(nameLen==0)return false;
+  nav::Point here{int32_t(lat*1e7),int32_t(lon*1e7)};
+  if(!nav::valid(here))return false;
+  double wx=nav::x(here),wy=nav::y(here);
+  int tx=int(std::floor(wx/256)),ty=int(std::floor(wy/256));
+  NamedTile* loaded=nullptr;
+  {
+    SdGuard sd;
+    if(sd.locked && g_sd_ready && !isPowerOffRequested())loaded=&namedTile(tx,ty);
+  }
+  if(!loaded || !loaded->present || loaded->segments.size()==0)return false;
+  double best=1e18;uint16_t bestOffset=0;bool found=false;
+  for(size_t i=0;i<loaded->segments.size();i+=10) {
+    uint16_t p[4];uint16_t nameOffset;
+    memcpy(p,loaded->segments.data()+i,8);
+    memcpy(&nameOffset,loaded->segments.data()+i+8,2);
+    nav::Point a=nav::unproject(tx*256.0+p[0]/256.0,ty*256.0+p[1]/256.0);
+    nav::Point b=nav::unproject(tx*256.0+p[2]/256.0,ty*256.0+p[3]/256.0);
+    double fraction;double d=nav::segmentDistance(here,a,b,fraction);
+    if(d<best && nameOffset<loaded->pool.size()) {best=d;bestOffset=nameOffset;found=true;}
+  }
+  if(!found || best>40)return false;
+  const char* poolStr=(const char*)loaded->pool.data()+bestOffset;
+  size_t maxLen=loaded->pool.size()-bestOffset;
+  size_t len=strnlen(poolStr,maxLen);
+  if(len>=nameLen)len=nameLen-1;
+  memcpy(name,poolStr,len);name[len]=0;
+  return true;
 }
 MapStatus drawMapBackground(double x,double y,int zoom) {
   initMapRenderer();if(failed)return MapStatus::NoMemory;
