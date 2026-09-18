@@ -19,6 +19,7 @@ extern Canvas tft;
 struct Settings {
   int units=0,brightness=100,wheel_circumference_mm=2096;
   bool sd_logging_enabled=true;
+  int gps_source_mode=0;
   char paired_csc_mac[18]{},paired_hr_mac[18]{},paired_power_mac[18]{};
   char paired_cadence_mac[18]{};
 };
@@ -28,6 +29,7 @@ enum BleProfileType {BLE_PROFILE_CSC,BLE_PROFILE_HR,BLE_PROFILE_POWER,BLE_PROFIL
 inline void triggerBleScan(){}
 inline void forgetSensorProfile(BleProfileType){}
 inline void saveSettings(){}
+inline void setGpsSourceMode(unsigned char mode){g_settings.gps_source_mode=mode;}
 inline void setDisplayBrightness(int){}
 inline float readBatteryVoltage(){return 4.0f;}
 inline void openPowerMenu(){}

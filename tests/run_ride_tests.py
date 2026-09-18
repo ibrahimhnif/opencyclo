@@ -31,7 +31,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),sys.argv[1]],
                        input=commands,text=True,check=True)
     for header in ["hardware/display.h", "hardware/battery.h", "hardware/ble_task.h",
-                   "hardware/ble_camera_remote.h", "storage/settings.h", "ui/power_menu.h"]:
+                   "hardware/ble_camera_remote.h", "hardware/ble_layout_sync.h",
+                   "storage/settings.h", "ui/power_menu.h"]:
         target=work/header
         target.parent.mkdir(parents=True,exist_ok=True)
         target.write_text('#include "widget_fakes.h"\n')
