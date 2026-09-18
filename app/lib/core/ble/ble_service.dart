@@ -14,8 +14,9 @@ import 'gps_assistance.dart';
 import 'gps_registration.dart';
 import 'gps_credentials.dart';
 import 'gps_cache.dart';
+import '../../state/gps_source_provider.dart' show GpsSourceBleChannel;
 
-class BleService {
+class BleService implements GpsSourceBleChannel {
   static final BleService instance = BleService._internal();
   BleService._internal();
 
@@ -32,16 +33,28 @@ class BleService {
   BluetoothCharacteristic? _gpsCacheChar;
   String? _credentialKey;
   final _gpsCredentials = const GpsCredentials();
+  BluetoothCharacteristic? _phoneGpsChar;
+  BluetoothCharacteristic? _gpsSourceModeChar;
   bool _routeBusy = false;
   bool _commandBusy = false;
 
   final _telemetryController = StreamController<TelemetryModel>.broadcast();
   Stream<TelemetryModel> get telemetryStream => _telemetryController.stream;
 
+  final _gpsSourceModeController = StreamController<int>.broadcast();
+  @override
+  Stream<int> get gpsSourceModeStream => _gpsSourceModeController.stream;
+
   final _connectionStateController =
       StreamController<BluetoothConnectionState>.broadcast();
   Stream<BluetoothConnectionState> get connectionStateStream =>
       _connectionStateController.stream;
+
+  /// Connection state as a plain bool for consumers that only care whether the
+  /// link is up (the phone GPS stream follows this, in both GPS source modes).
+  @override
+  Stream<bool> get isConnectedStream => connectionStateStream
+      .map((s) => s == BluetoothConnectionState.connected);
 
   Future<void> startScan() async {
     // Scan without withServices filter for reliable CoreBluetooth discovery on macOS / iOS
@@ -64,6 +77,8 @@ class BleService {
       _gpsIdentityChar = null;
       _gpsCacheChar = null;
       _credentialKey = null;
+      _phoneGpsChar = null;
+      _gpsSourceModeChar = null;
       await device.connect(
           timeout: const Duration(seconds: 15), autoConnect: false);
 
@@ -78,6 +93,8 @@ class BleService {
           _gpsIdentityChar = null;
           _gpsCacheChar = null;
           _credentialKey = null;
+          _phoneGpsChar = null;
+          _gpsSourceModeChar = null;
         }
       });
 
@@ -115,6 +132,11 @@ class BleService {
               _gpsIdentityChar = char;
             } else if (uuid.contains("1909")) {
               _gpsCacheChar = char;
+            } else if (uuid.contains("190a")) {
+              _phoneGpsChar = char;
+            } else if (uuid.contains("190b")) {
+              _gpsSourceModeChar = char;
+              await _subscribeGpsSourceMode(char);
             }
           }
         } else if (sUuid.contains("1910")) {
@@ -148,6 +170,8 @@ class BleService {
       _commandChar = null;
       _otaControlChar = null;
       _otaDataChar = null;
+      _phoneGpsChar = null;
+      _gpsSourceModeChar = null;
     }
   }
 
@@ -158,6 +182,13 @@ class BleService {
         final model = TelemetryModel.fromBytes(value);
         _telemetryController.add(model);
       }
+    });
+  }
+
+  Future<void> _subscribeGpsSourceMode(BluetoothCharacteristic char) async {
+    await char.setNotifyValue(true);
+    char.lastValueStream.listen((value) {
+      if (value.isNotEmpty) _gpsSourceModeController.add(value[0]);
     });
   }
 
@@ -429,6 +460,43 @@ class BleService {
       await _commandChar!.write([cmd], withoutResponse: false);
     } catch (e) {
       debugPrint("[BLE ERROR] Failed to send command: $e");
+    }
+  }
+
+  @override
+  Future<void> writePhoneGpsSample(
+      double lat, double lon, double accuracyM, int seq) async {
+    final c = _phoneGpsChar;
+    if (c == null) return;
+    try {
+      await c.write(encodePhoneGpsSample(lat, lon, accuracyM, seq),
+          withoutResponse: true);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write phone GPS sample: $e");
+    }
+  }
+
+  @override
+  Future<int?> readGpsSourceMode() async {
+    final c = _gpsSourceModeChar;
+    if (c == null) return null;
+    try {
+      final v = await c.read();
+      return v.isNotEmpty ? v[0] : null;
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to read GPS source mode: $e");
+      return null;
+    }
+  }
+
+  @override
+  Future<void> writeGpsSourceMode(int mode) async {
+    final c = _gpsSourceModeChar;
+    if (c == null) return;
+    try {
+      await c.write([mode], withoutResponse: false);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write GPS source mode: $e");
     }
   }
 

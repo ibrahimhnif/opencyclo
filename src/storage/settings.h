@@ -9,6 +9,10 @@ struct Settings {
   uint8_t brightness;             // 10 .. 255
   uint16_t wheel_circumference_mm; // default 2096 mm
   bool sd_logging_enabled;
+  // 0 = HARDWARE (M10, auto-fallback to phone when no fix), 1 = PHONE_FORCED
+  // (always use the phone-supplied position; M10 ignored). See
+  // hardware/gps_source_arbiter.h for GpsSourceMode.
+  uint8_t gps_source_mode;
   char paired_csc_mac[18];
   char paired_cadence_mac[18]; // second CSC device; capabilities come from data
   uint8_t paired_csc_addr_type;

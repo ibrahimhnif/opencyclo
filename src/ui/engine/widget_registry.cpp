@@ -9,6 +9,7 @@
 #include "storage/gps_cache.h"
 #include "hardware/battery.h"
 #include "hardware/ble_task.h"
+#include "hardware/ble_layout_sync.h"
 #include "hardware/ble_camera_remote.h"
 #include <stdio.h>
 
@@ -454,6 +455,9 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   row("sd logging", g_settings.sd_logging_enabled ? "enabled" : "disabled",
       g_settings.sd_logging_enabled ? COLOR_GREEN : COLOR_AMBER);
 
+  row("gps source", g_settings.gps_source_mode == 0 ? "hardware" : "phone",
+      g_settings.gps_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
+
   char batStr[24];
   snprintf(batStr, sizeof(batStr), "%u%% (%.2fV)", state.battery_pct, readBatteryVoltage());
   row("battery", batStr, COLOR_GREEN);
@@ -505,6 +509,10 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
   if (settingsRowHit(b, y, 3)) { // sd logging
     g_settings.sd_logging_enabled = !g_settings.sd_logging_enabled;
     saveSettings();
+    return true;
+  }
+  if (settingsRowHit(b, y, 4)) { // gps source
+    setGpsSourceMode(g_settings.gps_source_mode == 0 ? 1 : 0);
     return true;
   }
   return false;
