@@ -47,21 +47,25 @@ def export_columns(db, destination, bbox):
 
 
 def export_named_columns(db, destination, x0, x1):
+    # Named roads are a best-effort overlay on top of the already-written .ocp
+    # geometry, so a column that cannot be represented is skipped and reported
+    # rather than aborting a multi-hour build whose .ocp output is already valid.
     target=Path(destination)/'maps'/'14'
-    named_segments=named_tiles=0
+    named_segments=named_tiles=0;skipped_columns=[];skipped_tiles=[]
     for tx in range(x0,x1+1):
         groups={}
         for ty,name,blob in db.execute('SELECT ty,name,data FROM named_segments WHERE tx=? ORDER BY ty',(tx,)):
             groups.setdefault(ty,{}).setdefault(name,bytearray()).extend(blob)
         if not groups:continue
-        target.mkdir(parents=True,exist_ok=True)
         pool=bytearray();offsets={}
         for by_name in groups.values():
             for name in by_name:
                 if name not in offsets:
                     offsets[name]=len(pool);pool.extend(name.encode('utf-8'));pool.append(0)
-        if len(pool)>65535:raise ValueError(f'column {tx} name pool exceeds 65535 bytes')
-        entries=[];offset=0;segment_data=bytearray()
+        # A 2-byte name_offset cannot address a larger pool: drop the whole
+        # column rather than writing a partial one the firmware would misread.
+        if len(pool)>65535:skipped_columns.append(tx);continue
+        entries=[];offset=0;segment_data=bytearray();column_segments=0
         for ty,by_name in sorted(groups.items()):
             row=bytearray()
             for name,coords in by_name.items():
@@ -69,16 +73,22 @@ def export_named_columns(db, destination, x0, x1):
                 for i in range(0,len(coords),8):
                     row.extend(coords[i:i+8]);row.extend(struct.pack('<H',name_offset))
             count=len(row)//10
-            if count>20000:raise ValueError(f'named tile {tx}/{ty} exceeds 20,000 segments')
+            # Skip just this row; it simply gets no index entry, and `offset`
+            # keeps accumulating only over the rows actually written.
+            if count>20000:skipped_tiles.append([tx,ty]);continue
             entries.append((ty,offset,count));offset+=len(row)
             segment_data.extend(row)
-            named_segments+=count;named_tiles+=1
+            column_segments+=count
+        if not entries:continue
+        target.mkdir(parents=True,exist_ok=True)
         with (target/f'{tx}.ocn').open('wb') as out:
             out.write(struct.pack('<4sII',b'OCN1',len(entries),len(pool)))
             for entry in entries:out.write(struct.pack('<III',*entry))
             out.write(pool)
             out.write(segment_data)
-    return {'named_segments':named_segments,'named_tiles':named_tiles}
+        named_segments+=column_segments;named_tiles+=len(entries)
+    return {'named_segments':named_segments,'named_tiles':named_tiles,
+            'skipped_named_columns':skipped_columns,'skipped_named_tiles':skipped_tiles}
 
 
 def build(source,destination,bbox):
@@ -143,9 +153,13 @@ def build(source,destination,bbox):
     report.update(format='OCP1',zoom=14,bbox=bbox,source=Path(source).name,attribution='© OpenStreetMap contributors',license='https://www.openstreetmap.org/copyright')
     (target/'ATTRIBUTION.txt').write_text('Map data © OpenStreetMap contributors\nhttps://www.openstreetmap.org/copyright\nOpen Database License (ODbL)\n')
     report['bytes']=sum(p.stat().st_size for p in target.rglob('*') if p.is_file())
-    report['sha256']={str(p.relative_to(target)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (target/'14').glob('*.ocp')}
+    report['sha256']={str(p.relative_to(target)):hashlib.sha256(p.read_bytes()).hexdigest()
+                      for pattern in ('*.ocp','*.ocn') for p in (target/'14').glob(pattern)}
     (target/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in report.items() if k!='sha256'},indent=2),flush=True)
+    if report['skipped_named_columns'] or report['skipped_named_tiles']:
+        print(f"warning: named-road caps exceeded -- {len(report['skipped_named_columns'])} columns skipped, "
+              f"{len(report['skipped_named_tiles'])} tiles skipped (see manifest.json)",flush=True)
     return report
 
 
