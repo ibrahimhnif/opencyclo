@@ -577,7 +577,15 @@ void renderNavigation(const TelemetryState& state) {
   ui::drawIcon(canvas,ui::Icon::Back,10,10,TFT_WHITE);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setClipRect(48,0,144,44);
-  label(choosing?"Routes":routeName.length()?routeName.substring(0,16):"Free ride",48,12,ui::accent);
+  static uint32_t lastRoadLookupMs=0;
+  static char cachedRoadName[24]={0};
+  static bool cachedOnNamedRoad=false;
+  uint32_t nowMs=millis();
+  if(nowMs-lastRoadLookupMs>=1000) {
+    lastRoadLookupMs=nowMs;
+    cachedOnNamedRoad=fix && nearestRoadName(state.lat,state.lon,cachedRoadName,sizeof(cachedRoadName));
+  }
+  label(choosing?"Routes":cachedOnNamedRoad?cachedRoadName:routeName.length()?routeName.substring(0,16):"Free ride",48,12,ui::accent);
   canvas.clearClipRect();
   ui::drawIcon(canvas,ui::Icon::Ride,206,10,ui::success);
   canvas.setFont(&fonts::Font0);
