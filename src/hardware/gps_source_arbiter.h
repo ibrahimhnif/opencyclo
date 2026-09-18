@@ -26,6 +26,38 @@ const uint32_t PHONE_FIX_STALE_MS = 5000;
 GpsFixSource selectGpsSource(GpsSourceMode mode, bool hardwareValid,
                               bool phonePresent, uint32_t phoneAgeMs);
 
+// Which altitude source the user has selected. HARDWARE keeps the existing
+// barometer-preferred/GPS-fallback behavior (fusion_task.cpp) and only adds
+// the phone as a further fallback when neither is usable; PHONE_FORCED
+// ignores the barometer and GPS altitude entirely.
+enum AltitudeSourceMode : uint8_t {
+  ALTITUDE_SOURCE_MODE_HARDWARE = 0,
+  ALTITUDE_SOURCE_MODE_PHONE_FORCED = 1,
+};
+
+// Which heading source the user has selected. The device has no onboard
+// magnetometer -- HARDWARE means "no compass heading published" (consumers
+// keep using the existing GPS-direction-of-travel logic in
+// navigation/position_heading.h, which is unrelated to this toggle);
+// PHONE_FORCED publishes the phone's magnetometer heading when fresh.
+enum HeadingSourceMode : uint8_t {
+  HEADING_SOURCE_MODE_HARDWARE = 0,
+  HEADING_SOURCE_MODE_PHONE_FORCED = 1,
+};
+
+// A phone altitude/heading sample older than this (received over BLE
+// characteristics 0x190C/0x190D) is treated as absent.
+const uint32_t PHONE_ALTITUDE_STALE_MS = 5000;
+const uint32_t PHONE_HEADING_STALE_MS = 3000;
+
+// Pure decision: should the phone altitude sample be used as a fallback,
+// given the barometer/GPS altitude is already unusable this epoch.
+bool shouldUsePhoneAltitude(AltitudeSourceMode mode, bool hardwareAltitudeValid,
+                             bool phonePresent, uint32_t phoneAgeMs);
+
+// Pure decision: should the phone heading sample be published this epoch.
+bool shouldUsePhoneHeading(HeadingSourceMode mode, bool phonePresent, uint32_t phoneAgeMs);
+
 struct PhoneSpeedResult {
   bool speedValid;
   float speedKmh;

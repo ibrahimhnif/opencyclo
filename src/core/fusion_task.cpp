@@ -2,6 +2,9 @@
 #include "hardware/gps_task.h"
 #include "hardware/baro_task.h"
 #include "hardware/battery.h"
+#include "hardware/phone_sensor_bridge.h"
+#include "hardware/gps_source_arbiter.h"
+#include "storage/settings.h"
 #include <math.h>
 #include "display_speed.h"
 #include "ride_speed_validity.h"
@@ -128,11 +131,32 @@ void fusionTaskLoop(void* pvParameters) {
       fix.speedValid && fix.speedKmh<1.5f && state.speed_kmh<1.5f;
     if(calibrationWindow.update(fix.receivedAtMs,canAuto,fix.altitudeM,calibrationElevation))
       requestBaroAutoCalibration(calibrationElevation);
-    state.altitude_valid=state.baro_valid || gpsAltitudeUsable;
-    state.altitude_source=state.baro_valid?1:state.altitude_valid?2:0;
-    if(state.altitude_source==2)state.altitude_m=filteredGpsAltitude;
+    const bool hardwareAltitudeValid=state.baro_valid || gpsAltitudeUsable;
+    PhoneAltitudeSample phoneAlt{};
+    const bool havePhoneAlt=g_phone_baro_queue!=NULL && xQueuePeek(g_phone_baro_queue,&phoneAlt,0)==pdTRUE;
+    const uint32_t phoneAltAgeMs=havePhoneAlt?now-phoneAlt.receivedAtMs:UINT32_MAX;
+    const AltitudeSourceMode altitudeMode=(AltitudeSourceMode)g_settings.baro_source_mode;
+    if (shouldUsePhoneAltitude(altitudeMode,hardwareAltitudeValid,havePhoneAlt,phoneAltAgeMs)) {
+      state.altitude_valid=true;state.altitude_m=phoneAlt.altitudeM;state.altitude_source=3;
+    } else if (altitudeMode==ALTITUDE_SOURCE_MODE_PHONE_FORCED) {
+      state.altitude_valid=false;state.altitude_source=0;
+    } else {
+      state.altitude_valid=hardwareAltitudeValid;
+      state.altitude_source=state.baro_valid?1:state.altitude_valid?2:0;
+      if(state.altitude_source==2)state.altitude_m=filteredGpsAltitude;
+    }
     if(!state.altitude_valid) {state.altitude_m=0;state.grade_pct=0;haveAltitude=false;}
     if(referenceChanged || oldAltitudeSource!=state.altitude_source) {prevAlt=state.altitude_m;distForGradeKm=0;}
+
+    PhoneHeadingSample phoneHeading{};
+    const bool havePhoneHeading=g_phone_heading_queue!=NULL &&
+      xQueuePeek(g_phone_heading_queue,&phoneHeading,0)==pdTRUE;
+    const uint32_t phoneHeadingAgeMs=havePhoneHeading?now-phoneHeading.receivedAtMs:UINT32_MAX;
+    if (shouldUsePhoneHeading((HeadingSourceMode)g_settings.compass_source_mode,havePhoneHeading,phoneHeadingAgeMs)) {
+      state.heading_deg=phoneHeading.headingDeg;state.heading_valid=true;state.heading_source=1;
+    } else {
+      state.heading_valid=false;state.heading_source=0;
+    }
 
     // Process GPS Telemetry Fix
     if (gotGpsFix) {

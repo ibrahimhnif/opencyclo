@@ -20,6 +20,18 @@ GpsFixSource selectGpsSource(GpsSourceMode mode, bool hardwareValid,
   return phoneFresh ? GPS_FIX_SOURCE_PHONE_FALLBACK : GPS_FIX_SOURCE_NONE;
 }
 
+bool shouldUsePhoneAltitude(AltitudeSourceMode mode, bool hardwareAltitudeValid,
+                             bool phonePresent, uint32_t phoneAgeMs) {
+  const bool phoneFresh = phonePresent && phoneAgeMs < PHONE_ALTITUDE_STALE_MS;
+  if (mode == ALTITUDE_SOURCE_MODE_PHONE_FORCED) return phoneFresh;
+  return !hardwareAltitudeValid && phoneFresh;
+}
+
+bool shouldUsePhoneHeading(HeadingSourceMode mode, bool phonePresent, uint32_t phoneAgeMs) {
+  if (mode != HEADING_SOURCE_MODE_PHONE_FORCED) return false;
+  return phonePresent && phoneAgeMs < PHONE_HEADING_STALE_MS;
+}
+
 PhoneSpeedResult computePhoneSpeedKmh(double prevLat, double prevLon, uint32_t prevAtMs,
                                        double lat, double lon, uint32_t atMs) {
   PhoneSpeedResult out{false, 0.0f};

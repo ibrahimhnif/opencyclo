@@ -86,5 +86,25 @@ int main() {
   SD_MMC.failOpen = true;
   assert(!writer.openNewRideFile(2026, 8, 21, 12, 0, 0));
   assert(!writer.isOpen());
+
+  SD_MMC.failOpen = false;
+  TelemetryState sensors;
+  sensors.lat = -6.2; sensors.lon = 106.8;
+  sensors.heart_rate_bpm = 142; sensors.cadence_rpm = 88;
+  assert(writer.openNewRideFile(2026, 9, 18, 8, 0, 0));
+  const std::string sensorPath = writer.getFilename();
+  assert(writer.appendTrackPoint(sensors, 2026, 9, 18, 8, 0, 1));
+  assert(writer.closeRideFile());
+  auto sensorXml = SD_MMC.files[sensorPath];
+  assert(sensorXml.find("<gpxtpx:hr>142</gpxtpx:hr>") != std::string::npos);
+  assert(sensorXml.find("<gpxtpx:cad>88</gpxtpx:cad>") != std::string::npos);
+  // Disconnected sensors (-1 sentinel) emit no extensions block at all.
+  sensors.heart_rate_bpm = -1; sensors.cadence_rpm = -1;
+  assert(writer.openNewRideFile(2026, 9, 18, 8, 1, 0));
+  const std::string noSensorPath = writer.getFilename();
+  assert(writer.appendTrackPoint(sensors, 2026, 9, 18, 8, 1, 1));
+  assert(writer.closeRideFile());
+  assert(SD_MMC.files[noSensorPath].find("<extensions>") == std::string::npos);
+
   puts("GPX close and filename collision tests passed");
 }

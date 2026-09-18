@@ -20,6 +20,8 @@ struct Settings {
   int units=0,brightness=100,wheel_circumference_mm=2096;
   bool sd_logging_enabled=true;
   int gps_source_mode=0;
+  int baro_source_mode=0;
+  int compass_source_mode=0;
   char paired_csc_mac[18]{},paired_hr_mac[18]{},paired_power_mac[18]{};
   char paired_cadence_mac[18]{};
 };
@@ -30,6 +32,8 @@ inline void triggerBleScan(){}
 inline void forgetSensorProfile(BleProfileType){}
 inline void saveSettings(){}
 inline void setGpsSourceMode(unsigned char mode){g_settings.gps_source_mode=mode;}
+inline void setBaroSourceMode(unsigned char mode){g_settings.baro_source_mode=mode;}
+inline void setCompassSourceMode(unsigned char mode){g_settings.compass_source_mode=mode;}
 inline void setDisplayBrightness(int){}
 inline float readBatteryVoltage(){return 4.0f;}
 inline void openPowerMenu(){}

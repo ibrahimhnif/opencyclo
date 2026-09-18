@@ -13,6 +13,10 @@ struct Settings {
   // (always use the phone-supplied position; M10 ignored). See
   // hardware/gps_source_arbiter.h for GpsSourceMode.
   uint8_t gps_source_mode;
+  // Same 0=HARDWARE / 1=PHONE_FORCED convention, for altitude and heading.
+  // See AltitudeSourceMode/HeadingSourceMode in hardware/gps_source_arbiter.h.
+  uint8_t baro_source_mode;
+  uint8_t compass_source_mode;
   char paired_csc_mac[18];
   char paired_cadence_mac[18]; // second CSC device; capabilities come from data
   uint8_t paired_csc_addr_type;

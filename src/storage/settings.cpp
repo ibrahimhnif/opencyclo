@@ -11,6 +11,8 @@ void initSettings() {
   g_settings.wheel_circumference_mm = prefs.getUShort("wheel", 2096);
   g_settings.sd_logging_enabled = prefs.getBool("sdlog", true);
   g_settings.gps_source_mode = prefs.getUChar("gps_src", 0);
+  g_settings.baro_source_mode = prefs.getUChar("baro_src", 0);
+  g_settings.compass_source_mode = prefs.getUChar("cmp_src", 0);
 
   String csc = prefs.getString("csc_mac", "");
   snprintf(g_settings.paired_cadence_mac,18,"%s",prefs.getString("cad_mac", "").c_str());
@@ -42,6 +44,8 @@ void saveSettings() {
   prefs.putUShort("wheel", g_settings.wheel_circumference_mm);
   prefs.putBool("sdlog", g_settings.sd_logging_enabled);
   prefs.putUChar("gps_src", g_settings.gps_source_mode);
+  prefs.putUChar("baro_src", g_settings.baro_source_mode);
+  prefs.putUChar("cmp_src", g_settings.compass_source_mode);
   prefs.putString("csc_mac", g_settings.paired_csc_mac);
   prefs.putString("cad_mac", g_settings.paired_cadence_mac);
   prefs.putUChar("csc_type", g_settings.paired_csc_addr_type);

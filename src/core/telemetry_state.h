@@ -83,13 +83,23 @@ struct TelemetryState {
   double lon;
   float altitude_m;
   bool altitude_valid;
-  uint8_t altitude_source; // 0 unavailable, 1 barometer (standard pressure), 2 GPS
+  uint8_t altitude_source; // 0 unavailable, 1 barometer (standard pressure), 2 GPS, 3 phone
   bool baro_valid;
   float baro_pressure_hpa;
   float baro_temperature_c;
   uint32_t baro_age_ms;
   float grade_pct;
   float total_ascent_m;
+
+  // Phone magnetometer heading, published over BLE characteristic 0x190D
+  // when compass_source_mode selects PHONE_FORCED (see
+  // hardware/gps_source_arbiter.h). There is no onboard magnetometer, so
+  // this is a separate, optional field -- consumers that want the existing
+  // GPS-direction-of-travel heading keep using navigation/position_heading.h
+  // directly, unaffected by this toggle.
+  float heading_deg;
+  bool heading_valid;
+  uint8_t heading_source; // 0 unavailable, 1 phone
 
   // GPS Status
   bool gps_has_fix;

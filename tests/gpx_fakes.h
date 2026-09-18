@@ -16,6 +16,7 @@ struct TelemetryState {
   bool altitude_valid=true;
   uint16_t gps_year=0;
   uint8_t gps_month=0,gps_day=0,gps_hour=0,gps_minute=0,gps_second=0;
+  int16_t heart_rate_bpm=-1, cadence_rpm=-1;
 };
 extern size_t writeLimit;
 

@@ -85,17 +85,27 @@ bool GpxWriter::appendTrackPoint(const TelemetryState& state, uint16_t year, uin
 
   char timeTag[96]={0};
   char elevationTag[48]={0};
+  char extensionsTag[128]={0};
   if(state.altitude_valid)snprintf(elevationTag,sizeof(elevationTag),"        <ele>%.1f</ele>\n",state.altitude_m);
   if(year>=2020 && month>=1 && month<=12 && day>=1 && day<=31)
     snprintf(timeTag,sizeof(timeTag),"        <time>%04u-%02u-%02uT%02u:%02u:%02uZ</time>\n",
       year,month,day,hour,minute,second);
+  if(state.heart_rate_bpm>=0 || state.cadence_rpm>=0) {
+    char hrTag[32]={0},cadTag[32]={0};
+    if(state.heart_rate_bpm>=0)snprintf(hrTag,sizeof(hrTag),"<gpxtpx:hr>%d</gpxtpx:hr>",state.heart_rate_bpm);
+    if(state.cadence_rpm>=0)snprintf(cadTag,sizeof(cadTag),"<gpxtpx:cad>%d</gpxtpx:cad>",state.cadence_rpm);
+    snprintf(extensionsTag,sizeof(extensionsTag),
+             "        <extensions><gpxtpx:TrackPointExtension>%s%s</gpxtpx:TrackPointExtension></extensions>\n",
+             hrTag,cadTag);
+  }
   snprintf(_pending, sizeof(_pending),
            "%s      <trkpt lat=\"%.6f\" lon=\"%.6f\">\n"
            "%s"
            "%s"
+           "%s"
            "      </trkpt>\n",
            gap?"    </trkseg>\n    <trkseg>\n":"",state.lat, state.lon, elevationTag,
-           timeTag);
+           timeTag, extensionsTag);
 
   // Pending bytes belong to this epoch, including a short-write retry.
   _lastTimestamp=stamp;

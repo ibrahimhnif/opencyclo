@@ -3,6 +3,7 @@
 #include "core/fusion_task.h"
 #include "hardware/gps_task.h"
 #include "hardware/baro_task.h"
+#include "hardware/phone_sensor_bridge.h"
 #include "hardware/ble_task.h"
 #include "storage/logger_task.h"
 #include "storage/settings.h"
@@ -39,6 +40,7 @@ void setup() {
   // 3. Launch FreeRTOS Tasks
   startGpsTask();
   startBaroTask();
+  startPhoneSensorBridge();
   startBleTask();
   startLoggerTask();
   startFusionTask();

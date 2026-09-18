@@ -410,9 +410,12 @@ bool handleSensorWidgetStream(const Rect& b,bool touched,int16_t x,int16_t y,int
 // starts at b.y + SETTINGS_ROW_Y0 + i * SETTINGS_ROW_STRIDE and is 18px tall
 // (FreeSans9pt7b), with a divider hairline SETTINGS_ROW_DIVIDER px below that
 // top edge. Rows in order: 0 units, 1 brightness, 2 wheel size, 3 sd logging,
-// 4 battery, 5 firmware.
+// 4 gps source, 5 baro source, 6 compass source, 7 battery, 8 firmware.
+// The power button below is hardcoded at b.y+208 within this widget's fixed
+// 258px height, so STRIDE was reduced from 32 to 22 (adding the two new
+// rows) to keep the last divider clear of it.
 static const int SETTINGS_ROW_Y0      = 8;
-static const int SETTINGS_ROW_STRIDE  = 32;
+static const int SETTINGS_ROW_STRIDE  = 22;
 static const int SETTINGS_ROW_DIVIDER = 20;
 
 static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state, bool force) {
@@ -457,6 +460,12 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
 
   row("gps source", g_settings.gps_source_mode == 0 ? "hardware" : "phone",
       g_settings.gps_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
+
+  row("baro source", g_settings.baro_source_mode == 0 ? "hardware" : "phone",
+      g_settings.baro_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
+
+  row("compass source", g_settings.compass_source_mode == 0 ? "hardware" : "phone",
+      g_settings.compass_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
 
   char batStr[24];
   snprintf(batStr, sizeof(batStr), "%u%% (%.2fV)", state.battery_pct, readBatteryVoltage());
@@ -513,6 +522,14 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
   }
   if (settingsRowHit(b, y, 4)) { // gps source
     setGpsSourceMode(g_settings.gps_source_mode == 0 ? 1 : 0);
+    return true;
+  }
+  if (settingsRowHit(b, y, 5)) { // baro source
+    setBaroSourceMode(g_settings.baro_source_mode == 0 ? 1 : 0);
+    return true;
+  }
+  if (settingsRowHit(b, y, 6)) { // compass source
+    setCompassSourceMode(g_settings.compass_source_mode == 0 ? 1 : 0);
     return true;
   }
   return false;

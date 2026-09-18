@@ -30,6 +30,9 @@ void initTelemetryState() {
     g_telemetry.altitude_m = 0.0f;
     g_telemetry.grade_pct = 0.0f;
     g_telemetry.total_ascent_m = 0.0f;
+    g_telemetry.heading_deg = 0.0f;
+    g_telemetry.heading_valid = false;
+    g_telemetry.heading_source = 0;
 
     g_telemetry.gps_has_fix = false;
     g_telemetry.gps_fix_quality = 0;
@@ -86,6 +89,8 @@ static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
       next.altitude_source=g_telemetry.altitude_source;next.grade_pct=g_telemetry.grade_pct;
       next.baro_valid=g_telemetry.baro_valid;next.baro_pressure_hpa=g_telemetry.baro_pressure_hpa;
       next.baro_temperature_c=g_telemetry.baro_temperature_c;next.baro_age_ms=g_telemetry.baro_age_ms;
+      next.heading_deg=g_telemetry.heading_deg;next.heading_valid=g_telemetry.heading_valid;
+      next.heading_source=g_telemetry.heading_source;
       next.gps_has_fix=g_telemetry.gps_has_fix;
       next.gps_fix_quality=g_telemetry.gps_fix_quality;
       next.lat=g_telemetry.lat;next.lon=g_telemetry.lon;

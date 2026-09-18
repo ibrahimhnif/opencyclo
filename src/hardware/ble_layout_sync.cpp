@@ -6,6 +6,7 @@
 #include "navigation/navigation.h"
 #include "gps_task.h"
 #include "storage/gps_cache.h"
+#include "phone_sensor_bridge.h"
 
 class GpsCacheCallbacks : public NimBLECharacteristicCallbacks {
   void onRead(NimBLECharacteristic* c) override {
@@ -127,6 +128,69 @@ class GpsSourceModeCallbacks : public NimBLECharacteristicCallbacks {
   }
 };
 
+class PhoneBaroCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string v = c->getValue();
+    if (v.size() < 3) return;
+    int16_t altitudeDm;
+    memcpy(&altitudeDm, v.data() + 0, 2);
+    // Byte 2 is a sequence number, informational only.
+    setPhoneAltitudeSample(altitudeDm / 10.0f);
+  }
+};
+
+class PhoneCompassCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string v = c->getValue();
+    if (v.size() < 4) return;
+    uint16_t headingDeciDeg;
+    memcpy(&headingDeciDeg, v.data() + 0, 2);
+    uint8_t accuracy = (uint8_t)v[2];
+    // Byte 3 is a sequence number, informational only.
+    setPhoneHeadingSample((headingDeciDeg % 3600) / 10.0f, accuracy);
+  }
+};
+
+static NimBLECharacteristic* pBaroSourceModeChar = nullptr;
+void setBaroSourceMode(uint8_t mode) {
+  g_settings.baro_source_mode = mode;
+  saveSettings();
+  if (pBaroSourceModeChar != nullptr) {
+    pBaroSourceModeChar->setValue(&g_settings.baro_source_mode, 1);
+    pBaroSourceModeChar->notify();
+  }
+}
+class BaroSourceModeCallbacks : public NimBLECharacteristicCallbacks {
+  void onRead(NimBLECharacteristic* c) override {
+    c->setValue(&g_settings.baro_source_mode, 1);
+  }
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string v = c->getValue();
+    if (v.empty()) return;
+    setBaroSourceMode((uint8_t)v[0]);
+  }
+};
+
+static NimBLECharacteristic* pCompassSourceModeChar = nullptr;
+void setCompassSourceMode(uint8_t mode) {
+  g_settings.compass_source_mode = mode;
+  saveSettings();
+  if (pCompassSourceModeChar != nullptr) {
+    pCompassSourceModeChar->setValue(&g_settings.compass_source_mode, 1);
+    pCompassSourceModeChar->notify();
+  }
+}
+class CompassSourceModeCallbacks : public NimBLECharacteristicCallbacks {
+  void onRead(NimBLECharacteristic* c) override {
+    c->setValue(&g_settings.compass_source_mode, 1);
+  }
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string v = c->getValue();
+    if (v.empty()) return;
+    setCompassSourceMode((uint8_t)v[0]);
+  }
+};
+
 void initBleLayoutSyncService(NimBLEServer* pServer) {
   NimBLEService* pService = pServer->createService(BLE_OPENCYCLO_SERVICE_UUID);
 
@@ -161,6 +225,30 @@ void initBleLayoutSyncService(NimBLEServer* pServer) {
     NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
   pGpsSourceModeChar->setValue(&g_settings.gps_source_mode, 1);
   pGpsSourceModeChar->setCallbacks(new GpsSourceModeCallbacks());
+
+  // 6. Phone Barometric Altitude Characteristic (Write No Response)
+  auto* phoneBaroChar = pService->createCharacteristic(
+    BLE_PHONE_BARO_CHAR_UUID, NIMBLE_PROPERTY::WRITE_NR);
+  phoneBaroChar->setCallbacks(new PhoneBaroCallbacks());
+
+  // 7. Phone Compass Heading Characteristic (Write No Response)
+  auto* phoneCompassChar = pService->createCharacteristic(
+    BLE_PHONE_COMPASS_CHAR_UUID, NIMBLE_PROPERTY::WRITE_NR);
+  phoneCompassChar->setCallbacks(new PhoneCompassCallbacks());
+
+  // 8. Baro Source Mode Characteristic (Read / Write / Notify)
+  pBaroSourceModeChar = pService->createCharacteristic(
+    BLE_BARO_SOURCE_MODE_CHAR_UUID,
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+  pBaroSourceModeChar->setValue(&g_settings.baro_source_mode, 1);
+  pBaroSourceModeChar->setCallbacks(new BaroSourceModeCallbacks());
+
+  // 9. Compass Source Mode Characteristic (Read / Write / Notify)
+  pCompassSourceModeChar = pService->createCharacteristic(
+    BLE_COMPASS_SOURCE_MODE_CHAR_UUID,
+    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+  pCompassSourceModeChar->setValue(&g_settings.compass_source_mode, 1);
+  pCompassSourceModeChar->setCallbacks(new CompassSourceModeCallbacks());
 
   initNavigationService(pService);
   auto* assistanceChar=pService->createCharacteristic(
