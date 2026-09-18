@@ -1,5 +1,6 @@
 #include "map_renderer.h"
 #include "geo.h"
+#include "ocn_index.h"
 #include "ps_buffer.h"
 #include "hardware/display.h"
 #include "hardware/power.h"
@@ -65,21 +66,22 @@ NamedTile& namedTile(int x,int y) {
   if(f.read(h,12)!=12 || memcmp(h,"OCN1",4))return t;
   uint32_t indexCount,poolSize;memcpy(&indexCount,h+4,4);memcpy(&poolSize,h+8,4);
   if(indexCount>16384 || poolSize>65535 || f.size()<12+uint64_t(indexCount)*12+poolSize)return t;
-  uint32_t lo=0,hi=indexCount;
-  while(lo<hi) {
-    uint32_t mid=(lo+hi)/2,entry[3];
-    if(!f.seek(12+mid*12)||f.read((uint8_t*)entry,12)!=12)return t;
-    if(entry[0]<(uint32_t)y)lo=mid+1;
-    else if(entry[0]>(uint32_t)y)hi=mid;
-    else {
-      if(entry[2]>20000 || 12+uint64_t(indexCount)*12+poolSize+uint64_t(entry[1])+entry[2]*10>f.size())return t;
-      if(!t.pool.resize(poolSize) || !t.segments.resize(entry[2]*10))return t;
-      if(!f.seek(12+indexCount*12) || (poolSize && f.read(t.pool.data(),poolSize)!=poolSize))return t;
-      if(!f.seek(12+indexCount*12+poolSize+entry[1]) || (entry[2] && f.read(t.segments.data(),t.segments.size())!=t.segments.size()))return t;
-      t.present=true;return t;
-    }
+  // One sequential read of the whole index table (<=196,608 B, PSRAM) instead
+  // of a seek+read per binary-search probe: fewer SD seeks, and the search
+  // itself becomes the pure, unit-tested ocn::findRow().
+  PsBuffer<uint8_t> index;
+  if(indexCount && (!index.resize(indexCount*12) || !f.seek(12) ||
+     f.read(index.data(),index.size())!=index.size()))return t;
+  uint32_t offset=0,count=0;
+  if(!ocn::findRow(index.data(),indexCount,(uint32_t)y,&offset,&count)) {
+    t.present=true; // Empty row inside a completed pack -- no named roads here.
+    return t;
   }
-  t.present=true; // Empty row inside a completed pack -- no named roads here.
+  if(count>20000 || 12+uint64_t(indexCount)*12+poolSize+uint64_t(offset)+count*10>f.size())return t;
+  if(!t.pool.resize(poolSize) || !t.segments.resize(count*10))return t;
+  if(!f.seek(12+indexCount*12) || (poolSize && f.read(t.pool.data(),poolSize)!=poolSize))return t;
+  if(!f.seek(12+indexCount*12+poolSize+offset) || (count && f.read(t.segments.data(),t.segments.size())!=t.segments.size()))return t;
+  t.present=true;
   return t;
 }
 
