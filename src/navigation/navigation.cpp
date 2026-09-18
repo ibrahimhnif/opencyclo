@@ -612,15 +612,19 @@ void renderNavigation(const TelemetryState& state) {
       mapStatus=drawMapBackground(cx,cy,zoom);
     }
     auto line=[&](const PsBuffer<nav::Point>& ps,uint16_t color) {
+      const bool route=&ps==&points;
+      // Scale with zoom like the road network (map_renderer.cpp's rasterize())
+      // so the route/trail overlay doesn't stand out disproportionately once
+      // the background roads get thinner when zoomed out.
+      const float lineScale=float(std::pow(2,zoom-14));
+      const float width=std::min(8.0f,std::max(1.0f,(route?2.0f:1.0f)*lineScale));
       for(size_t i=1;i<ps.size();i++) {
         if(!nav::valid(ps[i-1])||!nav::valid(ps[i]))continue;
-        bool route=&ps==&points;
         double ax=route?projected[i-1].x:nav::x(ps[i-1]),ay=route?projected[i-1].y:nav::y(ps[i-1]);
         double bx=route?projected[i].x:nav::x(ps[i]),by=route?projected[i].y:nav::y(ps[i]);
         double margin=256/std::pow(2,zoom-14);
         if(std::max(ax,bx)<cx-margin||std::min(ax,bx)>cx+margin||std::max(ay,by)<cy-margin||std::min(ay,by)>cy+margin)continue;
-        canvas.drawLine(sx(ax),sy(ay),sx(bx),sy(by),color);
-        if(route)canvas.drawLine(sx(ax)+1,sy(ay),sx(bx)+1,sy(by),color);
+        canvas.drawWideLine(sx(ax),sy(ay),sx(bx),sy(by),width,color);
       }
     };
     line(trail,ui::success);line(points,ui::accent);
