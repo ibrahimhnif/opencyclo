@@ -46,25 +46,74 @@ def export_columns(db, destination, bbox):
     return {'segments':segments,'populated_tiles':tiles,'columns':x1-x0+1}
 
 
+def export_named_columns(db, destination, x0, x1):
+    # Named roads are a best-effort overlay on top of the already-written .ocp
+    # geometry, so a column that cannot be represented is skipped and reported
+    # rather than aborting a multi-hour build whose .ocp output is already valid.
+    target=Path(destination)/'maps'/'14'
+    named_segments=named_tiles=0;skipped_columns=[];skipped_tiles=[]
+    for tx in range(x0,x1+1):
+        groups={}
+        for ty,name,blob in db.execute('SELECT ty,name,data FROM named_segments WHERE tx=? ORDER BY ty',(tx,)):
+            groups.setdefault(ty,{}).setdefault(name,bytearray()).extend(blob)
+        if not groups:continue
+        pool=bytearray();offsets={}
+        for by_name in groups.values():
+            for name in by_name:
+                if name not in offsets:
+                    offsets[name]=len(pool);pool.extend(name.encode('utf-8'));pool.append(0)
+        # A 2-byte name_offset cannot address a larger pool: drop the whole
+        # column rather than writing a partial one the firmware would misread.
+        if len(pool)>65535:skipped_columns.append(tx);continue
+        entries=[];offset=0;segment_data=bytearray();column_segments=0
+        for ty,by_name in sorted(groups.items()):
+            row=bytearray()
+            for name,coords in by_name.items():
+                name_offset=offsets[name]
+                for i in range(0,len(coords),8):
+                    row.extend(coords[i:i+8]);row.extend(struct.pack('<H',name_offset))
+            count=len(row)//10
+            # Skip just this row; it simply gets no index entry, and `offset`
+            # keeps accumulating only over the rows actually written.
+            if count>20000:skipped_tiles.append([tx,ty]);continue
+            entries.append((ty,offset,count));offset+=len(row)
+            segment_data.extend(row)
+            column_segments+=count
+        if not entries:continue
+        target.mkdir(parents=True,exist_ok=True)
+        with (target/f'{tx}.ocn').open('wb') as out:
+            out.write(struct.pack('<4sII',b'OCN1',len(entries),len(pool)))
+            for entry in entries:out.write(struct.pack('<III',*entry))
+            out.write(pool)
+            out.write(segment_data)
+        named_segments+=column_segments;named_tiles+=len(entries)
+    return {'named_segments':named_segments,'named_tiles':named_tiles,
+            'skipped_named_columns':skipped_columns,'skipped_named_tiles':skipped_tiles}
+
+
 def build(source,destination,bbox):
     import osmium
     west,south,east,north=bbox
     if not (-180<=west<east<=180 and -85<=south<north<=85):raise ValueError('invalid bbox')
     if (Path(destination)/'maps').exists():raise ValueError('choose a fresh output directory')
     left,bottom=project(west,south);right,top=project(east,north)
+    x0,x1=math.floor(left/256),math.floor(right/256)
     started=time.monotonic()
     with tempfile.TemporaryDirectory(prefix='opencyclo-pbf-') as tmp:
         db=sqlite3.connect(str(Path(tmp)/'segments.db'))
         db.execute('PRAGMA journal_mode=OFF');db.execute('PRAGMA synchronous=OFF')
         db.execute('CREATE TABLE segments(tx INTEGER,ty INTEGER,data BLOB)')
+        db.execute('CREATE TABLE named_segments(tx INTEGER,ty INTEGER,name TEXT,data BLOB)')
         class Roads(osmium.SimpleHandler):
             ways=0
             pending=[]
+            namedPending=[]
             def way(self,w):
                 road=w.tags.get('highway')
                 if not road or road in ('proposed','construction'):return
                 style=2 if road in ('cycleway','path','track','footway') else 1 if road in ('motorway','trunk','primary','secondary','tertiary') else 0
-                grouped={};previous=None
+                name=w.tags.get('name')
+                grouped={};named={};previous=None
                 for node in w.nodes:
                     if not node.location.valid():previous=None;continue
                     point=project(node.lon,node.lat)
@@ -78,26 +127,39 @@ def build(source,destination,bbox):
                                     if cut:
                                         coords=[max(0,min(65535,round((v-(tx if i%2==0 else ty)*256)*256))) for i,v in enumerate(cut)]
                                         grouped.setdefault((tx,ty),bytearray()).extend(struct.pack('<4HB',*coords,style))
+                                        if name:named.setdefault((tx,ty),bytearray()).extend(struct.pack('<4H',*coords))
                     previous=point
                 self.pending.extend((x,y,bytes(data)) for (x,y),data in grouped.items())
+                if name:self.namedPending.extend((x,y,name,bytes(data)) for (x,y),data in named.items())
                 if len(self.pending)>10000:self.flush()
+                if len(self.namedPending)>10000:self.flushNamed()
                 self.ways+=1
                 if self.ways%100000==0:print(f'{self.ways:,} roads, {time.monotonic()-started:.0f}s',flush=True)
             def flush(self):
                 db.executemany('INSERT INTO segments VALUES (?,?,?)',self.pending);self.pending.clear();db.commit()
+            def flushNamed(self):
+                db.executemany('INSERT INTO named_segments VALUES (?,?,?,?)',self.namedPending);self.namedPending.clear();db.commit()
         roads=Roads()
         roads.apply_file(str(source),locations=True,idx=f'sparse_file_array,{tmp}/locations')
-        roads.flush()
+        roads.flush();roads.flushNamed()
         print('Indexing tile columns...',flush=True)
-        db.execute('CREATE INDEX tile ON segments(tx,ty)');db.commit()
-        report=export_columns(db,destination,bbox);db.close()
+        db.execute('CREATE INDEX tile ON segments(tx,ty)')
+        db.execute('CREATE INDEX named_tile ON named_segments(tx,ty)')
+        db.commit()
+        report=export_columns(db,destination,bbox)
+        report.update(export_named_columns(db,destination,x0,x1))
+        db.close()
     target=Path(destination)/'maps'
     report.update(format='OCP1',zoom=14,bbox=bbox,source=Path(source).name,attribution='© OpenStreetMap contributors',license='https://www.openstreetmap.org/copyright')
     (target/'ATTRIBUTION.txt').write_text('Map data © OpenStreetMap contributors\nhttps://www.openstreetmap.org/copyright\nOpen Database License (ODbL)\n')
     report['bytes']=sum(p.stat().st_size for p in target.rglob('*') if p.is_file())
-    report['sha256']={str(p.relative_to(target)):hashlib.sha256(p.read_bytes()).hexdigest() for p in (target/'14').glob('*.ocp')}
+    report['sha256']={str(p.relative_to(target)):hashlib.sha256(p.read_bytes()).hexdigest()
+                      for pattern in ('*.ocp','*.ocn') for p in (target/'14').glob(pattern)}
     (target/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in report.items() if k!='sha256'},indent=2),flush=True)
+    if report['skipped_named_columns'] or report['skipped_named_tiles']:
+        print(f"warning: named-road caps exceeded -- {len(report['skipped_named_columns'])} columns skipped, "
+              f"{len(report['skipped_named_tiles'])} tiles skipped (see manifest.json)",flush=True)
     return report
 
 

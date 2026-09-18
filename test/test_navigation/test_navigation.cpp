@@ -3,6 +3,14 @@
 void projection() {
   nav::Point p{0,0};TEST_ASSERT_DOUBLE_WITHIN(0.01,2097152,nav::x(p));TEST_ASSERT_DOUBLE_WITHIN(0.01,2097152,nav::y(p));
 }
+void unprojection() {
+  nav::Point origin{0,0};
+  nav::Point back=nav::unproject(nav::x(origin),nav::y(origin));
+  TEST_ASSERT_INT32_WITHIN(5,0,back.lat);TEST_ASSERT_INT32_WITHIN(5,0,back.lon);
+  nav::Point jakarta{-60000000,1067000000};
+  nav::Point back2=nav::unproject(nav::x(jakarta),nav::y(jakarta));
+  TEST_ASSERT_INT32_WITHIN(5,jakarta.lat,back2.lat);TEST_ASSERT_INT32_WITHIN(5,jakarta.lon,back2.lon);
+}
 void matching() {
   double fraction;
   double d=nav::segmentDistance({1000,5000},{0,0},{0,10000},fraction);
@@ -16,4 +24,4 @@ void packets() {
   TEST_ASSERT_EQUAL_HEX32(0xcbf43926,nav::crc32((const uint8_t*)"123456789",9)^0xffffffff);
   TEST_ASSERT_FALSE(nav::valid({900000000,0}));
 }
-int main() {UNITY_BEGIN();RUN_TEST(projection);RUN_TEST(matching);RUN_TEST(packets);return UNITY_END();}
+int main() {UNITY_BEGIN();RUN_TEST(projection);RUN_TEST(unprojection);RUN_TEST(matching);RUN_TEST(packets);return UNITY_END();}

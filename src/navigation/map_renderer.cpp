@@ -1,11 +1,13 @@
 #include "map_renderer.h"
 #include "geo.h"
+#include "ocn_index.h"
 #include "ps_buffer.h"
 #include "hardware/display.h"
 #include "hardware/power.h"
 #include "storage/sd_access.h"
 #include <SD_MMC.h>
 #include <algorithm>
+#include <cstring>
 #ifndef UNIT_TEST
 #include <freertos/task.h>
 #endif
@@ -48,6 +50,38 @@ Tile& tile(int x,int y) {
     uint32_t n;memcpy(&n,h+4,4);
     if(n<=20000 && f.size()==8+n*9 && t.bytes.resize(n*9)) { t.present=!n || f.read(t.bytes.data(),t.bytes.size())==t.bytes.size(); }
   }
+  return t;
+}
+
+struct NamedTile { int x=-1,y=-1; bool present=false; PsBuffer<uint8_t> pool; PsBuffer<uint8_t> segments; };
+NamedTile namedTiles[4];
+int nextNamedTile=0;
+NamedTile& namedTile(int x,int y) {
+  for(auto& t:namedTiles) if(t.x==x&&t.y==y) return t;
+  NamedTile& t=namedTiles[nextNamedTile++%4];t.x=x;t.y=y;t.pool.clear();t.segments.clear();t.present=false;
+  char path[64];snprintf(path,sizeof(path),"/maps/14/%d.ocn",x);
+  File f=SD_MMC.open(path);
+  if(!f)return t; // No named-road data for this column -- not an error.
+  uint8_t h[12];
+  if(f.read(h,12)!=12 || memcmp(h,"OCN1",4))return t;
+  uint32_t indexCount,poolSize;memcpy(&indexCount,h+4,4);memcpy(&poolSize,h+8,4);
+  if(indexCount>16384 || poolSize>65535 || f.size()<12+uint64_t(indexCount)*12+poolSize)return t;
+  // One sequential read of the whole index table (<=196,608 B, PSRAM) instead
+  // of a seek+read per binary-search probe: fewer SD seeks, and the search
+  // itself becomes the pure, unit-tested ocn::findRow().
+  PsBuffer<uint8_t> index;
+  if(indexCount && (!index.resize(indexCount*12) || !f.seek(12) ||
+     f.read(index.data(),index.size())!=index.size()))return t;
+  uint32_t offset=0,count=0;
+  if(!ocn::findRow(index.data(),indexCount,(uint32_t)y,&offset,&count)) {
+    t.present=true; // Empty row inside a completed pack -- no named roads here.
+    return t;
+  }
+  if(count>20000 || 12+uint64_t(indexCount)*12+poolSize+uint64_t(offset)+count*10>f.size())return t;
+  if(!t.pool.resize(poolSize) || !t.segments.resize(count*10))return t;
+  if(!f.seek(12+indexCount*12) || (poolSize && f.read(t.pool.data(),poolSize)!=poolSize))return t;
+  if(!f.seek(12+indexCount*12+poolSize+offset) || (count && f.read(t.segments.data(),t.segments.size())!=t.segments.size()))return t;
+  t.present=true;
   return t;
 }
 
@@ -101,7 +135,10 @@ void rasterize(Raster& out,const View& v) {
       int bx=int((x*256.0+p[2]/256.0-v.x)*s+size/2);
       int by=int((y*256.0+p[3]/256.0-v.y)*s+size/2);
       if(std::max(ax,bx)<0 || std::min(ax,bx)>=size || std::max(ay,by)<0 || std::min(ay,by)>=size)continue;
-      out.image.drawLine(ax,ay,bx,by,t.bytes[i+8]==2?0x35ad:(t.bytes[i+8]==1?0x8410:0x4208));
+      const uint8_t style=t.bytes[i+8];
+      const int width=style==1?3:style==0?2:1;
+      const uint16_t color=style==2?0x35ad:(style==1?0x8410:0x4208);
+      out.image.drawWideLine(ax,ay,bx,by,width,color);
     }
 #ifndef UNIT_TEST
     // Let core-0 services run even in dense cities.
@@ -154,6 +191,50 @@ bool covered(const Raster& r,const View& v) {
   }
   return true;
 }
+}
+bool nearestRoadName(double lat,double lon,char* name,size_t nameLen) {
+  if(nameLen==0)return false;
+  nav::Point here{int32_t(lat*1e7),int32_t(lon*1e7)};
+  if(!nav::valid(here))return false;
+  double wx=nav::x(here),wy=nav::y(here);
+  int tx=int(std::floor(wx/256)),ty=int(std::floor(wy/256));
+  NamedTile* loaded=nullptr;
+  {
+    SdGuard sd;
+    if(sd.locked && g_sd_ready && !isPowerOffRequested())loaded=&namedTile(tx,ty);
+  }
+  if(!loaded || !loaded->present || loaded->segments.size()==0)return false;
+  // Cheap integer reject before any soft-float transcendental work. Segment
+  // coordinates are tile-local 1/256-pixel units; at zoom 14 one such unit is
+  // 0.03728/cos(lat) m on the ground, so 40 m is 1073/cos(lat) units. 1300 at
+  // the equator (48.5 m) is deliberately loose so the box is a guaranteed
+  // superset of what the exact segmentDistance check below accepts; the
+  // 1/cos(lat) term keeps that true away from the equator too. One cos per
+  // call replaces up to 20,000 unproject/segmentDistance evaluations.
+  const double cosLat=std::cos(lat*nav::pi/180);
+  const int reach=cosLat>0.05?int(1300.0/cosLat)+1:65535;
+  const int hereLocalX=int((wx-tx*256.0)*256.0),hereLocalY=int((wy-ty*256.0)*256.0);
+  double best=1e18;uint16_t bestOffset=0;bool found=false;
+  for(size_t i=0;i<loaded->segments.size();i+=10) {
+    uint16_t p[4];uint16_t nameOffset;
+    memcpy(p,loaded->segments.data()+i,8);
+    const int minX=std::min(p[0],p[2]),maxX=std::max(p[0],p[2]);
+    const int minY=std::min(p[1],p[3]),maxY=std::max(p[1],p[3]);
+    if(hereLocalX<minX-reach || hereLocalX>maxX+reach ||
+       hereLocalY<minY-reach || hereLocalY>maxY+reach)continue;
+    memcpy(&nameOffset,loaded->segments.data()+i+8,2);
+    nav::Point a=nav::unproject(tx*256.0+p[0]/256.0,ty*256.0+p[1]/256.0);
+    nav::Point b=nav::unproject(tx*256.0+p[2]/256.0,ty*256.0+p[3]/256.0);
+    double fraction;double d=nav::segmentDistance(here,a,b,fraction);
+    if(d<best && nameOffset<loaded->pool.size()) {best=d;bestOffset=nameOffset;found=true;}
+  }
+  if(!found || best>40)return false;
+  const char* poolStr=(const char*)loaded->pool.data()+bestOffset;
+  size_t maxLen=loaded->pool.size()-bestOffset;
+  size_t len=strnlen(poolStr,maxLen);
+  if(len>=nameLen)len=nameLen-1;
+  memcpy(name,poolStr,len);name[len]=0;
+  return true;
 }
 MapStatus drawMapBackground(double x,double y,int zoom) {
   initMapRenderer();if(failed)return MapStatus::NoMemory;

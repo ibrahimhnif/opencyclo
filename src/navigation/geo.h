@@ -10,6 +10,12 @@ struct Point { int32_t lat, lon; }; // degrees * 1e7, little endian on disk
 inline bool valid(Point p) { return p.lat >= -850000000 && p.lat <= 850000000 && p.lon >= -1800000000 && p.lon <= 1800000000; }
 inline double x(Point p) { return (p.lon / 1e7 + 180.0) / 360.0 * world; }
 inline double y(Point p) { double a = p.lat / 1e7 * pi / 180; return (1 - std::log(std::tan(a) + 1 / std::cos(a)) / pi) / 2 * world; }
+inline Point unproject(double worldX, double worldY) {
+  double lonDeg = worldX / world * 360.0 - 180.0;
+  double n = pi * (1.0 - 2.0 * worldY / world);
+  double latDeg = std::atan(std::sinh(n)) * 180.0 / pi;
+  return Point{int32_t(latDeg * 1e7), int32_t(lonDeg * 1e7)};
+}
 inline double distance(Point a, Point b) {
   double dlat = (double(b.lat) - a.lat) / 1e7 * pi / 180;
   double dlon = (double(b.lon) - a.lon) / 1e7 * pi / 180;
