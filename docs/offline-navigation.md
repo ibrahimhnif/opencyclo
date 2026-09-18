@@ -134,13 +134,23 @@ The card should contain:
 /maps/coverage.bin
 /maps/ATTRIBUTION.txt
 /maps/14/<column>.ocp
+/maps/14/<column>.ocn
 /routes/<checksum>.ocr
 /rides/<ride>.gpx
 ```
 
+`.ocn` files exist only for columns containing at least one named way; a column
+without one simply has no street names. A pack built before this format has no
+`.ocn` files at all and still renders normally.
+
 The map stores road and path geometry, including curves and intersections; it
-does not include satellite imagery, terrain, building fills, street labels or
-a routable road graph. Major roads are brighter grey, local roads darker grey,
+does not include satellite imagery, terrain, building fills or a routable road
+graph. Nothing is drawn as text on the map itself: there are no on-map street
+labels, and no label placement or collision avoidance exists. Separately, the
+navigation **header banner** shows the single nearest named road within 40 m of
+the current position as plain text, read from the `OCN1` data described below;
+with no match, no fix or no `.ocn` file it falls back to the route name or
+`Free ride`. Major roads are brighter grey, local roads darker grey,
 paths/cycleways teal. Road visibility is not a claim of bicycle access.
 
 Data is from OpenStreetMap under ODbL. Keep the attribution and license files
@@ -172,6 +182,24 @@ Each tile is limited to 20,000 segments. Empty tiles have no entry; empty column
 still have a header. `OCB1` coverage: magic + four float64 projected bounds
 (left, top, right, bottom). Cache: 16 tiles in PSRAM; route arrays also use PSRAM
 with checked allocation. The legacy small-area `OCM1` files remain readable.
+
+`OCN1` (`/maps/14/<column>.ocn`, named roads only, additive to `OCP1`): 12-byte
+header (magic, uint32 index entry count, uint32 string-pool size), then sorted
+12-byte index entries (tile y, byte offset into the segment section, segment
+count), then the string pool, then the segments. The pool is UTF-8 road names,
+each NUL-terminated, deduplicated per column and at most 65535 bytes. Each
+segment is 10 bytes: four uint16 tile-local coordinates in 1/256 pixel units
+(same convention as `OCP1`) and a uint16 byte offset into the pool. Index
+offsets are relative to the end of the pool, not the file, and accumulate across
+rows. Each row is limited to 20,000 named segments; a column whose pool or a row
+whose segment count would exceed its cap is skipped by the builder and counted
+in `manifest.json` (`skipped_named_columns`, `skipped_named_tiles`) rather than
+failing the build. `manifest.json` checksums both `.ocp` and `.ocn` files, and
+`tools/verify_map_pack.py` validates both. Cache: 4 named tiles in PSRAM
+(`NamedTile namedTiles[4]` in `map_renderer.cpp`), separate from the 16-tile
+`.ocp` cache because the record size and contents differ; the whole index table
+is read once per cache miss and binary-searched in RAM by `ocn::findRow()`
+(`src/navigation/ocn_index.h`).
 
 Road rasterization runs on a core-0 worker, separately from UI/touch on core 1.
 Two 480×480 RGB565 PSRAM images (~900 KiB total) cache the background with extra
