@@ -628,7 +628,11 @@ void renderNavigation(const TelemetryState& state) {
         canvas.drawWideLine(sx(ax),sy(ay),sx(bx),sy(by),width,color);
       }
     };
-    line(trail,ui::success);line(points,ui::accent);
+    // ui::success (green) is reused for footway/cycleway (map_renderer.cpp's
+    // style==2 color 0x35ad) and looked indistinguishable from the ridden
+    // trail on-device -- ui::warning (amber) stands out from both the map's
+    // greys/teal and the planned-route cyan.
+    line(trail,ui::warning);line(points,ui::accent);
     if(fix) {
       int x=sx(nav::x(here)),y=sy(nav::y(here));
       if(positionHeading.available()) {
