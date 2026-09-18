@@ -613,11 +613,12 @@ void renderNavigation(const TelemetryState& state) {
     }
     auto line=[&](const PsBuffer<nav::Point>& ps,uint16_t color) {
       const bool route=&ps==&points;
-      // Scale with zoom like the road network (map_renderer.cpp's rasterize())
-      // so the route/trail overlay doesn't stand out disproportionately once
-      // the background roads get thinner when zoomed out.
-      const float lineScale=float(std::pow(2,zoom-14));
-      const float width=std::min(8.0f,std::max(1.0f,(route?2.0f:1.0f)*lineScale));
+      // Same treatment as the road network (map_renderer.cpp's rasterize()):
+      // only thin out when zoomed out, never thicken past the base width --
+      // the default zoom (15) already has scale 2.0, so scaling upward from
+      // zoom 14 made every normal view render this overlay twice as thick.
+      const float lineScale=std::min(1.0f,float(std::pow(2,zoom-14)));
+      const float width=std::max(1.0f,(route?1.5f:1.0f)*lineScale);
       for(size_t i=1;i<ps.size();i++) {
         if(!nav::valid(ps[i-1])||!nav::valid(ps[i]))continue;
         double ax=route?projected[i-1].x:nav::x(ps[i-1]),ay=route?projected[i-1].y:nav::y(ps[i-1]);
