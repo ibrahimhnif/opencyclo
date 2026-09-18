@@ -9,7 +9,7 @@ import json
 import hashlib
 
 sys.path.insert(0,str(Path(__file__).parents[1]/'tools'))
-from build_indonesia_map import export_columns
+from build_indonesia_map import export_columns, export_named_columns
 from verify_map_pack import verify
 
 spec=importlib.util.spec_from_file_location('builder',Path(__file__).parents[1]/'tools/build_offline_map.py')
@@ -30,6 +30,37 @@ class MapTests(unittest.TestCase):
             self.assertEqual(verify(pack)['segments'],1)
             column=pack/'14/8192.ocp';column.write_bytes(b'corrupt')
             with self.assertRaises(ValueError):verify(pack)
+    def test_named_columns_pack_and_lookup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            db=sqlite3.connect(':memory:')
+            db.execute('CREATE TABLE named_segments(tx INTEGER,ty INTEGER,name TEXT,data BLOB)')
+            db.execute('INSERT INTO named_segments VALUES (8192,8192,?,?)',
+                       ('Jalan Test',struct.pack('<4H',0,0,65535,65535)))
+            export_named_columns(db,root,8192,8192)
+            path=root/'maps'/'14'/'8192.ocn'
+            self.assertTrue(path.exists())
+            data=path.read_bytes()
+            magic,index_count,pool_size=struct.unpack_from('<4sII',data,0)
+            self.assertEqual(magic,b'OCN1');self.assertEqual(index_count,1)
+            y,offset,count=struct.unpack_from('<III',data,12)
+            self.assertEqual((y,offset,count),(8192,0,1))
+            pool_start=12+index_count*12
+            pool=data[pool_start:pool_start+pool_size]
+            self.assertEqual(pool[:len(b'Jalan Test')],b'Jalan Test')
+            self.assertEqual(pool[len(b'Jalan Test')],0)  # NUL terminator
+            seg_start=pool_start+pool_size
+            ax,ay,bx,by,name_offset=struct.unpack_from('<4HH',data,seg_start)
+            self.assertEqual((ax,ay,bx,by,name_offset),(0,0,65535,65535,0))
+
+    def test_named_columns_skips_unnamed_columns(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            db=sqlite3.connect(':memory:')
+            db.execute('CREATE TABLE named_segments(tx INTEGER,ty INTEGER,name TEXT,data BLOB)')
+            export_named_columns(db,root,8192,8192)
+            self.assertFalse((root/'maps'/'14'/'8192.ocn').exists())
+
     def test_clipping(self):
         self.assertEqual(builder.clip(-1,5,11,5,0,0,10,10),(0,5,10,5))
         self.assertIsNone(builder.clip(-1,-1,-2,-2,0,0,10,10))
