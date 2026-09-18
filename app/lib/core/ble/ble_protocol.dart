@@ -12,6 +12,10 @@ class BleProtocol {
   static const String deviceCommandCharUuid   = "00001903-0000-1000-8000-00805f9b34fb";
   static const String phoneGpsCharUuid        = "0000190a-0000-1000-8000-00805f9b34fb";
   static const String gpsSourceModeCharUuid   = "0000190b-0000-1000-8000-00805f9b34fb";
+  static const String phoneBaroCharUuid       = "0000190c-0000-1000-8000-00805f9b34fb";
+  static const String phoneCompassCharUuid    = "0000190d-0000-1000-8000-00805f9b34fb";
+  static const String baroSourceModeCharUuid  = "0000190e-0000-1000-8000-00805f9b34fb";
+  static const String compassSourceModeCharUuid = "0000190f-0000-1000-8000-00805f9b34fb";
 
   // OTA Characteristic UUIDs
   static const String otaControlCharUuid = "00001911-0000-1000-8000-00805f9b34fb";
@@ -31,6 +35,12 @@ class BleProtocol {
   // GPS Source Modes (0x190B payload)
   static const int gpsSourceHardware    = 0x00;
   static const int gpsSourcePhoneForced = 0x01;
+
+  // Baro/Compass Source Modes (0x190E/0x190F payload) -- same convention.
+  static const int altitudeSourceHardware    = 0x00;
+  static const int altitudeSourcePhoneForced = 0x01;
+  static const int headingSourceHardware     = 0x00;
+  static const int headingSourcePhoneForced  = 0x01;
 }
 
 /// Encodes a phone position for the 0x190A characteristic: 11 bytes,
@@ -42,5 +52,27 @@ Uint8List encodePhoneGpsSample(double lat, double lon, double accuracyM, int seq
   final accuracyCm = (accuracyM * 100).round().clamp(0, 65535);
   bytes.setUint16(8, accuracyCm, Endian.little);
   bytes.setUint8(10, seq & 0xFF);
+  return bytes.buffer.asUint8List();
+}
+
+/// Encodes a phone altitude for the 0x190C characteristic: 3 bytes,
+/// little-endian `int16 altitude_dm, uint8 seq`.
+Uint8List encodePhoneAltitudeSample(double altitudeM, int seq) {
+  final bytes = ByteData(3);
+  final altitudeDm = (altitudeM * 10).round().clamp(-32768, 32767);
+  bytes.setInt16(0, altitudeDm, Endian.little);
+  bytes.setUint8(2, seq & 0xFF);
+  return bytes.buffer.asUint8List();
+}
+
+/// Encodes a phone compass heading for the 0x190D characteristic: 4 bytes,
+/// little-endian `uint16 heading_deci_deg, uint8 accuracy, uint8 seq`.
+/// `accuracy` is 0=low, 1=medium, 2=high, matching the firmware's convention.
+Uint8List encodePhoneHeadingSample(double headingDeg, int accuracy, int seq) {
+  final bytes = ByteData(4);
+  final deciDeg = (headingDeg * 10).round() % 3600;
+  bytes.setUint16(0, deciDeg < 0 ? deciDeg + 3600 : deciDeg, Endian.little);
+  bytes.setUint8(2, accuracy & 0xFF);
+  bytes.setUint8(3, seq & 0xFF);
   return bytes.buffer.asUint8List();
 }

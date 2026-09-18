@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/ble_provider.dart';
 import '../../../state/gps_source_provider.dart';
+import '../../../state/baro_source_provider.dart';
+import '../../../state/compass_source_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/device_ui.dart';
 import '../sensor_debug_screen.dart';
@@ -52,11 +54,19 @@ class _DeviceTabState extends ConsumerState<DeviceTab>
 
     final gpsSourceState = ref.watch(gpsSourceProvider);
     final gpsSourceNotifier = ref.read(gpsSourceProvider.notifier);
+    final baroSourceState = ref.watch(baroSourceProvider);
+    final baroSourceNotifier = ref.read(baroSourceProvider.notifier);
+    final compassSourceState = ref.watch(compassSourceProvider);
+    final compassSourceNotifier = ref.read(compassSourceProvider.notifier);
 
     ref.listen<BleState>(bleProvider, (previous, next) {
       final justConnected = next.status == DeviceConnectionStatus.connected &&
           previous?.status != DeviceConnectionStatus.connected;
-      if (justConnected) gpsSourceNotifier.loadFromDevice();
+      if (justConnected) {
+        gpsSourceNotifier.loadFromDevice();
+        baroSourceNotifier.loadFromDevice();
+        compassSourceNotifier.loadFromDevice();
+      }
     });
 
     final connected = bleState.status == DeviceConnectionStatus.connected;
@@ -253,6 +263,61 @@ class _DeviceTabState extends ConsumerState<DeviceTab>
             const SizedBox(height: 6),
             Text(
               DeviceText.normalise(gpsSourceState.error!),
+              style: AppTheme.statusStyle(AppTheme.red),
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          DeviceSectionLabel(text: 'baro source'),
+          DeviceListRow(
+            label: baroSourceState.mode == AltitudeSourceMode.hardware
+                ? 'hardware'
+                : 'phone',
+            detail: baroSourceState.mode == AltitudeSourceMode.hardware
+                ? 'auto-falls back to phone if onboard altitude is unusable'
+                : 'always uses phone barometer; onboard baro/gps ignored',
+            trailing: DeviceChip(
+              text: baroSourceState.mode == AltitudeSourceMode.hardware
+                  ? 'use phone'
+                  : 'use hardware',
+              color: AppTheme.cyan,
+              onTap: connected && !baroSourceState.syncing
+                  ? () => baroSourceNotifier.setMode(
+                      baroSourceState.mode == AltitudeSourceMode.hardware
+                          ? AltitudeSourceMode.phoneForced
+                          : AltitudeSourceMode.hardware)
+                  : null,
+            ),
+            showDivider: false,
+          ),
+          const SizedBox(height: 16),
+
+          DeviceSectionLabel(text: 'compass source'),
+          DeviceListRow(
+            label: compassSourceState.mode == HeadingSourceMode.hardware
+                ? 'hardware'
+                : 'phone',
+            detail: compassSourceState.mode == HeadingSourceMode.hardware
+                ? 'no onboard compass; device keeps using gps direction of travel'
+                : 'uses phone magnetometer heading',
+            trailing: DeviceChip(
+              text: compassSourceState.mode == HeadingSourceMode.hardware
+                  ? 'use phone'
+                  : 'use hardware',
+              color: AppTheme.cyan,
+              onTap: connected && !compassSourceState.syncing
+                  ? () => compassSourceNotifier.setMode(
+                      compassSourceState.mode == HeadingSourceMode.hardware
+                          ? HeadingSourceMode.phoneForced
+                          : HeadingSourceMode.hardware)
+                  : null,
+            ),
+            showDivider: false,
+          ),
+          if (compassSourceState.error != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              DeviceText.normalise(compassSourceState.error!),
               style: AppTheme.statusStyle(AppTheme.red),
             ),
           ],

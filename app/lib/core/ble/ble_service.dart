@@ -15,8 +15,11 @@ import 'gps_registration.dart';
 import 'gps_credentials.dart';
 import 'gps_cache.dart';
 import '../../state/gps_source_provider.dart' show GpsSourceBleChannel;
+import '../../state/baro_source_provider.dart' show BaroSourceBleChannel;
+import '../../state/compass_source_provider.dart' show CompassSourceBleChannel;
 
-class BleService implements GpsSourceBleChannel {
+class BleService
+    implements GpsSourceBleChannel, BaroSourceBleChannel, CompassSourceBleChannel {
   static final BleService instance = BleService._internal();
   BleService._internal();
 
@@ -35,6 +38,10 @@ class BleService implements GpsSourceBleChannel {
   final _gpsCredentials = const GpsCredentials();
   BluetoothCharacteristic? _phoneGpsChar;
   BluetoothCharacteristic? _gpsSourceModeChar;
+  BluetoothCharacteristic? _phoneBaroChar;
+  BluetoothCharacteristic? _baroSourceModeChar;
+  BluetoothCharacteristic? _phoneCompassChar;
+  BluetoothCharacteristic? _compassSourceModeChar;
   bool _routeBusy = false;
   bool _commandBusy = false;
 
@@ -44,6 +51,14 @@ class BleService implements GpsSourceBleChannel {
   final _gpsSourceModeController = StreamController<int>.broadcast();
   @override
   Stream<int> get gpsSourceModeStream => _gpsSourceModeController.stream;
+
+  final _baroSourceModeController = StreamController<int>.broadcast();
+  @override
+  Stream<int> get baroSourceModeStream => _baroSourceModeController.stream;
+
+  final _compassSourceModeController = StreamController<int>.broadcast();
+  @override
+  Stream<int> get compassSourceModeStream => _compassSourceModeController.stream;
 
   final _connectionStateController =
       StreamController<BluetoothConnectionState>.broadcast();
@@ -79,6 +94,10 @@ class BleService implements GpsSourceBleChannel {
       _credentialKey = null;
       _phoneGpsChar = null;
       _gpsSourceModeChar = null;
+      _phoneBaroChar = null;
+      _baroSourceModeChar = null;
+      _phoneCompassChar = null;
+      _compassSourceModeChar = null;
       await device.connect(
           timeout: const Duration(seconds: 15), autoConnect: false);
 
@@ -95,6 +114,10 @@ class BleService implements GpsSourceBleChannel {
           _credentialKey = null;
           _phoneGpsChar = null;
           _gpsSourceModeChar = null;
+          _phoneBaroChar = null;
+          _baroSourceModeChar = null;
+          _phoneCompassChar = null;
+          _compassSourceModeChar = null;
         }
       });
 
@@ -137,6 +160,16 @@ class BleService implements GpsSourceBleChannel {
             } else if (uuid.contains("190b")) {
               _gpsSourceModeChar = char;
               await _subscribeGpsSourceMode(char);
+            } else if (uuid.contains("190c")) {
+              _phoneBaroChar = char;
+            } else if (uuid.contains("190d")) {
+              _phoneCompassChar = char;
+            } else if (uuid.contains("190e")) {
+              _baroSourceModeChar = char;
+              await _subscribeModeChar(char, _baroSourceModeController);
+            } else if (uuid.contains("190f")) {
+              _compassSourceModeChar = char;
+              await _subscribeModeChar(char, _compassSourceModeController);
             }
           }
         } else if (sUuid.contains("1910")) {
@@ -172,6 +205,10 @@ class BleService implements GpsSourceBleChannel {
       _otaDataChar = null;
       _phoneGpsChar = null;
       _gpsSourceModeChar = null;
+      _phoneBaroChar = null;
+      _baroSourceModeChar = null;
+      _phoneCompassChar = null;
+      _compassSourceModeChar = null;
     }
   }
 
@@ -189,6 +226,14 @@ class BleService implements GpsSourceBleChannel {
     await char.setNotifyValue(true);
     char.lastValueStream.listen((value) {
       if (value.isNotEmpty) _gpsSourceModeController.add(value[0]);
+    });
+  }
+
+  Future<void> _subscribeModeChar(
+      BluetoothCharacteristic char, StreamController<int> controller) async {
+    await char.setNotifyValue(true);
+    char.lastValueStream.listen((value) {
+      if (value.isNotEmpty) controller.add(value[0]);
     });
   }
 
@@ -497,6 +542,79 @@ class BleService implements GpsSourceBleChannel {
       await c.write([mode], withoutResponse: false);
     } catch (e) {
       debugPrint("[BLE ERROR] Failed to write GPS source mode: $e");
+    }
+  }
+
+  @override
+  Future<void> writePhoneAltitudeSample(double altitudeM, int seq) async {
+    final c = _phoneBaroChar;
+    if (c == null) return;
+    try {
+      await c.write(encodePhoneAltitudeSample(altitudeM, seq),
+          withoutResponse: true);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write phone altitude sample: $e");
+    }
+  }
+
+  @override
+  Future<int?> readBaroSourceMode() async {
+    final c = _baroSourceModeChar;
+    if (c == null) return null;
+    try {
+      final v = await c.read();
+      return v.isNotEmpty ? v[0] : null;
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to read baro source mode: $e");
+      return null;
+    }
+  }
+
+  @override
+  Future<void> writeBaroSourceMode(int mode) async {
+    final c = _baroSourceModeChar;
+    if (c == null) return;
+    try {
+      await c.write([mode], withoutResponse: false);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write baro source mode: $e");
+    }
+  }
+
+  @override
+  Future<void> writePhoneHeadingSample(
+      double headingDeg, int accuracy, int seq) async {
+    final c = _phoneCompassChar;
+    if (c == null) return;
+    try {
+      await c.write(encodePhoneHeadingSample(headingDeg, accuracy, seq),
+          withoutResponse: true);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write phone heading sample: $e");
+    }
+  }
+
+  @override
+  Future<int?> readCompassSourceMode() async {
+    final c = _compassSourceModeChar;
+    if (c == null) return null;
+    try {
+      final v = await c.read();
+      return v.isNotEmpty ? v[0] : null;
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to read compass source mode: $e");
+      return null;
+    }
+  }
+
+  @override
+  Future<void> writeCompassSourceMode(int mode) async {
+    final c = _compassSourceModeChar;
+    if (c == null) return;
+    try {
+      await c.write([mode], withoutResponse: false);
+    } catch (e) {
+      debugPrint("[BLE ERROR] Failed to write compass source mode: $e");
     }
   }
 
