@@ -204,10 +204,24 @@ bool nearestRoadName(double lat,double lon,char* name,size_t nameLen) {
     if(sd.locked && g_sd_ready && !isPowerOffRequested())loaded=&namedTile(tx,ty);
   }
   if(!loaded || !loaded->present || loaded->segments.size()==0)return false;
+  // Cheap integer reject before any soft-float transcendental work. Segment
+  // coordinates are tile-local 1/256-pixel units; at zoom 14 one such unit is
+  // 0.03728/cos(lat) m on the ground, so 40 m is 1073/cos(lat) units. 1300 at
+  // the equator (48.5 m) is deliberately loose so the box is a guaranteed
+  // superset of what the exact segmentDistance check below accepts; the
+  // 1/cos(lat) term keeps that true away from the equator too. One cos per
+  // call replaces up to 20,000 unproject/segmentDistance evaluations.
+  const double cosLat=std::cos(lat*nav::pi/180);
+  const int reach=cosLat>0.05?int(1300.0/cosLat)+1:65535;
+  const int hereLocalX=int((wx-tx*256.0)*256.0),hereLocalY=int((wy-ty*256.0)*256.0);
   double best=1e18;uint16_t bestOffset=0;bool found=false;
   for(size_t i=0;i<loaded->segments.size();i+=10) {
     uint16_t p[4];uint16_t nameOffset;
     memcpy(p,loaded->segments.data()+i,8);
+    const int minX=std::min(p[0],p[2]),maxX=std::max(p[0],p[2]);
+    const int minY=std::min(p[1],p[3]),maxY=std::max(p[1],p[3]);
+    if(hereLocalX<minX-reach || hereLocalX>maxX+reach ||
+       hereLocalY<minY-reach || hereLocalY>maxY+reach)continue;
     memcpy(&nameOffset,loaded->segments.data()+i+8,2);
     nav::Point a=nav::unproject(tx*256.0+p[0]/256.0,ty*256.0+p[1]/256.0);
     nav::Point b=nav::unproject(tx*256.0+p[2]/256.0,ty*256.0+p[3]/256.0);
