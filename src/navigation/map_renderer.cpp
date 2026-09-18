@@ -136,7 +136,12 @@ void rasterize(Raster& out,const View& v) {
       int by=int((y*256.0+p[3]/256.0-v.y)*s+size/2);
       if(std::max(ax,bx)<0 || std::min(ax,bx)>=size || std::max(ay,by)<0 || std::min(ay,by)>=size)continue;
       const uint8_t style=t.bytes[i+8];
-      const int width=style==1?3:style==0?2:1;
+      const float baseWidth=style==1?3.0f:style==0?2.0f:1.0f;
+      // Scale with zoom so roads stay readable when zoomed out (s=0.5 at
+      // zoom 13) without overwhelming the tiny map viewport when zoomed in
+      // (s=8.0 at zoom 17). Clamped to keep local roads/paths visible at
+      // the low end and major roads from swallowing the screen at the high end.
+      const float width=std::min(8.0f,std::max(1.0f,baseWidth*float(s)));
       const uint16_t color=style==2?0x35ad:(style==1?0x8410:0x4208);
       out.image.drawWideLine(ax,ay,bx,by,width,color);
     }
