@@ -74,9 +74,18 @@ TelemetryState getTelemetrySnapshot() {
 static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
   if (xSemaphoreTake(g_telemetry_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
     TelemetryState next = newState;
+    next.csc_sample_at_ms=g_telemetry.csc_sample_at_ms;
+    next.cadence_rpm=g_telemetry.cadence_rpm;
+    next.ble_connection_status[0]=g_telemetry.ble_connection_status[0];
+    next.sd_status=g_telemetry.sd_status;
     // BLE callbacks must not restore a GPS snapshot taken before fusion
     // invalidated it. GPS owns these fields; CSC still owns wheel speed.
     if (!fusion) {
+      next.display_speed_kmh=g_telemetry.display_speed_kmh;
+      next.altitude_m=g_telemetry.altitude_m;next.altitude_valid=g_telemetry.altitude_valid;
+      next.altitude_source=g_telemetry.altitude_source;next.grade_pct=g_telemetry.grade_pct;
+      next.baro_valid=g_telemetry.baro_valid;next.baro_pressure_hpa=g_telemetry.baro_pressure_hpa;
+      next.baro_temperature_c=g_telemetry.baro_temperature_c;next.baro_age_ms=g_telemetry.baro_age_ms;
       next.gps_has_fix=g_telemetry.gps_has_fix;
       next.gps_fix_quality=g_telemetry.gps_fix_quality;
       next.lat=g_telemetry.lat;next.lon=g_telemetry.lon;
@@ -84,11 +93,15 @@ static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
       next.gps_year=g_telemetry.gps_year;next.gps_month=g_telemetry.gps_month;
       next.gps_day=g_telemetry.gps_day;next.gps_hour=g_telemetry.gps_hour;
       next.gps_minute=g_telemetry.gps_minute;next.gps_second=g_telemetry.gps_second;
-      if(next.speed_source!=SPEED_SOURCE_BLE_CSC) {
-        next.speed_source=g_telemetry.speed_source;next.speed_kmh=g_telemetry.speed_kmh;
-      }
-    } else if(g_telemetry.speed_source==SPEED_SOURCE_BLE_CSC) {
       next.speed_source=g_telemetry.speed_source;next.speed_kmh=g_telemetry.speed_kmh;
+    } else if(g_telemetry.speed_source==SPEED_SOURCE_BLE_CSC || next.speed_source==SPEED_SOURCE_BLE_CSC) {
+      next.speed_source=g_telemetry.speed_source;next.speed_kmh=g_telemetry.speed_kmh;
+    }
+    if(fusion) {
+      next.cadence_rpm=g_telemetry.cadence_rpm;next.heart_rate_bpm=g_telemetry.heart_rate_bpm;
+      next.power_watts=g_telemetry.power_watts;
+      memcpy(next.ble_connection_status,g_telemetry.ble_connection_status,sizeof(next.ble_connection_status));
+      next.sd_status=g_telemetry.sd_status;
     }
     // Commands own lifecycle; only fusion owns accumulated ride statistics.
     // Reject a fusion snapshot taken before a pause/finish/new ride command.
@@ -113,6 +126,27 @@ static void mergeTelemetryState(const TelemetryState& newState, bool fusion) {
 }
 void setTelemetryState(const TelemetryState& state) { mergeTelemetryState(state,false); }
 void setFusionTelemetryState(const TelemetryState& state) { mergeTelemetryState(state,true); }
+void setSdStatus(bool ready) {
+  if(xSemaphoreTake(g_telemetry_mutex,portMAX_DELAY)!=pdTRUE)return;
+  g_telemetry.sd_status=ready;xSemaphoreGive(g_telemetry_mutex);
+}
+void setCscTelemetry(float speed,int16_t cadence,uint8_t connected) {
+  if(xSemaphoreTake(g_telemetry_mutex,portMAX_DELAY)!=pdTRUE)return;
+  g_telemetry.cadence_rpm=cadence;
+  g_telemetry.csc_sample_at_ms=millis();
+  g_telemetry.ble_connection_status[0]=connected?2:0;
+  if(speed>=0){g_telemetry.speed_kmh=speed;g_telemetry.speed_source=SPEED_SOURCE_BLE_CSC;}
+  else if(g_telemetry.speed_source==SPEED_SOURCE_BLE_CSC){g_telemetry.speed_kmh=0;g_telemetry.speed_source=SPEED_SOURCE_NONE;}
+  xSemaphoreGive(g_telemetry_mutex);
+}
+void expireCscTelemetry(uint32_t now) {
+  if(xSemaphoreTake(g_telemetry_mutex,portMAX_DELAY)!=pdTRUE)return;
+  if(now-g_telemetry.csc_sample_at_ms>5000) {
+    if(g_telemetry.speed_source==SPEED_SOURCE_BLE_CSC){g_telemetry.speed_source=SPEED_SOURCE_NONE;g_telemetry.speed_kmh=0;}
+    g_telemetry.cadence_rpm=-1;
+  }
+  xSemaphoreGive(g_telemetry_mutex);
+}
 
 bool setManualRideState(RideState state) {
   if (state != RIDE_STATE_ACTIVE && state != RIDE_STATE_PAUSED) return false;

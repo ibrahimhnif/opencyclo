@@ -19,6 +19,9 @@ int main() {
   fakeTime+=1600;
   feed(gps,"GNGGA,120002.00,0612.0000,S,10648.0000,E,1,10,0.8,20.0,M,0,M,,");
   f=gps.snapshot(fakeTime);assert(f.isValid&&!f.speedValid&&f.speedKmh==0);
+  assert(f.altitudeValid && f.altitudeM==20);
+  fakeTime+=1500;rmc(gps,"0");
+  assert(!gps.snapshot(fakeTime).altitudeValid); // fresh RMC cannot revive old GGA altitude
   rmc(gps,"");assert(!gps.snapshot(fakeTime).speedValid);
   rmc(gps,"75.0");assert(!gps.snapshot(fakeTime).speedValid); // 138.9 km/h rejected
   rmc(gps,"162.0");assert(!gps.snapshot(fakeTime).speedValid);

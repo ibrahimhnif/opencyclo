@@ -9,5 +9,6 @@
 
 void renderPage(const PageConfig& page, uint8_t pageIdx, uint8_t totalPages, const TelemetryState& state, bool forceFullRedraw);
 bool handlePageTouch(const PageConfig& page, int16_t x, int16_t y);
+bool handleSensorPageStream(const PageConfig& page,bool touched,int16_t x,int16_t y,int& pageSwipe);
 
 #endif // OPENCYCLO_UI_ENGINE_LAYOUT_MANAGER_H

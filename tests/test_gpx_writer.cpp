@@ -70,6 +70,19 @@ int main() {
   assert(std::string(rebooted.getFilename()) == "/rides/ride_42_4.gpx");
   assert(rebooted.closeRideFile());
 
+  state.altitude_valid=false;
+  assert(writer.openNewRideFile(2026,9,11,12,0,0));
+  const std::string noAltitude=writer.getFilename();
+  assert(writer.appendTrackPoint(state,2026,9,11,12,0,1));
+  const auto before=SD_MMC.files[noAltitude];
+  state.lat+=0.001;
+  assert(writer.appendTrackPoint(state,2026,9,11,12,0,1));
+  assert(writer.appendTrackPoint(state,2026,9,11,12,0,0));
+  assert(SD_MMC.files[noAltitude]==before);
+  assert(writer.appendTrackPoint(state,2026,9,11,12,0,10));
+  assert(SD_MMC.files[noAltitude].find("</trkseg>\n    <trkseg>")!=std::string::npos);
+  assert(writer.closeRideFile());
+  assert(SD_MMC.files[noAltitude].find("<ele>")==std::string::npos);
   SD_MMC.failOpen = true;
   assert(!writer.openNewRideFile(2026, 8, 21, 12, 0, 0));
   assert(!writer.isOpen());

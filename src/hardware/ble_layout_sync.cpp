@@ -3,8 +3,39 @@
 #include "core/telemetry_state.h"
 #include <Arduino.h>
 #include "navigation/navigation.h"
+#include "gps_task.h"
+#include "storage/gps_cache.h"
+
+class GpsCacheCallbacks : public NimBLECharacteristicCallbacks {
+  void onRead(NimBLECharacteristic* c) override {
+    uint8_t p[20];gpsCacheStatus(p);c->setValue(p,sizeof(p));
+  }
+  void onWrite(NimBLECharacteristic* c) override {
+    if(getTelemetrySnapshot().ride_state!=RIDE_STATE_IDLE)return;
+    const std::string p=c->getValue();gpsCacheCommand(reinterpret_cast<const uint8_t*>(p.data()),p.size());
+  }
+};
+
+class GpsAssistanceCallbacks : public NimBLECharacteristicCallbacks {
+  void onRead(NimBLECharacteristic* c) override {
+    uint8_t status[12];gpsAssistanceStatus(status);c->setValue(status,sizeof(status));
+  }
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string value=c->getValue();
+    gpsAssistanceCommand(reinterpret_cast<const uint8_t*>(value.data()),value.size());
+  }
+};
 
 static NimBLECharacteristic* pLayoutConfigChar = nullptr;
+class GpsIdentityCallbacks : public NimBLECharacteristicCallbacks {
+  void onRead(NimBLECharacteristic* c) override {
+    uint8_t data[20];const size_t n=gpsIdentityRead(data);c->setValue(data,n);
+  }
+  void onWrite(NimBLECharacteristic* c) override {
+    const std::string value=c->getValue();
+    gpsIdentityCommand(reinterpret_cast<const uint8_t*>(value.data()),value.size());
+  }
+};
 static NimBLECharacteristic* pTelemetryStreamChar = nullptr;
 static NimBLECharacteristic* pDeviceCommandChar = nullptr;
 
@@ -83,6 +114,15 @@ void initBleLayoutSyncService(NimBLEServer* pServer) {
   pDeviceCommandChar->setCallbacks(new DeviceCommandCallbacks());
 
   initNavigationService(pService);
+  auto* assistanceChar=pService->createCharacteristic(
+    "00001907-0000-1000-8000-00805F9B34FB",NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  assistanceChar->setCallbacks(new GpsAssistanceCallbacks());
+  auto* identityChar=pService->createCharacteristic(
+    "00001908-0000-1000-8000-00805F9B34FB",NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  identityChar->setCallbacks(new GpsIdentityCallbacks());
+  auto* cacheChar=pService->createCharacteristic(
+    "00001909-0000-1000-8000-00805F9B34FB",NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  cacheChar->setCallbacks(new GpsCacheCallbacks());
   pService->start();
   Serial.println("[BLE SYNC] OpenCyclo GATT Communication Service registered.");
 }
@@ -91,11 +131,11 @@ void notifyBleTelemetry(const TelemetryState& state) {
   if (pTelemetryStreamChar != nullptr && pTelemetryStreamChar->getSubscribedCount() > 0) {
     // 24-byte compact binary telemetry packet
     uint8_t packet[24];
-    uint16_t spd = (uint16_t)(state.speed_kmh * 100.0f);
+    uint16_t spd = (uint16_t)(state.display_speed_kmh * 100.0f);
     uint16_t cad = (state.cadence_rpm >= 0) ? (uint16_t)state.cadence_rpm : 0xFFFF;
     uint16_t hr  = (state.heart_rate_bpm >= 0) ? (uint16_t)state.heart_rate_bpm : 0xFFFF;
     uint16_t pwr = (state.power_watts >= 0) ? (uint16_t)state.power_watts : 0xFFFF;
-    int16_t alt  = (int16_t)state.altitude_m;
+    int16_t alt  = state.altitude_valid?(int16_t)state.altitude_m:INT16_MIN;
     int16_t grd  = (int16_t)(state.grade_pct * 10.0f);
     uint32_t dist = (uint32_t)(state.trip_distance_km * 1000.0f);
     uint32_t time = state.ride_time_s;

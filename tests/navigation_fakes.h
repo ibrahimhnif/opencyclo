@@ -26,7 +26,10 @@ extern bool failMemory, syncOwned, updating;
 inline uint32_t millis(){return fakeMillis;}
 inline void* ps_malloc(size_t n){return failMemory?nullptr:malloc(n);}
 enum {RIDE_STATE_IDLE,RIDE_STATE_ACTIVE,RIDE_STATE_PAUSED};
-struct TelemetryState {double lat=0,lon=0;bool gps_has_fix=false;int ride_state=0;uint8_t gps_fix_quality=0;};
+enum {RIDE_SAVE_NONE,RIDE_SAVE_PENDING,RIDE_SAVE_OK,RIDE_SAVE_ERROR};
+struct TelemetryState {double lat=0,lon=0;bool gps_has_fix=false;int ride_state=0;uint8_t gps_fix_quality=0;int ride_save=0;float speed_kmh=0;};
+inline TelemetryState& exportTestState(){static TelemetryState state;return state;}
+inline TelemetryState getTelemetrySnapshot(){return exportTestState();}
 extern bool fakeSdBusy;
 struct SdGuard {explicit SdGuard(uint32_t=1000):locked(!fakeSdBusy){} bool locked;};
 extern bool g_sd_ready;
@@ -60,7 +63,7 @@ struct FakeSD {
   uint64_t usedBytes(){return 1000000;}
 };
 extern FakeSD SD_MMC;
-namespace NIMBLE_PROPERTY {constexpr int READ=1,WRITE=2;}
+namespace NIMBLE_PROPERTY {constexpr int READ=1,WRITE=2,NOTIFY=4;}
 class NimBLECharacteristic;
 void tickRouteTransfer();
 struct NimBLECharacteristicCallbacks {virtual ~NimBLECharacteristicCallbacks()=default;virtual void onWrite(NimBLECharacteristic*){}};
@@ -68,6 +71,8 @@ class NimBLECharacteristic {
   std::string value;
   std::unique_ptr<NimBLECharacteristicCallbacks> callbacks;
 public:
+  std::vector<std::string> notifications;
+  void notify(){notifications.push_back(value);}
   void setCallbacks(NimBLECharacteristicCallbacks* c){callbacks.reset(c);}
   // Match NimBLE 1.4's explicitly forwarded template: a const char* is raw
   // pointer bytes, NOT a C string. Production must use buffer + length.
@@ -85,10 +90,10 @@ constexpr uint16_t TFT_WHITE=0xffff,TFT_BLACK=0,TFT_CYAN=0x7ff,TFT_GREEN=0x7e0,T
 namespace fonts {constexpr int Font0=0,FreeSansBold9pt7b=1;}
 struct FakeCanvas {
   std::vector<std::string> labels;
-  int frames=0,lines=0,circles=0;
+  int frames=0,lines=0,circles=0,triangles=0;
   void setTextColor(uint16_t,uint16_t){}
   void drawString(const String& s,int,int){labels.push_back(s);}
-  void fillScreen(uint16_t){labels.clear();circles=0;}
+  void fillScreen(uint16_t){labels.clear();circles=0;triangles=0;}
   void setTextSize(int){}
   void setFont(const int*){}
   void setTextPadding(int){}
@@ -98,7 +103,7 @@ struct FakeCanvas {
   void drawFastHLine(int,int,int,uint16_t){}
   void drawWideLine(int,int,int,int,int,uint16_t){}
   void fillRoundRect(int,int,int,int,int,uint16_t){}
-  void fillTriangle(int,int,int,int,int,int,uint16_t){}
+  void fillTriangle(int,int,int,int,int,int,uint16_t){triangles++;}
   void fillCircle(int,int,int,uint16_t){circles++;}
   void pushSprite(int,int){frames++;}
 };

@@ -3,6 +3,7 @@
 #include "ui/ride_menu.h"
 #include "ui/control_layout.h"
 #include "geo.h"
+#include "position_heading.h"
 #include "storage/sd_access.h"
 #include "hardware/display.h"
 #include "hardware/power.h"
@@ -12,6 +13,15 @@
 #include <atomic>
 #include <mutex>
 #include "ps_buffer.h"
+#include "storage/ride_export.h"
+#include "storage/export_limits.h"
+#ifndef UNIT_TEST
+#include "hardware/csc_sensors.h"
+#include "hardware/ble_task.h"
+#include <NimBLEDevice.h>
+#include <nimble/nimble/host/include/host/ble_hs.h>
+#include <nimble/nimble/host/include/host/ble_gatt.h>
+#endif
 
 namespace {
 // Navigation state is independent of SD I/O: loading a background tile must
@@ -24,13 +34,52 @@ struct NavGuard {
     locked(wait?(lock.lock(),true):lock.try_lock()){}
 };
 NimBLECharacteristic* control;
+NimBLECharacteristic* exportData=nullptr;
+std::atomic<uint16_t> exportSubscriber{0xffff};
+File exportFile;
+uint32_t exportToken=0,exportLast=0;
+uint32_t exportCursor=0;
+uint8_t exportBlock[11520]; // 64 x 180; bounded worker-owned window, not task stack
 std::mutex replyMutex;
+std::atomic<bool> disconnectPending{false};
+static unsigned exportPayloadLimit() {
+#ifndef UNIT_TEST
+  auto server=NimBLEDevice::getServer();
+  if(!server || exportSubscriber.load()==0xffff)return 0;
+  unsigned mtu=server->getPeerMTU(exportSubscriber.load());
+  return rideExportPayloadLimit(mtu);
+#else
+  return rideExportPayloadLimit(512);
+#endif
+}
+static bool sendExportPacket(const uint8_t* packet,size_t n) {
+#ifndef UNIT_TEST
+  const uint32_t start=millis();
+  int rc=0;
+  do {
+    {
+      std::lock_guard<std::mutex> lock(replyMutex);
+      const auto peer=exportSubscriber.load();
+      if(!exportData || peer==0xffff || disconnectPending.load())return false;
+      auto mbuf=ble_hs_mbuf_from_flat(packet,n);
+      rc=mbuf?ble_gatts_notify_custom(peer,exportData->getHandle(),mbuf):BLE_HS_ENOMEM;
+      // NimBLE consumes mbuf on success AND failure.
+    }
+    if(rc==0)return true;
+    if(rc!=BLE_HS_ENOMEM && rc!=BLE_HS_EBUSY && rc!=BLE_HS_EAGAIN)break;
+    vTaskDelay(pdMS_TO_TICKS(10));
+  } while(millis()-start<300);
+  Serial.printf("[EXPORT] notify failed rc=%d bytes=%u\n",rc,unsigned(n));
+  return false;
+#else
+  exportData->setValue(packet,n);exportData->notify();return true;
+#endif
+}
 // GATT callbacks must never wait for navigation/SD locks or execute FAT I/O.
 // One bounded mailbox matches the protocol's write -> read ACK flow.
 std::mutex requestMutex;
 std::string requestBytes;
 bool requestData=false, requestPending=false, requestRunning=false;
-std::atomic<bool> disconnectPending{false};
 bool workerReady=false;
 #ifndef UNIT_TEST
 TaskHandle_t routeWorker=nullptr;
@@ -46,6 +95,7 @@ uint32_t expectedSize=0, received=0, expectedCrc=0, crc=0xffffffff, lastPacket=0
 std::atomic<bool> opened{false};
 bool follow=true, choosing=false, cueList=false, located=false;
 bool hasLiveLocation=false;
+nav::PositionHeading positionHeading;
 bool touchDown=false,touchMoved=false;
 int downX=0,downY=0,previousX=0,previousY=0;
 int zoom=15, listOffset=0;
@@ -66,6 +116,7 @@ void reply(const String& s) {
   if(control)control->setValue(reinterpret_cast<const uint8_t*>(s.c_str()),s.length());
 }
 void resetTransfer() {
+  if(exportFile){SdGuard sd;if(!sd.locked)return;exportFile.close();}
   if(incoming) {SdGuard sd;if(!sd.locked)return;incoming.close();}
   expectedSize=received=0;endRouteSync();
 }
@@ -127,10 +178,117 @@ class ControlWork {
 public:
   void process(const std::string& v) {
     NavGuard nav;
+    if(v.size()==1 && uint8_t(v[0])>=0x20 && uint8_t(v[0])<=0x22) {
+#ifndef UNIT_TEST
+      if(v[0]==0x21){reply(cscDebug());return;}
+      if(v[0]==0x22){triggerBleScan();reply("OK scanning");return;}
+      auto s=getTelemetrySnapshot();char b[480];
+      snprintf(b,sizeof(b),"DEBUG v1 uptime=%lu\nspeed raw=%.2f shown=%.2f source=%u\ngps quality=%u sats=%u hdop=%.2f\nbaro valid=%u age=%lu pressure=%.2f temp=%.2f\nalt valid=%u source=%u metres=%.2f ref=1013.25hPa\ncadence=%d hr=%d power=%d sd=%u\n",
+        (unsigned long)millis(),s.speed_kmh,s.display_speed_kmh,s.speed_source,
+        s.gps_fix_quality,s.satellites,s.hdop,s.baro_valid,(unsigned long)s.baro_age_ms,s.baro_pressure_hpa,s.baro_temperature_c,
+        s.altitude_valid,s.altitude_source,s.altitude_m,s.cadence_rpm,s.heart_rate_bpm,s.power_watts,s.sd_status);
+      reply(b);return;
+#else
+      reply("DEBUG test");return;
+#endif
+    }
     SdGuard sd; if(!sd.locked) { reply("ERR busy");return; }
     if(v.empty()) return;
     if(!g_sd_ready) { reply("ERR no SD");return; }
     if(isPowerOffRequested()) { reply("ERR powering off");return; }
+    const uint8_t op=uint8_t(v[0]);
+    if(op==0x15 && v.size()==1){reply("CAPS 64");return;}
+    if(op==0x14 && v.size()==5){
+      if(exportFile && word(v,1)==exportToken){exportFile.close();endRouteSync();}
+      reply("OK closed");return;
+    }
+    if(op==0x12 && v.size()>5){
+      auto state=getTelemetrySnapshot();
+      if(exportFile || incoming || state.ride_state!=RIDE_STATE_IDLE ||
+         state.ride_save==RIDE_SAVE_PENDING || state.ride_save==RIDE_SAVE_ERROR){
+        reply("ERR finish ride and transfer first");return;
+      }
+      std::string name=v.substr(5);
+      if(!safeRideName(name)){reply("ERR filename");return;}
+      if(!beginRouteSync()){reply("ERR update or shutdown busy");return;}
+      exportFile=SD_MMC.open((std::string("/rides/")+name).c_str());
+      if(!exportFile || exportFile.isDirectory() || !exportFile.size() ||
+         exportFile.size()>32*1024*1024 || exportFile.size()!=word(v,1)){
+        if(exportFile)exportFile.close();endRouteSync();reply("ERR file size");return;
+      }
+      if(++exportToken==0)++exportToken;
+      exportLast=millis();
+      exportCursor=0;
+      char b[80];snprintf(b,sizeof(b),"FAST %lu %lu",(unsigned long)exportToken,(unsigned long)exportFile.size());
+      reply(b);return;
+    }
+    if(op==0x13 && (v.size()==11 || v.size()==12)){
+      if(!exportFile || word(v,1)!=exportToken){reply("ERR export session");return;}
+      const uint32_t offset=word(v,5);
+      const unsigned payload=uint8_t(v[9])|(unsigned(uint8_t(v[10]))<<8);
+      const unsigned credits=v.size()==12?uint8_t(v[11]):16;
+      if(credits<1 || credits>64){reply("ERR export credits");return;}
+      if(payload<1 || payload>480 || offset>=exportFile.size()){reply("ERR export offset");return;}
+      const unsigned limit=exportPayloadLimit();
+      if(!limit){reply("ERR export not subscribed");return;}
+      if(payload>limit){char b[64];snprintf(b,sizeof(b),"ERR export MTU %u",limit);reply(b);return;}
+      if(getTelemetrySnapshot().ride_state!=RIDE_STATE_IDLE){resetTransfer();reply("ERR ride active");return;}
+      const size_t wanted=std::min(size_t(payload*credits),exportFile.size()-offset);
+      if((offset!=exportCursor && !exportFile.seek(offset)) ||
+         exportFile.read(exportBlock,wanted)!=wanted){exportCursor=UINT32_MAX;reply("ERR read");return;}
+      exportCursor=offset+wanted;
+      exportLast=millis();
+      for(size_t pos=0;pos<wanted;pos+=payload){
+        if(disconnectPending.load()){reply("ERR disconnected");return;}
+        const size_t n=std::min(size_t(payload),wanted-pos);
+        uint8_t packet[488];uint32_t at=offset+pos;
+        memcpy(packet,&exportToken,4);memcpy(packet+4,&at,4);memcpy(packet+8,exportBlock+pos,n);
+        if(!sendExportPacket(packet,n+8)){reply("ERR export backpressure");return;}
+#ifndef UNIT_TEST
+        // Yield between notifications so controller credits can return.
+        vTaskDelay(pdMS_TO_TICKS(2));
+#endif
+      }
+      char b[100];snprintf(b,sizeof(b),"BLOCK %lu %lu %08lx",(unsigned long)offset,
+          (unsigned long)(offset+wanted),(unsigned long)(nav::crc32(exportBlock,wanted)^0xffffffff));
+#ifndef UNIT_TEST
+      Serial.printf("[EXPORT] sent offset=%lu bytes=%u payload=%u credits=%u\n",
+        (unsigned long)offset,unsigned(wanted),payload,credits);
+#endif
+      reply(b);return;
+    }
+    if(exportFile){reply("ERR export active");return;}
+    if(uint8_t(v[0])==0x10 || uint8_t(v[0])==0x11) {
+      auto state=getTelemetrySnapshot();
+      if(state.ride_state!=RIDE_STATE_IDLE || state.ride_save==RIDE_SAVE_PENDING || state.ride_save==RIDE_SAVE_ERROR || incoming) {reply("ERR finish ride and transfer first");return;}
+      if(!beginRouteSync()){reply("ERR update or shutdown busy");return;}
+      struct ExportOwnership {~ExportOwnership(){endRouteSync();}} exportOwnership;
+      if(v[0]==0x10 && v.size()==5) {
+        uint32_t index=word(v,1),current=0;
+        if(index>4096){reply("ERR library limit");return;}
+        File dir=SD_MMC.open("/rides");
+        for(File f=dir.openNextFile();f;f=dir.openNextFile()) {
+          std::string name=f.name();auto slash=name.find_last_of('/');if(slash!=std::string::npos)name=name.substr(slash+1);
+          if(f.isDirectory() || !safeRideName(name))continue;
+          if(current++!=index)continue;
+          char b[100];snprintf(b,sizeof(b),"FILE %lu %s",(unsigned long)f.size(),name.c_str());reply(b);return;
+        }
+        reply("END");return;
+      }
+      if(v[0]==0x11 && v.size()>5) {
+        std::string name=v.substr(5);uint32_t offset=word(v,1);
+        if(!safeRideName(name)){reply("ERR filename");return;}
+        File f=SD_MMC.open((std::string("/rides/")+name).c_str());
+        if(!f || f.isDirectory() || offset>=f.size() || f.size()>32*1024*1024) {reply("ERR file or offset");return;}
+        if(!f.seek(offset)){reply("ERR seek");return;}
+        uint8_t bytes[160];size_t n=f.read(bytes,std::min(size_t(160),f.size()-offset));
+        if(!n){reply("ERR read");return;}
+        char b[380];int used=snprintf(b,sizeof(b),"DATA %lu %08lx ",(unsigned long)offset,(unsigned long)(nav::crc32(bytes,n)^0xffffffff));
+        for(size_t i=0;i<n;i++)used+=snprintf(b+used,sizeof(b)-used,"%02x",bytes[i]);
+        reply(b);return;
+      }
+      reply("ERR export command");return;
+    }
     if(v[0]==1 && v.size()==9) {
       resetTransfer(); expectedSize=word(v,1);expectedCrc=word(v,5);crc=0xffffffff;
       if(!beginRouteSync()) { expectedSize=0;reply("ERR update or shutdown busy");return; }
@@ -194,7 +352,7 @@ void enqueue(NimBLECharacteristic* ch,bool data) {
   std::lock_guard<std::mutex> lock(requestMutex);
   if(!workerReady) {reply("ERR route worker unavailable");return;}
   if(requestPending || requestRunning || disconnectPending.load()) {reply("ERR request pending");return;}
-  if(bytes.empty() || bytes.size()>(data?484u:9u)) {reply("ERR packet size");return;}
+  if(bytes.empty() || bytes.size()>(data?484u:64u)) {reply("ERR packet size");return;}
   requestBytes=bytes;requestData=data;
   reply("BUSY");
   requestPending=true;
@@ -206,6 +364,27 @@ class Control : public NimBLECharacteristicCallbacks {
 class Data : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* ch) override {enqueue(ch,true);}
 };
+#ifndef UNIT_TEST
+class ExportSubscription : public NimBLECharacteristicCallbacks {
+  uint16_t oldInterval=24,oldLatency=0,oldTimeout=400;
+  void onSubscribe(NimBLECharacteristic*,ble_gap_conn_desc* desc,uint16_t value) override {
+    auto server=NimBLEDevice::getServer();
+    if(value & 1){
+      if(exportSubscriber.load()!=desc->conn_handle){
+        oldInterval=desc->conn_itvl;oldLatency=desc->conn_latency;oldTimeout=desc->supervision_timeout;
+      }
+      exportSubscriber.store(desc->conn_handle);
+      server->updateConnParams(desc->conn_handle,12,24,0,400);
+    }
+    else if(exportSubscriber.load()==desc->conn_handle){
+      exportSubscriber.store(0xffff);
+      server->updateConnParams(desc->conn_handle,oldInterval,oldInterval,oldLatency,oldTimeout);
+    }
+    Serial.printf("[EXPORT] subscribed=%u peer=%u payload_limit=%u\n",unsigned(value),
+      unsigned(desc->conn_handle),exportPayloadLimit());
+  }
+};
+#endif
 int sx(double x) { return int((x-cx)*std::pow(2,zoom-14)+120); }
 int sy(double y) { return int((y-cy)*std::pow(2,zoom-14)+153); }
 void label(const String& s,int x,int y,uint16_t color=TFT_WHITE) { canvas.setTextColor(color,TFT_BLACK);canvas.drawString(s,x,y); }
@@ -231,6 +410,10 @@ void initNavigationService(NimBLEService* service) {
   control->setValue(reinterpret_cast<const uint8_t*>("READY"),5);
   auto data=service->createCharacteristic("00001905-0000-1000-8000-00805f9b34fb",NIMBLE_PROPERTY::WRITE);
   data->setCallbacks(new Data());
+  exportData=service->createCharacteristic("00001906-0000-1000-8000-00805f9b34fb",NIMBLE_PROPERTY::NOTIFY);
+#ifndef UNIT_TEST
+  exportData->setCallbacks(new ExportSubscription());
+#endif
 #ifndef UNIT_TEST
   workerReady=xTaskCreate([](void*) {
     for(;;) {
@@ -245,7 +428,7 @@ void initNavigationService(NimBLEService* service) {
   workerReady=true;
 #endif
 }
-void abortRouteTransfer() { disconnectPending=true;wakeRouteWorker(); }
+void abortRouteTransfer() { exportSubscriber=0xffff;disconnectPending=true;wakeRouteWorker(); }
 void detachNavigationService() {
   // The worker can finish cleanup after BLE shutdown, but must not touch a
   // characteristic that NimBLEDevice::deinit(true) is about to delete.
@@ -253,6 +436,7 @@ void detachNavigationService() {
   workerReady=false;disconnectPending=true;
   std::lock_guard<std::mutex> replyLock(replyMutex);
   control=nullptr;
+  exportData=nullptr;
   wakeRouteWorker();
 }
 void tickRouteTransfer() {
@@ -260,7 +444,7 @@ void tickRouteTransfer() {
   if(disconnectPending.load()) {
     NavGuard nav;
     resetTransfer();
-    if(incoming)return; // SD busy: retry cleanup before accepting another request.
+    if(incoming || exportFile)return; // SD busy: retry cleanup before accepting another request.
     std::lock_guard<std::mutex> lock(requestMutex);
     requestPending=false;requestBytes.clear();disconnectPending=false;
     reply("ERR disconnected");
@@ -290,7 +474,8 @@ void tickRouteTransfer() {
     reply(disconnectPending.load()?String("ERR disconnected"):workResult);
   }
   NavGuard nav(false);
-  if(nav.locked && incoming && millis()-lastPacket>30000)resetTransfer();
+  if(nav.locked && ((incoming && millis()-lastPacket>30000) ||
+      (exportFile && millis()-exportLast>30000)))resetTransfer();
 }
 bool navigationOpen() { return opened; }
 void openNavigation() { NavGuard nav;opened=true;lastDraw=0; }
@@ -344,6 +529,9 @@ void navigationTouch(bool touched,int x,int y) {
 void updateNavigation(const TelemetryState& state) {
   NavGuard nav(false);if(!nav.locked)return;
   bool fix=state.gps_has_fix && std::isfinite(state.lat) && std::isfinite(state.lon) && std::abs(state.lat)<=85 && std::abs(state.lon)<=180;
+  nav::Point position{0,0};
+  if(fix)position={int32_t(state.lat*1e7),int32_t(state.lon*1e7)};
+  positionHeading.update(fix,position,state.speed_kmh,millis());
   static int lastRideState=RIDE_STATE_IDLE;
   if(state.ride_state==RIDE_STATE_ACTIVE && lastRideState==RIDE_STATE_IDLE)trail.clear();
   lastRideState=state.ride_state;
@@ -428,7 +616,24 @@ void renderNavigation(const TelemetryState& state) {
       }
     };
     line(trail,ui::success);line(points,ui::accent);
-    if(fix) {int x=sx(nav::x(here)),y=sy(nav::y(here));canvas.fillCircle(x,y,5,TFT_WHITE);canvas.fillCircle(x,y,2,TFT_BLUE);}
+    if(fix) {
+      int x=sx(nav::x(here)),y=sy(nav::y(here));
+      if(positionHeading.available()) {
+        const double angle=positionHeading.angleRadians();
+        auto triangle=[&](double tip,double back,double width,uint16_t color) {
+          auto a=nav::markerVertex(x,y,angle,tip,0);
+          auto b=nav::markerVertex(x,y,angle,back,-width);
+          auto c=nav::markerVertex(x,y,angle,back,width);
+          canvas.fillTriangle(a.x,a.y,b.x,b.y,c.x,c.y,color);
+        };
+        triangle(13,-8,9,TFT_BLACK);
+        triangle(11,-6,7,TFT_WHITE);
+        triangle(8,-4,4,positionHeading.moving(state.speed_kmh,millis())?ui::accent:0x8410);
+      } else {
+        // No trustworthy direction yet: don't invent a north-facing heading.
+        canvas.fillCircle(x,y,5,TFT_WHITE);canvas.fillCircle(x,y,2,TFT_BLUE);
+      }
+    }
     canvas.clearClipRect();
     if(!g_sd_ready)label("SD unavailable",4,45,ui::warning);
     else if(mapStatus==MapStatus::Loading)label("loading map...",4,45,ui::warning);

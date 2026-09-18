@@ -29,5 +29,7 @@ void renderWidget(WidgetType type, const TemplateSlot& slot, const TelemetryStat
 // config reach side-effecting handlers (forgetSensorProfile(), settings
 // mutation) behind a tile that shows nothing.
 bool handleWidgetTouch(WidgetType type, const TemplateSlot& slot, int16_t x, int16_t y);
+bool handleSensorWidgetStream(const Rect& bounds,bool touched,int16_t x,int16_t y,int& pageSwipe);
+void cancelSensorWidgetTouch();
 
 #endif // OPENCYCLO_UI_ENGINE_WIDGET_REGISTRY_H

@@ -9,6 +9,7 @@ struct BaroSample {
   bool isValid;
   float pressureHpa;
   float altitudeM;
+  float referenceHpa;
   float temperatureC;
   float humidityPct;
 };

@@ -44,6 +44,18 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"tests/test_camera_ui.cpp"),"-o",str(camera),
     ],check=True)
     subprocess.run([str(camera)],check=True)
+    sensor_ui=work/"sensor_ui"
+    subprocess.run([
+        "c++","-std=c++11","-Wall","-Wextra","-Werror",
+        f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
+        str(root/"src/ui/engine/widget_registry.cpp"),
+        str(root/"src/ui/engine/widget_catalog.cpp"),
+        str(root/"tests/test_sensor_ui.cpp"),"-o",str(sensor_ui),
+    ],check=True)
+    subprocess.run([str(sensor_ui)],check=True)
+    if len(sys.argv)>1:
+        commands=subprocess.check_output([str(sensor_ui),"preview"],text=True)
+        subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),str(Path(sys.argv[1])/"sensors")],input=commands,text=True,check=True)
     if len(sys.argv)>1:
         commands=subprocess.check_output([str(camera),"preview"],text=True)
         subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),str(Path(sys.argv[1])/"camera")],

@@ -1,3 +1,7 @@
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opencyclo_app/core/models/route_model.dart';
@@ -5,6 +9,48 @@ import 'package:opencyclo_app/ui/screens/tabs/routes_tab.dart';
 import 'package:opencyclo_app/ui/theme/app_theme.dart';
 
 void main() {
+  for (final selection in ['cancel', 'oversized', 'unreadable']) {
+    testWidgets('Android GPX picker uses any: $selection', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      FilePickerIO.registerWith();
+      final channel = MethodChannel(
+          'miguelruivo.flutter.plugins.filepicker',
+          Platform.isLinux || Platform.isWindows || Platform.isMacOS
+              ? const JSONMethodCodec()
+              : const StandardMethodCodec());
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'any');
+        expect(call.arguments['allowedExtensions'], isNull);
+        if (selection == 'cancel') return null;
+        return [
+          {
+            'name': 'test.gpx',
+            'path': '/test.gpx',
+            'size': selection == 'oversized' ? 9 * 1024 * 1024 : 1,
+            'bytes': null,
+          }
+        ];
+      });
+      await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.darkTheme, home: const Scaffold(body: RoutesTab())));
+      await tester.tap(find.text('import GPX'));
+      await tester.pumpAndSettle();
+      debugDefaultTargetPlatformOverride = null;
+      expect(tester.takeException(), isNull);
+      expect(find.text('route ready'), findsNothing);
+      if (selection == 'cancel') {
+        expect(find.text('import a GPX to preview and sync'), findsOneWidget);
+      } else {
+        expect(find.textContaining('FormatException'), findsOneWidget);
+      }
+    });
+  }
   testWidgets('route preview fits narrow screens and navigation requires sync',
       (tester) async {
     tester.view.physicalSize = const Size(390, 844);

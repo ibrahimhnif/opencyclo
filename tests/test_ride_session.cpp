@@ -10,6 +10,17 @@ void frame(){fakeMillis+=101;updateRideMenu(false,0,0);}
 void tap(int y){updateRideMenu(true,30,y);frame();}
 int main() {
   initTelemetryState();
+  auto sensor=getTelemetrySnapshot();sensor.altitude_m=85;sensor.altitude_valid=true;
+  sensor.baro_valid=true;sensor.baro_pressure_hpa=1000;sensor.display_speed_kmh=19;
+  setFusionTelemetryState(sensor);
+  auto stale=sensor;stale.altitude_m=32;stale.baro_valid=false;stale.display_speed_kmh=2;
+  setTelemetryState(stale);
+  assert(getTelemetrySnapshot().altitude_m==85 && getTelemetrySnapshot().baro_valid);
+  assert(getTelemetrySnapshot().display_speed_kmh==19);
+  setCscTelemetry(24,90,2);setFusionTelemetryState(sensor);
+  assert(getTelemetrySnapshot().cadence_rpm==90 && getTelemetrySnapshot().speed_kmh==24);
+  setCscTelemetry(-1,-1,0);assert(getTelemetrySnapshot().speed_source==SPEED_SOURCE_NONE);
+  initTelemetryState();
   auto boot=getTelemetrySnapshot();
   assert(boot.ride_state==RIDE_STATE_IDLE && !boot.ride_auto_allowed);
   // Movement, GPS fix and a faulty/stale fusion proposal cannot start a ride
@@ -92,8 +103,10 @@ int main() {
   setFusionTelemetryState(invalid);setTelemetryState(oldGps);
   assert(!getTelemetrySnapshot().gps_has_fix && getTelemetrySnapshot().speed_kmh==0);
   auto wheel=getTelemetrySnapshot();wheel.speed_source=SPEED_SOURCE_BLE_CSC;wheel.speed_kmh=24;
-  setTelemetryState(wheel);setFusionTelemetryState(invalid);
+  setCscTelemetry(wheel.speed_kmh,90,1);setFusionTelemetryState(invalid);
   assert(getTelemetrySnapshot().speed_source==SPEED_SOURCE_BLE_CSC);
   assert(getTelemetrySnapshot().speed_kmh==24);
+  setCscTelemetry(-1,-1,0);setTelemetryState(wheel);setFusionTelemetryState(wheel);
+  assert(getTelemetrySnapshot().speed_source==SPEED_SOURCE_NONE);
   puts("Ride lifecycle, stale snapshots, confirmation, retry and summary tests passed");
 }

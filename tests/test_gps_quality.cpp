@@ -1,5 +1,6 @@
 #include "hardware/gps_decoder.h"
 #include "hardware/gps_filter.h"
+#include "core/ride_speed_validity.h"
 #include <cassert>
 #include <cstdio>
 #include <limits>
@@ -10,21 +11,44 @@ static void frame(GpsDecoder& gps,uint32_t epoch,uint8_t type=3,uint8_t flags=1,
   uint8_t p[92]{},bytes[100];put(p,epoch);p[4]=0xea;p[5]=7;p[6]=9;p[7]=11;p[11]=3;
   p[20]=type;p[21]=flags;p[23]=10;
   put(p+24,1068000000);put(p+28,uint32_t(-62000000));
-  put(p+36,20000);put(p+40,3000);put(p+60,2000);put(p+68,200);p[78]=invalidLlh;
+  put(p+32,50000);put(p+36,20000);put(p+40,3000);put(p+44,4500);put(p+60,2000);put(p+68,200);p[78]=invalidLlh;
   size_t n=gnss::packet(1,7,p,length,bytes);if(corrupt)bytes[n-1]^=1;
   for(size_t i=0;i<n;i++)gps.feed(char(bytes[i]),fakeTime);
 }
 static GpsFix sample(uint32_t t,float speed=0,double metres=0) {
   GpsFix f{};f.isValid=f.speedValid=f.accuracyValid=true;
+  f.receiverFixType=3;f.receiverFlags=1;
   f.receivedAtMs=t;f.latitude=-6.2+metres/111195.0;f.longitude=106.8;
   f.horizontalAccuracyM=3;f.speedAccuracyMps=0.2;f.satellites=10;f.hdop=0.9;
   f.speedKmh=speed;return f;
 }
 int main() {
+  TelemetryState state{};GpsFix speedFix=sample(100);
+  state.speed_source=SPEED_SOURCE_NONE;
+  assert(!rideSpeedIsValid(state,speedFix,100));
+  state.speed_source=SPEED_SOURCE_GPS;
+  assert(rideSpeedIsValid(state,speedFix,100)); // measured zero is valid
+  assert(!rideSpeedIsValid(state,speedFix,1600)); // stale zero is not stopped
+  speedFix.isValid=false;assert(!rideSpeedIsValid(state,speedFix,100));
+  state.speed_source=SPEED_SOURCE_BLE_CSC;state.csc_sample_at_ms=100;
+  assert(rideSpeedIsValid(state,speedFix,200)); // wheel sensor works without GPS
+  assert(!rideSpeedIsValid(state,speedFix,5101));
   GpsDecoder decoder;decoder.reset(true);
   assert(!decoder.snapshot(fakeTime).isValid);
   frame(decoder,100);auto p=decoder.snapshot(fakeTime);
   assert(p.isValid && p.speedValid && p.accuracyValid);
+  assert(p.altitudeValid && p.altitudeM==20 && std::abs(p.verticalAccuracyM-4.5)<0.001);
+  assert(p.receiverFixType==3 && p.receiverFlags==1 && p.receiverFlags3==0);
+  // Capture complete checksum-verified satellite messages without modifying fix.
+  const char* gsv="$GPGSV,1,1,01,03,45,123,32,1";
+  uint8_t checksum=0;for(const char* c=gsv+1;*c;++c)checksum^=uint8_t(*c);
+  char gsvFrame[128];snprintf(gsvFrame,sizeof(gsvFrame),"%s*%02X\r\n",gsv,checksum);
+  for(const char* c=gsvFrame;*c;++c)decoder.feed(*c,fakeTime);
+  assert(decoder.diagnosticSequence==1 && strstr(decoder.diagnosticLine,",32,1*"));
+  assert(decoder.snapshot(fakeTime).isValid);
+  gsvFrame[strlen(gsvFrame)-4]='Z';
+  for(const char* c=gsvFrame;*c;++c)decoder.feed(*c,fakeTime);
+  assert(decoder.diagnosticSequence==1); // corrupt satellite report rejected
   assert(std::abs(p.latitude+6.2)<1e-7 && std::abs(p.longitude-106.8)<1e-7);
   assert(std::abs(p.speedKmh-7.2)<0.001 && std::abs(p.horizontalAccuracyM-3)<0.001);
   assert(p.year==2026 && p.month==9 && p.day==11 && p.hdop>90);
@@ -46,7 +70,31 @@ int main() {
   fakeTime+=200;frame(decoder,0);assert(decoder.snapshot(fakeTime).receivedAtMs==2400);
 
   GpsFilter filter;GpsFix f{};
+  // Four requires PVT 3D plus accuracy; fallback still requires five.
+  for(bool withAccuracy : {false,true}) {
+    for(unsigned satellites : {3u,4u,5u}) {
+      filter.reset();
+      for(uint32_t t=100;t<=2300;t+=200) {
+        auto raw=sample(t);raw.accuracyValid=withAccuracy;raw.satellites=satellites;
+        f=filter.apply(raw,t);
+      }
+      const bool allowed=satellites>=(withAccuracy?4u:5u);
+      assert(f.isValid==allowed);
+      if(allowed) {
+        auto raw=sample(2500);raw.accuracyValid=withAccuracy;raw.satellites=satellites;
+        raw.horizontalAccuracyM=40;raw.hdop=3.34;
+        assert(!filter.apply(raw,2500).isValid);
+      }
+    }
+  }
+  filter.reset();
   // Actual indoor observation envelope: 5-8 satellites, HDOP 2.58-3.79,
+  auto not3d=sample(100);not3d.satellites=4;not3d.receiverFixType=2;
+  assert(!filter.apply(not3d,100).isValid);
+  not3d.receiverFixType=3;not3d.receiverFlags=0;
+  assert(!filter.apply(not3d,100).isValid);
+  not3d.receiverFlags=1;not3d.receiverFlags3=1;
+  assert(!filter.apply(not3d,100).isValid);
   // false speed 2.8-6.5. Conservative NMEA fallback never calls this usable.
   for(uint32_t t=100;t<10000;t+=200) {
     auto raw=sample(t,6.5,t/1000.0);raw.accuracyValid=false;raw.hdop=3.34;raw.satellites=6;
@@ -65,11 +113,11 @@ int main() {
   // Valid but small Doppler/coordinate fluctuations remain stationary.
   for(uint32_t t=2300;t<10000;t+=200) {
     f=filter.apply(sample(t,1.2,(t%600)/400.0),t);
-    assert(f.isValid&&f.speedKmh==0&&f.latitude==held);
+    assert(f.isValid&&f.speedKmh==0&&f.latitude==sample(t,1.2,(t%600)/400.0).latitude);
   }
   // Even a 6 km/h speed indication alone cannot unlock an unmoving coordinate.
   for(uint32_t t=10100;t<14000;t+=200) {
-    f=filter.apply(sample(t,6,1),t);assert(f.speedKmh==0&&f.latitude==held);
+    f=filter.apply(sample(t,6,1),t);assert(f.speedKmh==0&&f.latitude==sample(t,6,1).latitude);
   }
   // Slow riding exits hold once displacement and sustained speed agree.
   for(uint32_t t=14100;t<=20100;t+=200)f=filter.apply(sample(t,4,(t-14100)/900.0),t);
@@ -77,21 +125,32 @@ int main() {
   // Braking settles within 1.5 s; no residual smoothed speed after stopping.
   for(uint32_t t=20300;t<=22500;t+=200)f=filter.apply(sample(t,0.4,7),t);
   assert(f.isValid&&f.speedKmh==0);
-  auto stopped=f.latitude;
   for(uint32_t t=22700;t<=24500;t+=200) {
-    f=filter.apply(sample(t,0.7,7.5),t);assert(f.speedKmh==0&&f.latitude==stopped);
+    f=filter.apply(sample(t,0.7,7.5),t);assert(f.speedKmh==0&&f.latitude==sample(t,0.7,7.5).latitude);
   }
   f=filter.apply(sample(24700,20,1000),24700);assert(!f.isValid); // teleport
   filter.reset();for(uint32_t t=100;t<=2300;t+=200)f=filter.apply(sample(t),t);
   f=filter.apply(sample(2500,90),2500);assert(!f.isValid&&f.speedKmh==0); // acceleration spike
   filter.reset();for(uint32_t t=100;t<=2300;t+=200)f=filter.apply(sample(t),t);
   raw=sample(2300);f=filter.apply(raw,4000);assert(!f.isValid&&f.quality==0);
-  assert(!filter.apply(sample(4100),4100).isValid); // reacquire, no bridge across loss
+  assert(filter.apply(sample(4100),4100).isValid); // brief loss preserves qualification
   raw=sample(4300);raw.latitude=std::numeric_limits<double>::quiet_NaN();
   assert(!filter.apply(raw,4300).isValid);
   filter.reset();uint32_t begin=UINT32_MAX-1000;
   for(uint32_t i=0;i<=2200;i+=200)f=filter.apply(sample(begin+i),begin+i);
   assert(f.isValid); // millis wrap
+  // Ride regression: one bad epoch must not create repeated anchor positions
+  // followed by an artificial 40 m / 1 s jump when movement resumes.
+  filter.reset();
+  for(uint32_t t=100;t<=10100;t+=200) {
+    raw=sample(t,20,(t-100)/180.0);
+    if(t==6100)raw.horizontalAccuracyM=40;
+    f=filter.apply(raw,t);
+    if(t==6100)assert(!f.isValid);
+    else if(t>=4300)assert(f.isValid && f.speedKmh==20 && f.latitude==raw.latitude);
+  }
+  // A real outage requires qualification again; no fabricated positions.
+  raw=sample(16100,20,89);assert(!filter.apply(raw,16100).isValid);
   filter.reset();
   for(uint32_t t=100;t<=2300;t+=200) {
     raw=sample(t);raw.accuracyValid=false;raw.satellites=8;raw.hdop=1.2;

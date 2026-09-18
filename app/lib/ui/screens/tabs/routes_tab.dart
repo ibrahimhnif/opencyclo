@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../../../core/ble/ble_service.dart';
 import '../../../core/models/route_model.dart';
+import '../../../core/ble/ride_download.dart';
+import '../../../core/ble/save_ride_file.dart';
 import '../../theme/app_theme.dart';
 
 RouteModel _parseRoute(Map<String, String> input) =>
@@ -23,6 +25,7 @@ class _RoutesTabState extends State<RoutesTab> {
   String coverage = 'map coverage not checked';
   bool busy = false, cancel = false, synced = false;
   double progress = 0;
+  List<SavedRide> savedRides = [];
   @override
   void initState() {
     super.initState();
@@ -51,6 +54,60 @@ class _RoutesTabState extends State<RoutesTab> {
           child: ListView(padding: const EdgeInsets.all(16), children: [
         Text('routes', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 12),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.download_outlined),
+          label: const Text('saved rides'),
+          onPressed: busy
+              ? null
+              : () => run(() async {
+                    final rides = await BleService.instance.savedRides();
+                    if (mounted) {
+                      setState(() {
+                        savedRides = rides;
+                        status = rides.isEmpty
+                            ? 'no saved rides on SD'
+                            : '${rides.length} saved rides';
+                      });
+                    }
+                  }),
+        ),
+        for (final ride in savedRides)
+          ListTile(
+            title: Text(ride.name),
+            subtitle: Text('${(ride.size / 1024).toStringAsFixed(1)} KB'),
+            trailing: IconButton(
+              icon: const Icon(Icons.save_alt),
+              tooltip: 'export GPX',
+              onPressed: busy
+                  ? null
+                  : () => run(() async {
+                        cancel = false;
+                        final bytes =
+                            await BleService.instance.exportRide(ride, (p) {
+                          if (mounted) {
+                            setState(() {
+                              progress = p;
+                              status = 'downloading ${(p * 100).round()}%';
+                            });
+                          }
+                        }, cancelled: () => cancel);
+                        if (!mounted) return;
+                        setState(() => status =
+                            'download complete — choose where to save');
+                        final path = await saveRideFile(ride.name, bytes);
+                        if (mounted) {
+                          setState(() => status = path == null
+                              ? 'export cancelled'
+                              : 'GPX exported');
+                        }
+                      }),
+            ),
+          ),
+        if (busy && savedRides.isNotEmpty)
+          TextButton(
+              onPressed: () => setState(() => cancel = true),
+              child: const Text('cancel download')),
+        const SizedBox(height: 12),
         const Text(
             'free ride follows your GPS position. import a GPX for route navigation.'),
         const SizedBox(height: 12),
@@ -71,8 +128,16 @@ class _RoutesTabState extends State<RoutesTab> {
                 ? null
                 : () => run(() async {
                       final files = await FilePicker.platform.pickFiles(
-                          type: FileType.custom,
-                          allowedExtensions: ['gpx'],
+                          // Android's MIME map does not consistently know GPX.
+                          // Use its document picker and validate GPX contents
+                          // below, rather than relying on extension filtering.
+                          type: defaultTargetPlatform == TargetPlatform.android
+                              ? FileType.any
+                              : FileType.custom,
+                          allowedExtensions:
+                              defaultTargetPlatform == TargetPlatform.android
+                                  ? null
+                                  : ['gpx'],
                           withData: true);
                       if (files == null) return;
                       final file = files.files.single;

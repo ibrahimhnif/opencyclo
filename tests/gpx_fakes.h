@@ -13,6 +13,7 @@ extern GpxSerial Serial;
 enum RideSaveState { RIDE_SAVE_NONE, RIDE_SAVE_PENDING, RIDE_SAVE_OK, RIDE_SAVE_ERROR, RIDE_SAVE_NO_FILE };
 struct TelemetryState {
   double lat = 0, lon = 0; float altitude_m = 0;
+  bool altitude_valid=true;
   uint16_t gps_year=0;
   uint8_t gps_month=0,gps_day=0,gps_hour=0,gps_minute=0,gps_second=0;
 };

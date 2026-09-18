@@ -22,10 +22,15 @@ enum RideState {
 enum RideSaveState { RIDE_SAVE_NONE, RIDE_SAVE_PENDING, RIDE_SAVE_OK, RIDE_SAVE_ERROR, RIDE_SAVE_NO_FILE };
 
 struct GpsFix {
+  uint8_t receiverFixType; // UBX NAV-PVT; meaningful only when accuracyValid.
+  uint8_t receiverFlags;
+  uint8_t receiverFlags3;
   bool isValid;
   bool speedValid;
   bool accuracyValid;
   float horizontalAccuracyM;
+  float verticalAccuracyM;
+  bool altitudeValid;
   float speedAccuracyMps;
   uint8_t quality; // 0=no fix, 1=weak/acquiring, 2=usable (application policy).
   uint32_t receivedAtMs;
@@ -55,6 +60,8 @@ struct GpsDebugInfo {
 struct TelemetryState {
   // Speed & Movement
   float speed_kmh;
+  float display_speed_kmh;
+  uint32_t csc_sample_at_ms;
   SpeedSource speed_source;
   float avg_speed_kmh;
   float max_speed_kmh;
@@ -70,6 +77,12 @@ struct TelemetryState {
   double lat;
   double lon;
   float altitude_m;
+  bool altitude_valid;
+  uint8_t altitude_source; // 0 unavailable, 1 barometer (standard pressure), 2 GPS
+  bool baro_valid;
+  float baro_pressure_hpa;
+  float baro_temperature_c;
+  uint32_t baro_age_ms;
   float grade_pct;
   float total_ascent_m;
 
@@ -103,6 +116,9 @@ void initTelemetryState();
 TelemetryState getTelemetrySnapshot();
 void setTelemetryState(const TelemetryState& newState);
 void setFusionTelemetryState(const TelemetryState& newState);
+void setCscTelemetry(float speed,int16_t cadence,uint8_t connected);
+void expireCscTelemetry(uint32_t now);
+void setSdStatus(bool ready);
 bool setManualRideState(RideState state);
 bool requestFinishRide();
 void completeFinishRide(RideSaveState result, const char* filename);

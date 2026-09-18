@@ -1,14 +1,30 @@
 #pragma once
 #include "ride_fakes.h"
+#include "hardware/sensor_catalog.h"
+#include "hardware/baro_calibration.h"
+inline const char* gpsCacheLabel(){return "perlu sync";}
+inline int& fakeCalibrationElevation(){static int value=10000;return value;}
+inline float getBaroReference(){return 1013.25f;}
+inline bool getBaroAutoEnabled(){return false;}
+inline bool baroAutoDone(){return false;}
+inline void setBaroAutoEnabled(bool){}
+inline BaroCalibrationStatus getBaroCalibrationStatus(){return BaroCalibrationStatus::Ready;}
+inline bool requestBaroCalibration(int elevation){fakeCalibrationElevation()=elevation;return true;}
+inline SensorSnapshot& fakeSensors(){static SensorSnapshot snapshot;return snapshot;}
+inline int& sensorConnectCalls(){static int count=0;return count;}
+inline SensorRow& lastSensorConnect(){static SensorRow row;return row;}
+inline SensorSnapshot getSensorSnapshot(){return fakeSensors();}
+inline bool requestSensorConnect(const SensorRow& row){++sensorConnectCalls();lastSensorConnect()=row;return true;}
 extern Canvas tft;
 struct Settings {
   int units=0,brightness=100,wheel_circumference_mm=2096;
   bool sd_logging_enabled=true;
   char paired_csc_mac[18]{},paired_hr_mac[18]{},paired_power_mac[18]{};
+  char paired_cadence_mac[18]{};
 };
 extern Settings g_settings;
 extern bool g_ble_scanning;
-enum BleProfileType {BLE_PROFILE_CSC,BLE_PROFILE_HR,BLE_PROFILE_POWER};
+enum BleProfileType {BLE_PROFILE_CSC,BLE_PROFILE_HR,BLE_PROFILE_POWER,BLE_PROFILE_CADENCE};
 inline void triggerBleScan(){}
 inline void forgetSensorProfile(BleProfileType){}
 inline void saveSettings(){}

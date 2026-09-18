@@ -1,8 +1,12 @@
+#include "hardware/sensor_catalog.h"
+#include "hardware/baro_calibration.h"
+#include "ui/scroll_gesture.h"
 #include "widget_registry.h"
 #include "widget_catalog.h"
 #include "ui/power_menu.h"
 #include "ui/control_layout.h"
 #include "storage/settings.h"
+#include "storage/gps_cache.h"
 #include "hardware/battery.h"
 #include "hardware/ble_task.h"
 #include "hardware/ble_camera_remote.h"
@@ -34,7 +38,7 @@ static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool f
   canvas.setFont(&fonts::FreeSansBold24pt7b);
   canvas.setTextColor(COLOR_TEXT, COLOR_BG);
   char buf[12];
-  float speed = (g_settings.units == 1) ? (state.speed_kmh * 0.621371f) : state.speed_kmh;
+  float speed = (g_settings.units == 1) ? (state.display_speed_kmh * 0.621371f) : state.display_speed_kmh;
   snprintf(buf, sizeof(buf), "%.1f", speed);
   canvas.setTextPadding(b.w - 70);
   canvas.drawString(buf, b.x + 4, b.y + 24);
@@ -135,6 +139,7 @@ static void renderWidgetAltitude(const Rect& b, const TelemetryState& state, boo
   char buf[16];
   float alt = (g_settings.units == 1) ? (state.altitude_m * 3.28084f) : state.altitude_m;
   snprintf(buf, sizeof(buf), "%.0f", alt);
+  if(!state.altitude_valid)snprintf(buf,sizeof(buf),"--");
   renderTile(b, (g_settings.units == 1) ? "alt (ft)" : "alt (m)", buf, COLOR_TEXT, force);
 }
 
@@ -242,42 +247,159 @@ static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool
 }
 
 // 14. BLE MANAGER
+static bool sensorDebug=false,sensorResults=false;
+static bool baroCalibrationOpen=false,baroCanSave=false;
+static int baroElevation=0;
+static bool baroSubmitted=false;
+static const char* calibrationMessage() {
+  if (!baroSubmitted) return "Enter known elevation (m)";
+  switch(getBaroCalibrationStatus()) {
+    case BaroCalibrationStatus::Saving:return "Saving...";
+    case BaroCalibrationStatus::Saved:return "Saved";
+    case BaroCalibrationStatus::NoData:return "No fresh barometer data";
+    case BaroCalibrationStatus::RideActive:return "Finish ride before calibrating";
+    case BaroCalibrationStatus::Failed:return "Save failed / invalid reference";
+    default:return "Enter known elevation (m)";
+  }
+}
+static ui::ScrollGesture sensorScroll;
+struct SensorListItem{SensorRow row;bool group=false;int top=0;};
+static SensorListItem sensorItems[48];
+static unsigned sensorItemCount=0;
+static int sensorContentHeight=0;
+static SensorSnapshot sensorFrame;
+static bool sensorBodyDrag=false;
+static bool alreadyPaired(const SensorRow& row){for(unsigned i=0;i<sensorFrame.pairedCount;i++)if(!strcmp(row.mac,sensorFrame.paired[i].mac))return true;return false;}
+static void buildSensorItems(){
+  if(sensorScroll.active())return; // Freeze identity/layout for the whole gesture.
+  sensorFrame=getSensorSnapshot();sensorItemCount=0;sensorContentHeight=0;
+  const auto* rows=sensorResults?sensorFrame.found:sensorFrame.paired;
+  unsigned count=sensorResults?sensorFrame.foundCount:sensorFrame.pairedCount;
+  for(int kind=0;kind<5;kind++){
+    bool group=false;
+    for(unsigned i=0;i<count;i++){
+      if(int(rows[i].kind)!=kind || (sensorResults && alreadyPaired(rows[i])))continue;
+      if(!group){auto& item=sensorItems[sensorItemCount++];item.row=rows[i];item.group=true;item.top=sensorContentHeight;sensorContentHeight+=22;group=true;}
+      auto& item=sensorItems[sensorItemCount++];item.row=rows[i];item.group=false;item.top=sensorContentHeight;sensorContentHeight+=56;
+    }
+  }
+}
+static bool touchWidgetBleManager(const Rect& b,int16_t x,int16_t y);
 static void renderWidgetBleManager(const Rect& b,const TelemetryState& state,bool force) {
   (void)force;
   canvas.fillRect(b.x,b.y,b.w,b.h,COLOR_BG);canvas.setTextPadding(0);
-  const uint16_t scanColor=g_ble_scanning?COLOR_AMBER:COLOR_CYAN;
-  canvas.fillRoundRect(b.x+6,b.y+6,b.w-12,44,8,scanColor);
-  ui::drawIcon(canvas,ui::Icon::Search,b.x+14,b.y+16,TFT_BLACK);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_BLACK,scanColor);
-  canvas.drawString(g_ble_scanning?"Scanning...":"Scan",b.x+48,b.y+19);
-  const char* labels[]={"Speed","Heart","Power"};
-  const char* macs[]={g_settings.paired_csc_mac,g_settings.paired_hr_mac,g_settings.paired_power_mac};
-  for(int i=0;i<3;i++){
-    const int y=b.y+64+i*52;
-    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_WHITE,COLOR_BG);
-    canvas.drawString(labels[i],b.x+10,y);
-    if(macs[i][0]){
-      canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
-      canvas.drawString(macs[i],b.x+10,y+27);
-      canvas.fillRoundRect(b.x+b.w-94,y,88,44,8,ui::panel);
-      canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_RED,ui::panel);
-      canvas.drawString("Forget",b.x+b.w-80,y+13);
-    }else{
-      canvas.setTextColor(COLOR_LABEL,COLOR_BG);canvas.drawString("Not paired",b.x+10,y+23);
+  if(baroCalibrationOpen) {
+    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+    canvas.drawString("Back",b.x+8,b.y+12);
+    canvas.drawString("Calibrate",b.x+112,b.y+12);
+    char line[48];snprintf(line,sizeof(line),"%d m",baroElevation);
+    canvas.setTextColor(COLOR_TEXT,COLOR_BG);canvas.drawString(line,b.x+86,b.y+58);
+    const char* labels[]={"-10","-1","+1","+10"};
+    for(int i=0;i<4;i++){
+      canvas.fillRoundRect(b.x+8+i*55,b.y+90,50,42,6,ui::panel);
+      canvas.setTextColor(COLOR_CYAN,ui::panel);canvas.drawString(labels[i],b.x+14+i*55,b.y+102);
     }
-    canvas.drawFastHLine(b.x+6,y+47,b.w-12,COLOR_HAIRLINE);
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+    snprintf(line,sizeof(line),"Reference %.2f hPa",getBaroReference());canvas.drawString(line,b.x+8,b.y+148);
+    baroCanSave=state.baro_valid && state.baro_age_ms<2000 && state.ride_state==RIDE_STATE_IDLE &&
+      getBaroCalibrationStatus()!=BaroCalibrationStatus::Saving;
+    canvas.drawString(state.ride_state!=RIDE_STATE_IDLE?"Finish ride to calibrate":
+      !state.baro_valid?"Waiting for barometer":calibrationMessage(),b.x+8,b.y+169);
+    canvas.fillRoundRect(b.x+8,b.y+184,b.w-16,40,8,ui::panel);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(baroCanSave?COLOR_CYAN:COLOR_LABEL,ui::panel);
+    canvas.drawString("Save",b.x+90,b.y+198);
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+    canvas.drawString(getBaroAutoEnabled()?(baroAutoDone()?"GPS auto: ON - calibrated":"GPS auto: ON - waiting stable fix"):
+      "GPS auto: OFF - tap to enable",b.x+8,b.y+240);return;
   }
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
-  canvas.drawString(state.gps_has_fix?"GPS ready":state.gps_fix_quality==1?"GPS weak":"GPS waiting",b.x+10,b.y+230);
+  if(sensorDebug) {
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+    canvas.drawString("Sensor debug - tap to close",b.x+8,b.y+10);
+    char line[80];const int x=b.x+8;
+    snprintf(line,sizeof(line),"Speed raw %.1f / shown %.1f",state.speed_kmh,state.display_speed_kmh);canvas.drawString(line,x,b.y+42);
+    snprintf(line,sizeof(line),"Source %u | Cadence %d",state.speed_source,state.cadence_rpm);canvas.drawString(line,x,b.y+68);
+    snprintf(line,sizeof(line),"GPS fix %u sats %u HDOP %.1f",state.gps_fix_quality,state.satellites,state.hdop);canvas.drawString(line,x,b.y+94);
+    snprintf(line,sizeof(line),"Baro %s age %lu ms",state.baro_valid?"OK":"missing/stale",(unsigned long)state.baro_age_ms);canvas.drawString(line,x,b.y+120);
+    snprintf(line,sizeof(line),"Pressure %.2f hPa / %.1f C",state.baro_pressure_hpa,state.baro_temperature_c);canvas.drawString(line,x,b.y+146);
+    snprintf(line,sizeof(line),"Altitude %.1f source %u",state.altitude_m,state.altitude_source);canvas.drawString(line,x,b.y+172);
+    canvas.drawString("Alt source: 0 none 1 baro 2 GPS",x,b.y+198);
+    snprintf(line,sizeof(line),"Baro reference: %.2f hPa",getBaroReference());canvas.drawString(line,x,b.y+222);
+    snprintf(line,sizeof(line),"GPS aid: %s",gpsCacheLabel());canvas.drawString(line,x,b.y+244);return;
+  }
+  buildSensorItems();
+  const int listTop=54,listBottom=b.h-42,listHeight=listBottom-listTop;
+  sensorScroll.clamp(std::max(0,sensorContentHeight-listHeight));
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+  canvas.drawString(sensorResults?"Back":"Paired",b.x+8,b.y+18);
+  canvas.fillRoundRect(b.x+b.w-88,b.y+6,80,40,8,ui::panel);
+  canvas.setTextColor(sensorFrame.scanning?COLOR_AMBER:COLOR_CYAN,ui::panel);
+  canvas.drawString(sensorFrame.scanning?"Scan...":"Scan",b.x+b.w-76,b.y+18);
+  canvas.setClipRect(b.x,b.y+listTop,b.w,listHeight);
+  for(unsigned i=0;i<sensorItemCount;i++){
+    const auto& item=sensorItems[i];int y=b.y+listTop+item.top-sensorScroll.offset;
+    if(y+56<b.y+listTop || y>=b.y+listBottom)continue;
+    if(item.group){canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_CYAN,COLOR_BG);canvas.drawString(sensorKindName(item.row.kind),b.x+8,y+6);continue;}
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(TFT_WHITE,COLOR_BG);
+    const char* name=item.row.name[0]?item.row.name:sensorKindName(item.row.kind);
+    char shortName[22];snprintf(shortName,sizeof(shortName),"%.20s",name);
+    canvas.drawString(shortName,b.x+8,y+3);
+    canvas.setTextColor(COLOR_LABEL,COLOR_BG);canvas.drawString(item.row.mac,b.x+8,y+18);
+    char status[32];if(sensorResults)snprintf(status,sizeof(status),"%d dBm",item.row.rssi);
+    else snprintf(status,sizeof(status),"%s",item.row.connected?"Connected":"Offline");
+    canvas.drawString(status,b.x+8,y+33);
+    canvas.fillRoundRect(b.x+b.w-76,y+4,68,36,6,ui::panel);
+    canvas.setTextColor(sensorFrame.busy?COLOR_LABEL:sensorResults?COLOR_CYAN:COLOR_RED,ui::panel);
+    canvas.drawString(sensorResults?"Connect":"Forget",b.x+b.w-65,y+17);
+    canvas.drawFastHLine(b.x+8,y+53,b.w-16,COLOR_HAIRLINE);
+  }
+  if(!sensorItemCount){canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);canvas.drawString(sensorResults?(sensorFrame.scanning?"Searching...":"No new sensors. Tap Scan."):"No paired sensors. Tap Scan.",b.x+8,b.y+90);}
+  canvas.clearClipRect();
+  if(sensorContentHeight>listHeight){int height=std::max(10,listHeight*listHeight/sensorContentHeight);int y=b.y+listTop+(listHeight-height)*sensorScroll.offset/(sensorContentHeight-listHeight);canvas.fillRect(b.x+b.w-3,y,2,height,COLOR_CYAN);}
+  canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+  char briefStatus[36];snprintf(briefStatus,sizeof(briefStatus),"%.35s",sensorFrame.full?"Scan full (24). Rescan closer.":sensorFrame.status);
+  canvas.drawString(briefStatus,b.x+8,b.y+b.h-36);
+  canvas.setTextColor(COLOR_CYAN,COLOR_BG);canvas.drawString("Debug sensors",b.x+8,b.y+b.h-16);
+  canvas.drawString("Calibrate",b.x+144,b.y+b.h-16);
 }
 static bool touchWidgetBleManager(const Rect& b,int16_t x,int16_t y) {
-  if(x>=b.x+6&&x<b.x+b.w-6&&y>=b.y+6&&y<b.y+50){triggerBleScan();return true;}
-  static const BleProfileType profiles[]={BLE_PROFILE_CSC,BLE_PROFILE_HR,BLE_PROFILE_POWER};
-  for(int i=0;i<3;i++){
-    const int row=b.y+64+i*52;
-    if(x>=b.x+b.w-94&&x<b.x+b.w-6&&y>=row&&y<row+44){forgetSensorProfile(profiles[i]);return true;}
+  if(baroCalibrationOpen){
+    if(y>=b.y+228 && y<b.y+258){setBaroAutoEnabled(!getBaroAutoEnabled());return true;}
+    if(y<b.y+42 && x<b.x+95){baroCalibrationOpen=false;return true;}
+    if(getBaroCalibrationStatus()==BaroCalibrationStatus::Saving)return true;
+    if(y>=b.y+90 && y<b.y+132 && x>=b.x+8 && x<b.x+228){
+      int index=(x-b.x-8)/55;const int steps[]={-10,-1,1,10};
+      baroElevation=std::max(-500,std::min(9000,baroElevation+steps[index]));baroSubmitted=false;
+    }
+    if(y>=b.y+184 && y<b.y+224 && x>=b.x+8 && x<b.x+b.w-8 && baroCanSave)
+      baroSubmitted=requestBaroCalibration(baroElevation);
+    return true;
+  }
+  if(sensorDebug){sensorDebug=false;return true;}
+  if(y>=b.y+b.h-24 && x>=b.x+130){baroCalibrationOpen=true;baroSubmitted=false;return true;}
+  if(y>=b.y+b.h-24){sensorDebug=true;return true;}
+  if(y>=b.y+6 && y<b.y+46){
+    if(sensorResults && x<b.x+90){sensorResults=false;sensorScroll.offset=0;return true;}
+    if(x>=b.x+b.w-88){sensorResults=true;sensorScroll.offset=0;triggerBleScan();return true;}
+  }
+  if(sensorFrame.busy || y<b.y+54 || y>=b.y+b.h-42 || x<b.x+b.w-76)return false;
+  int contentY=y-b.y-54+sensorScroll.offset;
+  for(unsigned i=0;i<sensorItemCount;i++){
+    const auto& item=sensorItems[i];if(item.group || contentY<item.top+4 || contentY>=item.top+40)continue;
+    if(sensorResults)requestSensorConnect(item.row);else forgetSensorProfile(BleProfileType(item.row.profile));return true;
   }
   return false;
+}
+void cancelSensorWidgetTouch(){sensorScroll.cancel();}
+bool handleSensorWidgetStream(const Rect& b,bool touched,int16_t x,int16_t y,int& pageSwipe) {
+  if(!sensorScroll.active()){
+    if(!touched || x<b.x || x>=b.x+b.w || y<b.y || y>=b.y+b.h)return false;
+    buildSensorItems();sensorBodyDrag=y>=b.y+54 && y<b.y+b.h-42;
+  }
+  auto result=sensorScroll.update(touched,x,y,std::max(0,sensorContentHeight-(b.h-96)),sensorBodyDrag&&!sensorDebug&&!baroCalibrationOpen);
+  if(result==ui::ScrollGesture::Tap)touchWidgetBleManager(b,sensorScroll.tapX(),sensorScroll.tapY());
+  else if(result==ui::ScrollGesture::PreviousPage)pageSwipe=-1;
+  else if(result==ui::ScrollGesture::NextPage)pageSwipe=1;
+  return true;
 }
 
 // 15. SETTINGS LIST

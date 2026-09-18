@@ -7,6 +7,10 @@
 #include <NimBLEDevice.h>
 #include <atomic>
 #include "navigation/navigation.h"
+#include "csc_sensors.h"
+#include "sensor_catalog.h"
+#include <mutex>
+#include <algorithm>
 
 static std::atomic<int> stopState{0};
 
@@ -77,7 +81,7 @@ static const NimBLEUUID HR_MEASUREMENT_UUID((uint16_t)0x2A37);
 // (byte 1) or UINT16 little-endian (bytes 1-2). Energy Expended and
 // RR-Interval fields may follow but aren't needed for a bpm display.
 static void hrNotifyCallback(NimBLERemoteCharacteristic* chr, uint8_t* pData, size_t length, bool isNotify) {
-  if (length < 2) {
+  if (length < 2 || ((pData[0]&1) && length<3)) {
     Serial.printf("[BLE HR] Notification too short (%u bytes), ignoring.\n", (unsigned)length);
     return;
   }
@@ -118,6 +122,7 @@ static HrClientCallbacks hrClientCallbacks;
 static void connectToHrSensor() {
   if (pHrClient == nullptr) {
     pHrClient = NimBLEDevice::createClient();
+    if(!pHrClient){bleStatusHR=0;Serial.println("[BLE HR] no client capacity");return;}
     pHrClient->setClientCallbacks(&hrClientCallbacks, false);
     // Default connect timeout is 30s, and connect() blocks this whole task
     // -- scan-completion polling, CSC/Power status, and the phone-app
@@ -152,11 +157,12 @@ static void connectToHrSensor() {
     return;
   }
   bool subOk = pChar->subscribe(true, hrNotifyCallback);
-  bleStatusHR = 2;
+  bleStatusHR = subOk ? 2 : 0;
+  if(!subOk)pHrClient->disconnect();
   Serial.printf("[BLE HR] subscribe() returned %s -- waiting for notifications.\n", subOk ? "true" : "false");
 }
 
-void triggerBleScan() {
+static void scanSensorsNow() {
   if (pBLEScan != nullptr && !g_ble_scanning) {
     Serial.println("[BLE] Triggering 10s active BLE scan for sensors...");
     g_ble_scanning = true;
@@ -175,12 +181,16 @@ void triggerBleScan() {
   }
 }
 
-void forgetSensorProfile(BleProfileType profile) {
+static void forgetSensorNow(BleProfileType profile) {
   if (profile == BLE_PROFILE_CSC) {
+    forgetCscSensor(0);
     g_settings.paired_csc_mac[0] = '\0';
     bleStatusCSC = 0;
     currentCadenceRpm = -1;
     currentCscSpeedKmh = -1.0f;
+  } else if(profile==BLE_PROFILE_CADENCE) {
+    forgetCscSensor(1);
+    g_settings.paired_cadence_mac[0]='\0';
   } else if (profile == BLE_PROFILE_HR) {
     g_settings.paired_hr_mac[0] = '\0';
     bleStatusHR = 0;
@@ -198,40 +208,83 @@ void forgetSensorProfile(BleProfileType profile) {
   Serial.printf("[BLE] Forgotten sensor profile %d\n", profile);
 }
 
+namespace {
+std::mutex catalogMutex;
+SensorCatalog catalog;
+int sensorAction=0;
+SensorRow selectedSensor;
+BleProfileType selectedForget=BLE_PROFILE_CSC;
+void sensorStatus(const char* text){std::lock_guard<std::mutex> lock(catalogMutex);snprintf(catalog.snapshot.status,64,"%s",text);}
+}
+SensorSnapshot getSensorSnapshot(){std::lock_guard<std::mutex> lock(catalogMutex);return catalog.snapshot;}
+void triggerBleScan(){std::lock_guard<std::mutex> lock(catalogMutex);if(!catalog.snapshot.busy && !catalog.snapshot.scanning){sensorAction=1;catalog.snapshot.busy=true;}}
+bool requestSensorConnect(const SensorRow& row){std::lock_guard<std::mutex> lock(catalogMutex);if(catalog.snapshot.busy)return false;selectedSensor=row;sensorAction=2;catalog.snapshot.busy=true;snprintf(catalog.snapshot.status,64,"Connecting...");return true;}
+void forgetSensorProfile(BleProfileType profile){std::lock_guard<std::mutex> lock(catalogMutex);if(!catalog.snapshot.busy){selectedForget=profile;sensorAction=3;catalog.snapshot.busy=true;}}
+
+static NimBLEClient* powerClient=nullptr;
+static uint32_t powerReceived=0,lastPowerAttempt=0;
+static bool powerSubscribed=false;
+static void powerNotify(NimBLERemoteCharacteristic*,uint8_t* data,size_t n,bool){
+  if(n<4)return;currentPowerWatts=int16_t(uint16_t(data[2])|(uint16_t(data[3])<<8));powerReceived=millis();
+}
+static bool connectPower(const char* mac,uint8_t type){
+  if(!powerClient){powerClient=NimBLEDevice::createClient();if(!powerClient)return false;powerClient->setConnectTimeout(3);}
+  powerSubscribed=false;
+  if(!powerClient->isConnected() && !powerClient->connect(NimBLEAddress(std::string(mac),type)))return false;
+  auto service=powerClient->getService(NimBLEUUID(uint16_t(0x1818)));
+  auto measurement=service?service->getCharacteristic(NimBLEUUID(uint16_t(0x2a63))):nullptr;
+  bool ok=measurement && measurement->canNotify() && measurement->subscribe(true,powerNotify);
+  if(!ok)powerClient->disconnect();powerSubscribed=ok;return ok;
+}
+static void refreshSensorSnapshot(){
+  SensorRow rows[4];unsigned count=0;
+  for(unsigned slot=0;slot<2;slot++){
+    const char* mac=slot?g_settings.paired_cadence_mac:g_settings.paired_csc_mac;if(!mac[0])continue;
+    auto& row=rows[count++];snprintf(row.mac,18,"%s",mac);row.profile=slot?BLE_PROFILE_CADENCE:BLE_PROFILE_CSC;
+    uint8_t capabilities;cscSensorInfo(slot,row.connected,capabilities);
+    row.kind=capabilities==1?SensorKind::Speed:capabilities==2?SensorKind::Cadence:SensorKind::Csc;
+  }
+  if(g_settings.paired_hr_mac[0]){auto& row=rows[count++];snprintf(row.mac,18,"%s",g_settings.paired_hr_mac);row.kind=SensorKind::Heart;row.profile=BLE_PROFILE_HR;row.connected=pHrClient && pHrClient->isConnected() && bleStatusHR==2;}
+  if(g_settings.paired_power_mac[0]){auto& row=rows[count++];snprintf(row.mac,18,"%s",g_settings.paired_power_mac);row.kind=SensorKind::Power;row.profile=BLE_PROFILE_POWER;row.connected=powerSubscribed && powerClient && powerClient->isConnected();}
+  std::lock_guard<std::mutex> lock(catalogMutex);catalog.snapshot.pairedCount=count;
+  for(unsigned i=0;i<count;i++)catalog.snapshot.paired[i]=rows[i];catalog.snapshot.scanning=g_ble_scanning;
+}
+static void processSensorAction(){
+  int action;SensorRow row;BleProfileType profile;
+  {std::lock_guard<std::mutex> lock(catalogMutex);action=sensorAction;sensorAction=0;row=selectedSensor;profile=selectedForget;}
+  if(!action)return;
+  if(action==1){
+    {std::lock_guard<std::mutex> lock(catalogMutex);catalog.clearFound();}
+    scanSensorsNow();sensorStatus("Spin sensors to wake");
+  } else if(action==3){
+    forgetSensorNow(profile);
+    if(profile==BLE_PROFILE_POWER && powerClient){powerSubscribed=false;powerClient->disconnect();}
+    tickCscSensors(true);sensorStatus("Removed");
+  } else {
+    if(pBLEScan && pBLEScan->isScanning())pBLEScan->stop();g_ble_scanning=false;
+    bool ok=false;
+    if(row.kind==SensorKind::Csc)ok=pairCscSensor(row.mac,row.addressType);
+    else if(row.kind==SensorKind::Heart && !g_settings.paired_hr_mac[0]){
+      hrTargetAddress=NimBLEAddress(std::string(row.mac),row.addressType);connectToHrSensor();
+      ok=pHrClient && pHrClient->isConnected() && bleStatusHR==2;
+      if(ok){snprintf(g_settings.paired_hr_mac,18,"%s",row.mac);g_settings.paired_hr_addr_type=row.addressType;saveSettings();}
+    } else if(row.kind==SensorKind::Power && !g_settings.paired_power_mac[0]){
+      ok=connectPower(row.mac,row.addressType);
+      if(ok){snprintf(g_settings.paired_power_mac,18,"%s",row.mac);g_settings.paired_power_addr_type=row.addressType;saveSettings();}
+    }
+    sensorStatus(ok?"Paired":"Failed / slot full. Retry or forget.");
+  }
+  refreshSensorSnapshot();
+  {std::lock_guard<std::mutex> lock(catalogMutex);catalog.snapshot.busy=false;}
+}
 class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
-  void onResult(NimBLEAdvertisedDevice* advertisedDevice) override {
-    if (advertisedDevice->haveServiceUUID()) {
-      if (advertisedDevice->isAdvertisingService(NimBLEUUID((uint16_t)0x1816))) {
-        Serial.printf("[BLE FOUND] CSC Sensor: %s [%s]\n",
-                      advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
-        snprintf(g_settings.paired_csc_mac, sizeof(g_settings.paired_csc_mac), "%s", advertisedDevice->getAddress().toString().c_str());
-        saveSettings();
-        bleStatusCSC = 2; // Connected/Paired
-      } else if (advertisedDevice->isAdvertisingService(HR_SERVICE_UUID)) {
-        if (bleStatusHR == 2) return; // already connected, ignore further discoveries
-        Serial.printf("[BLE FOUND] Heart Rate Sensor: %s [%s]\n",
-                      advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
-        snprintf(g_settings.paired_hr_mac, sizeof(g_settings.paired_hr_mac), "%s", advertisedDevice->getAddress().toString().c_str());
-        // Persist the address type alongside the MAC -- NimBLEClient::connect()
-        // dials using this type, and most HR straps advertise as RANDOM, not
-        // the NimBLEAddress default of PUBLIC. Without it, every reconnect
-        // built from the saved MAC alone (boot, periodic retry) silently dials
-        // the wrong address type and times out. See settings.h for detail.
-        g_settings.paired_hr_addr_type = advertisedDevice->getAddress().getType();
-        saveSettings();
-        // Hand off to bleTaskLoop() to make the actual connect()+subscribe()
-        // call -- a blocking connect() from inside this scan callback isn't
-        // safe. Stop the scan first; NimBLE can't connect while scanning.
-        NimBLEDevice::getScan()->stop();
-        hrTargetAddress = advertisedDevice->getAddress();
-        hrConnectPending = true;
-      } else if (advertisedDevice->isAdvertisingService(NimBLEUUID((uint16_t)0x1818))) {
-        Serial.printf("[BLE FOUND] Power Meter: %s [%s]\n",
-                      advertisedDevice->getName().c_str(), advertisedDevice->getAddress().toString().c_str());
-        snprintf(g_settings.paired_power_mac, sizeof(g_settings.paired_power_mac), "%s", advertisedDevice->getAddress().toString().c_str());
-        saveSettings();
-        bleStatusPOWER = 2;
-      }
+  void onResult(NimBLEAdvertisedDevice* device) override {
+    const uint16_t services[]={0x1816,0x180d,0x1818};
+    const SensorKind kinds[]={SensorKind::Csc,SensorKind::Heart,SensorKind::Power};
+    for(unsigned i=0;i<3;i++)if(device->isAdvertisingService(NimBLEUUID(services[i]))){
+      SensorRow row;row.kind=kinds[i];row.addressType=device->getAddress().getType();row.rssi=device->getRSSI();
+      snprintf(row.name,32,"%s",device->getName().c_str());snprintf(row.mac,18,"%s",device->getAddress().toString().c_str());
+      std::lock_guard<std::mutex> lock(catalogMutex);catalog.discover(row);
     }
   }
 };
@@ -324,7 +377,8 @@ void bleTaskLoop(void* pvParameters) {
       continue;
     }
 
-    if (hrConnectPending) {
+    processSensorAction();
+    if (hrConnectPending && !pBLEScan->isScanning()) {
       hrConnectPending = false;
       lastHrConnectAttemptMs = millis();
       connectToHrSensor();
@@ -340,13 +394,18 @@ void bleTaskLoop(void* pvParameters) {
     // simply wasn't ready yet at boot (or missed one connection window)
     // gets picked up on its own, matching "auto-reconnect on boot" as an
     // ongoing behavior rather than a single attempt.
-    if (bleStatusHR != 2 && g_settings.paired_hr_mac[0] != '\0' &&
+    if (!pBLEScan->isScanning() && bleStatusHR != 2 && g_settings.paired_hr_mac[0] != '\0' &&
         (millis() - lastHrConnectAttemptMs) > HR_RECONNECT_RETRY_MS) {
       lastHrConnectAttemptMs = millis();
       hrTargetAddress = NimBLEAddress(std::string(g_settings.paired_hr_mac), g_settings.paired_hr_addr_type);
       connectToHrSensor();
     }
 
+    if(!pBLEScan->isScanning() && g_settings.paired_power_mac[0] &&
+       (!powerClient || !powerClient->isConnected()) && millis()-lastPowerAttempt>12000){
+      lastPowerAttempt=millis();connectPower(g_settings.paired_power_mac,g_settings.paired_power_addr_type);
+    }
+    if(millis()-powerReceived>5000)currentPowerWatts=-1;
     tickCameraPairing();
 
     if (g_ble_scanning) {
@@ -364,29 +423,32 @@ void bleTaskLoop(void* pvParameters) {
       bleStatusHR = (g_settings.paired_hr_mac[0] != '\0') ? 1 : 0;
     }
 
+    tickCscSensors(pBLEScan->isScanning());
+    uint8_t cscConnected=0;
+    cscValues(currentCscSpeedKmh,currentCadenceRpm,cscConnected);
+    setCscTelemetry(currentCscSpeedKmh,currentCadenceRpm,cscConnected);
     TelemetryState state = getTelemetrySnapshot();
     state.heart_rate_bpm = currentHrBpm;
     state.cadence_rpm = currentCadenceRpm;
     state.power_watts = currentPowerWatts;
 
-    // CSC/Power still report "paired == connected" (a MAC is saved but,
-    // like HR used to be, nothing actually connects to them yet -- out of
-    // scope for this fix). HR now reports its real, live-tracked state
-    // instead of the same MAC-presence heuristic, since "paired" and
-    // "actually connected and streaming" are genuinely different states now.
-    state.ble_connection_status[0] = (g_settings.paired_csc_mac[0] != '\0') ? 2 : (g_ble_scanning ? 1 : 0);
+    // Subscription state, not saved-MAC presence, defines a live connection.
+    state.ble_connection_status[0] = cscConnected ? 2 : (g_ble_scanning ? 1 : 0);
     state.ble_connection_status[1] = bleStatusHR;
-    state.ble_connection_status[2] = (g_settings.paired_power_mac[0] != '\0') ? 2 : (g_ble_scanning ? 1 : 0);
+    state.ble_connection_status[2] = powerSubscribed && powerClient && powerClient->isConnected() ? 2 : 0;
 
     if (currentCscSpeedKmh >= 0.0f) {
       state.speed_kmh = currentCscSpeedKmh;
       state.speed_source = SPEED_SOURCE_BLE_CSC;
+    } else if(state.speed_source==SPEED_SOURCE_BLE_CSC) {
+      state.speed_source=SPEED_SOURCE_NONE;state.speed_kmh=0;
     }
 
     setTelemetryState(state);
 
     // Stream live telemetry to connected smartphone app
-    notifyBleTelemetry(state);
+    notifyBleTelemetry(getTelemetrySnapshot());
+    refreshSensorSnapshot();
 
     vTaskDelay(pdMS_TO_TICKS(500)); // 2Hz Telemetry stream
   }

@@ -44,7 +44,66 @@ int main(int argc,char**){
   auto control=service.chars["00001904-0000-1000-8000-00805f9b34fb"].get();
   auto data=service.chars["00001905-0000-1000-8000-00805f9b34fb"].get();
   assert(control->getValue()=="READY"); // Text bytes only, no pointer or trailing NUL.
+  fs["/rides"]=std::make_shared<FakeFile>();fs["/rides"]->directory=true;
+  fs["/rides/test.gpx"]=std::make_shared<FakeFile>();fs["/rides/test.gpx"]->bytes={'a','b','c'};
+  control->write({0x10,0,0,0,0});assert(control->getValue()=="FILE 3 test.gpx");
+  control->write({0x10,1,0,0,0});assert(control->getValue()=="END");
+  std::vector<uint8_t> download{0x11,0,0,0,0};std::string file="test.gpx";
+  download.insert(download.end(),file.begin(),file.end());
+  control->writeOnly(download);assert(control->getValue()=="BUSY");
+  tickRouteTransfer();assert(control->getValue()=="DATA 0 352441c2 616263");
+  download[1]=3;control->write(download);assert(control->getValue().find("ERR")==0);download[1]=0;
+  exportTestState().ride_state=RIDE_STATE_ACTIVE;
+  control->write(download);assert(control->getValue().find("ERR finish")==0);
+  exportTestState().ride_state=RIDE_STATE_IDLE;exportTestState().ride_save=RIDE_SAVE_PENDING;
+  control->write(download);assert(control->getValue().find("ERR finish")==0);
+  exportTestState().ride_save=RIDE_SAVE_NONE;
+  download={0x11,0,0,0,0};file="../test.gpx";download.insert(download.end(),file.begin(),file.end());
+  control->write(download);assert(control->getValue()=="ERR filename");
   previewMapFixture();
+  auto fastData=service.chars["00001906-0000-1000-8000-00805f9b34fb"].get();
+  control->write({0x15});assert(control->getValue()=="CAPS 64");
+  std::vector<uint8_t> fastOpen{0x12,3,0,0,0};file="test.gpx";
+  fastOpen.insert(fastOpen.end(),file.begin(),file.end());
+  control->write(fastOpen);assert(control->getValue()=="FAST 1 3");
+  control->write({0x13,1,0,0,0,0,0,0,0,12,0});
+  assert(control->getValue()=="BLOCK 0 3 352441c2");
+  assert(fastData->notifications.size()==1);
+  assert(fastData->notifications[0].size()==11 && fastData->notifications[0].substr(8)=="abc");
+  control->write({0x13,2,0,0,0,0,0,0,0,12,0});assert(control->getValue()=="ERR export session");
+  control->write({0x13,1,0,0,0,3,0,0,0,12,0});assert(control->getValue()=="ERR export offset");
+  control->write({0x14,1,0,0,0});assert(control->getValue()=="OK closed");
+  control->write(fastOpen);assert(control->getValue()=="FAST 2 3");
+  fakeMillis+=31001;tickRouteTransfer();
+  control->write({0x13,2,0,0,0,0,0,0,0,12,0});assert(control->getValue()=="ERR export session");
+  auto& big=fs["/rides/test.gpx"]->bytes;big.resize(8001);
+  for(size_t i=0;i<big.size();i++)big[i]=uint8_t(i);
+  fastOpen[1]=0x41;fastOpen[2]=0x1f; // 8001 bytes
+  control->write(fastOpen);assert(control->getValue()=="FAST 3 8001");
+  fastData->notifications.clear();
+  control->write({0x13,3,0,0,0,0,0,0,0,0xe0,1}); // 480-byte payload
+  assert(control->getValue()=="ERR export MTU 180");
+  assert(fastData->notifications.empty()); // Reject before allocating any packets.
+  control->write({0x13,3,0,0,0,0,0,0,0,180,0});
+  assert(fastData->notifications.size()==16);
+  for(size_t i=0;i<16;i++){
+    const auto& packet=fastData->notifications[i];assert(packet.size()==188);
+    uint32_t offset;memcpy(&offset,packet.data()+4,4);assert(offset==i*180);
+    assert(!memcmp(packet.data()+8,big.data()+offset,180));
+  }
+  fastData->notifications.clear();
+  control->write({0x13,3,0,0,0,0xf0,0x1e,0,0,180,0}); // final 81 bytes
+  assert(fastData->notifications.size()==1 && fastData->notifications[0].size()==89);
+  control->write({0x13,3,0,0,0,0,0,0,0,180,0}); // explicit rewind/retry
+  assert(control->getValue().find("BLOCK 0 2880 ")==0);
+  fastData->notifications.clear();
+  control->write({0x13,3,0,0,0,0,0,0,0,180,0,64});
+  assert(control->getValue().find("BLOCK 0 8001 ")==0);
+  assert(fastData->notifications.size()==45);
+  control->write({0x13,3,0,0,0,0,0,0,0,180,0,65});
+  assert(control->getValue()=="ERR export credits");
+  abortRouteTransfer();tickRouteTransfer();
+  control->write({0x13,3,0,0,0,0,0,0,0,12,0});assert(control->getValue()=="ERR export session");
   TelemetryState waiting;
   renderNavigation(waiting);
   assert(label("Preview / no GPS") && canvas.lines>0 && canvas.circles==0);
@@ -146,6 +205,13 @@ int main(int argc,char**){
   fakeMillis+=1100;state.gps_has_fix=false;renderNavigation(state);assert(label("GPS lost"));
   fakeMillis+=1100;state.gps_fix_quality=1;renderNavigation(state);assert(label("GPS weak / held"));
   control->write({5});fakeMillis+=1000;state.gps_has_fix=true;renderNavigation(state);assert(label("Free ride"));
+  state.speed_kmh=20;fakeMillis+=1000;renderNavigation(state);
+  state.lat+=0.0001;fakeMillis+=2000;renderNavigation(state);
+  assert(canvas.triangles==3 && canvas.circles==0);
+  state.speed_kmh=0;fakeMillis+=1000;renderNavigation(state);
+  assert(canvas.triangles==3 && canvas.circles==0); // held heading
+  state.gps_has_fix=false;fakeMillis+=1000;renderNavigation(state);
+  assert(canvas.triangles==0 && canvas.circles==0); // no phantom live marker
   control->write(begin);fakeMillis+=31000;tickRouteTransfer();assert(!syncOwned);
   updating=true;control->write(begin);assert(control->getValue().find("ERR")==0);updating=false;
   g_sd_ready=false;control->write(begin);assert(control->getValue()=="ERR no SD");g_sd_ready=true;

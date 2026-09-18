@@ -75,10 +75,11 @@ LGFX::LGFX() {
   setPanel(&_panel_instance);
 }
 
-#include <Wire.h>
+#include <atomic>
+static std::atomic<bool> displayReady{false};
+bool isDisplayReady() { return displayReady.load(); }
 
 void initDisplay() {
-  Wire.begin(PIN_TOUCH_SDA, PIN_TOUCH_SCL, 400000);
   tft.init();
   tft.setRotation(2); // Flipped 180 degrees so USB connector is at the bottom
   tft.setBrightness(200);
@@ -93,6 +94,7 @@ void initDisplay() {
     Serial.println("[DISPLAY] FATAL: canvas.createSprite() failed -- out of PSRAM?");
   }
   canvas.fillScreen(TFT_BLACK);
+  displayReady.store(true);
 }
 
 void setDisplayBrightness(uint8_t duty) {

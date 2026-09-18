@@ -49,6 +49,7 @@ bool GpxWriter::openNewRideFile(uint16_t year, uint8_t month, uint8_t day, uint8
 
   _isOpen = true;
   _bufferCount = 0;
+  _lastTimestamp=0;
   _closing=false;_pendingOffset=0;
 
   // Write GPX XML Header
@@ -67,17 +68,37 @@ bool GpxWriter::openNewRideFile(uint16_t year, uint8_t month, uint8_t day, uint8
 bool GpxWriter::appendTrackPoint(const TelemetryState& state, uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second) {
   if (!_isOpen || !_file || _closing || !flushPending()) return false;
 
+  // UTC seconds, independent of local timezone. Reject duplicate/backward
+  // epochs even when the logger tick and GNSS second boundaries drift.
+  uint64_t stamp=0;
+  if(year>=2020 && year<=2199 && month>=1 && month<=12 && day>=1 && day<=31 && hour<24 && minute<60 && second<60) {
+    auto leap=[](unsigned y){return y%4==0 && (y%100!=0 || y%400==0);};
+    const unsigned lengths[]={31,28,31,30,31,30,31,31,30,31,30,31};
+    if(day>lengths[month-1]+(month==2 && leap(year)))return false;
+    uint64_t days=0;
+    for(unsigned y=2020;y<year;++y)days+=leap(y)?366:365;
+    for(unsigned m=1;m<month;++m)days+=lengths[m-1]+(m==2 && leap(year));
+    stamp=((days+day-1)*24+hour)*3600+minute*60+second+1;
+    if(_lastTimestamp && stamp<=_lastTimestamp)return true;
+  } else if(_lastTimestamp)return false;
+  const bool gap=_lastTimestamp && stamp>_lastTimestamp+5;
+
   char timeTag[96]={0};
+  char elevationTag[48]={0};
+  if(state.altitude_valid)snprintf(elevationTag,sizeof(elevationTag),"        <ele>%.1f</ele>\n",state.altitude_m);
   if(year>=2020 && month>=1 && month<=12 && day>=1 && day<=31)
     snprintf(timeTag,sizeof(timeTag),"        <time>%04u-%02u-%02uT%02u:%02u:%02uZ</time>\n",
       year,month,day,hour,minute,second);
   snprintf(_pending, sizeof(_pending),
-           "      <trkpt lat=\"%.6f\" lon=\"%.6f\">\n"
-           "        <ele>%.1f</ele>\n"
+           "%s      <trkpt lat=\"%.6f\" lon=\"%.6f\">\n"
+           "%s"
            "%s"
            "      </trkpt>\n",
-           state.lat, state.lon, state.altitude_m,
+           gap?"    </trkseg>\n    <trkseg>\n":"",state.lat, state.lon, elevationTag,
            timeTag);
+
+  // Pending bytes belong to this epoch, including a short-write retry.
+  _lastTimestamp=stamp;
 
   if(!flushPending())return false;
   _bufferCount++;

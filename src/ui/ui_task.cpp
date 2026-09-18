@@ -52,6 +52,7 @@ void uiTaskLoop(void* pvParameters) {
     }
 
     if (updatePowerUi(isTouched, x, y, now)) {
+      cancelSensorWidgetTouch();
       cancelNavigationTouch();
       cancelRideMenuTouch();
       wasTouched = false;
@@ -62,10 +63,22 @@ void uiTaskLoop(void* pvParameters) {
     }
 
     if (updateRideMenu(isTouched,x,y)) {
+      cancelSensorWidgetTouch();
       cancelNavigationTouch();wasTouched=false;touchStartX=touchStartY=-1;
       forceRedraw=true;vTaskDelay(pdMS_TO_TICKS(10));continue;
     }
-    if (navigationOpen()) {
+    int sensorSwipe=0;
+    bool sensorTouch=!navigationOpen() && g_ui_config.active_page_count>0 &&
+      handleSensorPageStream(g_ui_config.pages[currentPageIdx],isTouched,x,y,sensorSwipe);
+    if(sensorTouch) {
+      wasTouched=false;touchStartX=touchStartY=-1;
+      if(sensorSwipe){
+        int total=g_ui_config.active_page_count;
+        currentPageIdx=(currentPageIdx+sensorSwipe+total)%total;
+        cancelSensorWidgetTouch();forceRedraw=true;
+      }
+    } else if (navigationOpen()) {
+      cancelSensorWidgetTouch();
       navigationTouch(isTouched,x,y);
       wasTouched=false;
       touchStartX=touchStartY=-1;

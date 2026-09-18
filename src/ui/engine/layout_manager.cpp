@@ -80,3 +80,10 @@ bool handlePageTouch(const PageConfig& page,int16_t x,int16_t y) {
   }
   return false;
 }
+bool handleSensorPageStream(const PageConfig& page,bool touched,int16_t x,int16_t y,int& pageSwipe) {
+  const auto& slots=getTemplateDefinition(page.template_id);
+  const uint8_t count=page.widget_count<slots.max_slots?page.widget_count:slots.max_slots;
+  for(uint8_t i=0;i<count;i++)if(page.widgets[i]==WIDGET_BLE_MANAGER && slots.slots[i].size_class==SIZE_FULL)
+    return handleSensorWidgetStream(slots.slots[i].rect,touched,x,y,pageSwipe);
+  cancelSensorWidgetTouch();return false;
+}

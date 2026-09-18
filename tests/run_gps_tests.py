@@ -25,3 +25,9 @@ with tempfile.TemporaryDirectory(prefix='opencyclo-gps-tests-') as temp:
                     str(library / 'TinyGPS++.cpp'), str(root / 'tests/test_gps_quality.cpp'),
                     '-o', str(quality)], check=True)
     subprocess.run([str(quality)], check=True)
+    assistance = work / 'gps_assistance'
+    subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                    '-fsanitize=undefined', f'-I{root}/src',
+                    str(root / 'tests/test_gps_assistance.cpp'),
+                    '-o', str(assistance)], check=True)
+    subprocess.run([str(assistance)], check=True)

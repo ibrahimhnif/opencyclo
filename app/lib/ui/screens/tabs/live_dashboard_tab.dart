@@ -35,9 +35,8 @@ class LiveDashboardTab extends ConsumerWidget {
         stateText: linked
             ? '${AppTheme.rideStateText(data.rideState)} ${data.batteryPct}%'
             : 'no link',
-        stateColor: linked
-            ? AppTheme.rideStateColor(data.rideState)
-            : AppTheme.label,
+        stateColor:
+            linked ? AppTheme.rideStateColor(data.rideState) : AppTheme.label,
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(
@@ -121,7 +120,9 @@ class LiveDashboardTab extends ConsumerWidget {
               Expanded(
                 child: DeviceTile(
                   label: 'alt (m)',
-                  value: data.altitudeM.toStringAsFixed(0),
+                  value: data.altitudeValid
+                      ? data.altitudeM.toStringAsFixed(0)
+                      : '--',
                 ),
               ),
               const SizedBox(width: AppTheme.gutter),

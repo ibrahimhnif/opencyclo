@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/ble_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/device_ui.dart';
+import '../sensor_debug_screen.dart';
+import '../gps_assistance_screen.dart';
 
 /// Mirrors `renderWidgetBleManager` on the device.
 ///
@@ -10,11 +12,40 @@ import '../../widgets/device_ui.dart';
 /// while scanning, then a list of sensor rows carrying a mac address and a
 /// destructive chip, then a muted status footer. The device says "scanning..."
 /// and "not paired"; so does this.
-class DeviceTab extends ConsumerWidget {
+class DeviceTab extends ConsumerStatefulWidget {
   const DeviceTab({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DeviceTab> createState() => _DeviceTabState();
+}
+
+class _DeviceTabState extends ConsumerState<DeviceTab>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(bleProvider.notifier).checkAccess(request: true);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh after Settings without reopening permission/enable dialogs.
+      ref.read(bleProvider.notifier).checkAccess();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final bleState = ref.watch(bleProvider);
     final bleNotifier = ref.read(bleProvider.notifier);
 
@@ -48,6 +79,41 @@ class DeviceTab extends ConsumerWidget {
           24,
         ),
         children: [
+          if (bleState.access != BleAccess.ready) ...[
+            Text(
+                switch (bleState.access) {
+                  BleAccess.denied =>
+                    'allow bluetooth to find your opencyclo. older android versions require location permission.',
+                  BleAccess.blocked =>
+                    'bluetooth permission blocked. allow it in app settings.',
+                  BleAccess.off => 'bluetooth is off. turn it on to connect.',
+                  BleAccess.locationOff =>
+                    'turn on location services for bluetooth scanning on this android version.',
+                  BleAccess.unsupported =>
+                    'bluetooth le is not available on this device.',
+                  _ => 'checking bluetooth access...',
+                },
+                style: AppTheme.labelStyle),
+            const SizedBox(height: 8),
+            DeviceButton(
+              color: AppTheme.cyan,
+              text: bleState.checkingAccess
+                  ? 'checking...'
+                  : switch (bleState.access) {
+                      BleAccess.blocked || BleAccess.locationOff => 'settings',
+                      BleAccess.off => 'enable bluetooth',
+                      BleAccess.denied => 'allow bluetooth',
+                      _ => 'retry',
+                    },
+              icon: Icons.bluetooth,
+              busy: bleState.checkingAccess,
+              onPressed: bleState.checkingAccess ||
+                      bleState.access == BleAccess.unsupported
+                  ? null
+                  : () => bleNotifier.resolveAccess(),
+            ),
+            const SizedBox(height: 12),
+          ],
           // The device draws its scan button first, cyan when idle and amber
           // while a scan is running. Same colour logic here.
           DeviceButton(
@@ -55,9 +121,12 @@ class DeviceTab extends ConsumerWidget {
             color: bleState.isScanning ? AppTheme.amber : AppTheme.cyan,
             icon: Icons.search,
             busy: bleState.isScanning,
-            onPressed: bleState.isScanning
-                ? () => bleNotifier.stopScan()
-                : () => bleNotifier.startScan(),
+            onPressed:
+                bleState.checkingAccess || bleState.access != BleAccess.ready
+                    ? null
+                    : bleState.isScanning
+                        ? () => bleNotifier.stopScan()
+                        : () => bleNotifier.startScan(),
           ),
           const SizedBox(height: 8),
 
@@ -116,11 +185,33 @@ class DeviceTab extends ConsumerWidget {
                   // anything else that happened to answer the scan.
                   text: 'connect',
                   color: isOpenCyclo ? AppTheme.green : AppTheme.cyan,
-                  onTap: () => bleNotifier.connect(result.device),
+                  onTap: bleState.checkingAccess ||
+                          connecting ||
+                          bleState.access != BleAccess.ready
+                      ? null
+                      : () => bleNotifier.connect(result.device),
                 ),
               );
             }),
 
+          const SizedBox(height: 16),
+          DeviceButton(
+              text: 'sensor debug',
+              icon: Icons.bug_report_outlined,
+              color: AppTheme.cyan,
+              onPressed: connected
+                  ? () => Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => const SensorDebugScreen()))
+                  : null),
+          const SizedBox(height: 8),
+          DeviceButton(
+              text: 'assisted GPS',
+              icon: Icons.satellite_alt,
+              color: AppTheme.cyan,
+              onPressed: connected
+                  ? () => Navigator.of(context).push(MaterialPageRoute<void>(
+                      builder: (_) => const GpsAssistanceScreen()))
+                  : null),
           const SizedBox(height: 16),
 
           // The device closes its BLE page with a muted one-line status. So
@@ -128,7 +219,9 @@ class DeviceTab extends ConsumerWidget {
           Text(
             connected
                 ? 'link: gatt connected, telemetry streaming'
-                : 'link: searching...',
+                : bleState.isScanning
+                    ? 'link: searching...'
+                    : 'link: not connected',
             style: AppTheme.labelStyle,
           ),
           if (bleState.errorMessage.isNotEmpty) ...[

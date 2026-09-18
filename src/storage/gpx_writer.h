@@ -14,6 +14,7 @@ class GpxWriter {
   char _pending[768];
   size_t _pendingOffset;
   bool _closing;
+  uint64_t _lastTimestamp=0;
   bool flushPending();
 
 public:

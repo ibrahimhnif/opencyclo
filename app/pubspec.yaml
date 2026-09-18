@@ -13,6 +13,7 @@ dependencies:
   flutter_riverpod: ^2.6.1
   file_picker: ^8.1.7
   crypto: ^3.0.6
+  flutter_secure_storage: ^10.3.3
   intl: ^0.20.2
   cupertino_icons: ^1.0.8
   xml: ^6.5.0
@@ -21,6 +22,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -38,3 +40,28 @@ flutter:
           weight: 400
         - asset: assets/fonts/Arimo-Bold.ttf
           weight: 700
+  assets:
+    - assets/icon/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  web:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+    background_color: "#000000"
+    theme_color: "#000000"
+  macos:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  windows:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+  linux:
+    generate: true
+    image_path: "assets/icon/app_icon.png"
+

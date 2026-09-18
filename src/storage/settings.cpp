@@ -12,8 +12,12 @@ void initSettings() {
   g_settings.sd_logging_enabled = prefs.getBool("sdlog", true);
   
   String csc = prefs.getString("csc_mac", "");
+  snprintf(g_settings.paired_cadence_mac,18,"%s",prefs.getString("cad_mac", "").c_str());
+  g_settings.paired_csc_addr_type=prefs.getUChar("csc_type",0);
+  g_settings.paired_cadence_addr_type=prefs.getUChar("cad_type",0);
   String hr = prefs.getString("hr_mac", "");
   String pow = prefs.getString("pow_mac", "");
+  g_settings.paired_power_addr_type=prefs.getUChar("pow_type",0);
   g_settings.paired_hr_addr_type = prefs.getUChar("hr_addr_t", 0); // 0 = BLE_ADDR_PUBLIC
 
   memset(g_settings.insta360_wake_bytes, 0, sizeof(g_settings.insta360_wake_bytes));
@@ -37,8 +41,12 @@ void saveSettings() {
   prefs.putUShort("wheel", g_settings.wheel_circumference_mm);
   prefs.putBool("sdlog", g_settings.sd_logging_enabled);
   prefs.putString("csc_mac", g_settings.paired_csc_mac);
+  prefs.putString("cad_mac", g_settings.paired_cadence_mac);
+  prefs.putUChar("csc_type", g_settings.paired_csc_addr_type);
+  prefs.putUChar("cad_type", g_settings.paired_cadence_addr_type);
   prefs.putString("hr_mac", g_settings.paired_hr_mac);
   prefs.putString("pow_mac", g_settings.paired_power_mac);
+  prefs.putUChar("pow_type",g_settings.paired_power_addr_type);
   prefs.putUChar("hr_addr_t", g_settings.paired_hr_addr_type);
   prefs.putBytes("insta_wake", g_settings.insta360_wake_bytes, sizeof(g_settings.insta360_wake_bytes));
   prefs.end();

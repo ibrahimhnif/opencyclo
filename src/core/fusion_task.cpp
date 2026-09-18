@@ -3,6 +3,10 @@
 #include "hardware/baro_task.h"
 #include "hardware/battery.h"
 #include <math.h>
+#include "display_speed.h"
+#include "ride_speed_validity.h"
+#include "altitude_policy.h"
+#include "hardware/baro_calibration.h"
 
 static double haversineDistanceKm(double lat1, double lon1, double lat2, double lon2) {
   if (lat1 == 0.0 || lon1 == 0.0 || lat2 == 0.0 || lon2 == 0.0) return 0.0;
@@ -30,7 +34,13 @@ void startFusionTask() {
 
 void fusionTaskLoop(void* pvParameters) {
   GpsFix fix{};
-  BaroSample baro;
+  BaroSample baro{};
+  DisplaySpeed displaySpeed;
+  AltitudeCalibrationWindow calibrationWindow;
+  GpsAltitudeFilter gpsAltitude;
+  float lastReference=getBaroReference();
+  uint32_t lastBaro=0;
+  bool haveBaro=false,haveAltitude=false;
 
   uint32_t speedAbove4StartMs = 0;
   uint32_t speedBelow1_5StartMs = 0;
@@ -45,6 +55,7 @@ void fusionTaskLoop(void* pvParameters) {
 
   for (;;) {
     uint32_t now = millis();
+    expireCscTelemetry(now);
 
     // Re-fetch a fresh snapshot every iteration rather than reusing one
     // persistent local copy across the whole task lifetime. FusionTask
@@ -61,7 +72,7 @@ void fusionTaskLoop(void* pvParameters) {
     // FusionTask remains their only writer.
     TelemetryState state = getTelemetrySnapshot();
     if (rideRevision != state.ride_revision || state.ride_state != RIDE_STATE_ACTIVE) {
-      prevLat = prevLon = 0;distForGradeKm = 0;prevAlt = smoothAlt;
+      prevLat = prevLon = 0;distForGradeKm = 0;prevAlt = state.altitude_m;
       if (rideRevision != state.ride_revision) {
         speedAbove4StartMs = speedBelow1_5StartMs = 0;lastSecondTickMs = now;
       }
@@ -88,15 +99,40 @@ void fusionTaskLoop(void* pvParameters) {
       gotBaroSample = true;
     }
 
+    // Reset the smoothing baseline immediately after an idle calibration, so
+    // its settling tail cannot become artificial ascent at the next start.
+    const bool referenceChanged=gotBaroSample && baro.isValid && baro.referenceHpa!=lastReference;
+    if(referenceChanged){haveAltitude=false;distForGradeKm=0;lastReference=baro.referenceHpa;}
     // Smooth Altitude with EMA filter
     if (gotBaroSample && baro.isValid) {
-      if (smoothAlt == 0.0f) {
+      lastBaro=now;haveBaro=true;
+      state.baro_pressure_hpa=baro.pressureHpa;
+      state.baro_temperature_c=baro.temperatureC;
+      if (!haveAltitude || !state.baro_valid) {
         smoothAlt = baro.altitudeM;
       } else {
         smoothAlt = 0.85f * smoothAlt + 0.15f * baro.altitudeM;
       }
       state.altitude_m = smoothAlt;
+      haveAltitude=true;
     }
+    state.baro_age_ms=haveBaro?now-lastBaro:UINT32_MAX;
+    state.baro_valid=haveBaro && state.baro_age_ms<2000 && (!gotBaroSample || baro.isValid);
+    uint8_t oldAltitudeSource=state.altitude_source;
+    const bool gpsAltitudeUsable=fix.isValid && fix.altitudeValid && std::isfinite(fix.altitudeM) &&
+      (!fix.accuracyValid || (std::isfinite(fix.verticalAccuracyM) && fix.verticalAccuracyM>0 && fix.verticalAccuracyM<=25));
+    float filteredGpsAltitude=gpsAltitude.update(fix.receivedAtMs,gpsAltitudeUsable,fix.altitudeM);
+    int calibrationElevation=0;
+    const bool canAuto=getBaroAutoEnabled() && !baroAutoDone() && state.ride_state==RIDE_STATE_IDLE &&
+      state.baro_valid && gpsAltitudeUsable && fix.accuracyValid && fix.verticalAccuracyM<=10 &&
+      fix.speedValid && fix.speedKmh<1.5f && state.speed_kmh<1.5f;
+    if(calibrationWindow.update(fix.receivedAtMs,canAuto,fix.altitudeM,calibrationElevation))
+      requestBaroAutoCalibration(calibrationElevation);
+    state.altitude_valid=state.baro_valid || gpsAltitudeUsable;
+    state.altitude_source=state.baro_valid?1:state.altitude_valid?2:0;
+    if(state.altitude_source==2)state.altitude_m=filteredGpsAltitude;
+    if(!state.altitude_valid) {state.altitude_m=0;state.grade_pct=0;haveAltitude=false;}
+    if(referenceChanged || oldAltitudeSource!=state.altitude_source) {prevAlt=state.altitude_m;distForGradeKm=0;}
 
     // Process GPS Telemetry Fix
     if (gotGpsFix) {
@@ -135,8 +171,8 @@ void fusionTaskLoop(void* pvParameters) {
 
               // Calculate Grade % every 50 meters
               if (distForGradeKm >= 0.05f) {
-                float dAlt = smoothAlt - prevAlt;
-                if (smoothAlt > prevAlt) {
+                float dAlt = state.altitude_valid?state.altitude_m - prevAlt:0;
+                if (dAlt>0) {
                   state.total_ascent_m += dAlt;
                 }
                 state.grade_pct = (dAlt / (distForGradeKm * 1000.0f)) * 100.0f;
@@ -145,7 +181,7 @@ void fusionTaskLoop(void* pvParameters) {
                 if (state.grade_pct > 30.0f) state.grade_pct = 30.0f;
 
                 distForGradeKm = 0.0f;
-                prevAlt = smoothAlt;
+                prevAlt = state.altitude_m;
               }
             }
           }
@@ -163,7 +199,8 @@ void fusionTaskLoop(void* pvParameters) {
     // Movement only pauses/resumes an explicitly started session.
     float effectiveSpeed = state.speed_kmh;
 
-    if (!state.ride_auto_allowed || state.ride_state == RIDE_STATE_IDLE) {
+    if (!state.ride_auto_allowed || state.ride_state == RIDE_STATE_IDLE ||
+        !rideSpeedIsValid(state,fix,now)) {
       speedAbove4StartMs = speedBelow1_5StartMs = 0;
     } else if (effectiveSpeed >= 4.0f) {
       speedBelow1_5StartMs = 0;
@@ -202,6 +239,7 @@ void fusionTaskLoop(void* pvParameters) {
       }
     }
 
+    state.display_speed_kmh=displaySpeed.update(state.speed_kmh,state.speed_source,now);
     setFusionTelemetryState(state);
 
     vTaskDelay(pdMS_TO_TICKS(50));

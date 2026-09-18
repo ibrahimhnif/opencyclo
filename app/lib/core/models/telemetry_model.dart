@@ -6,13 +6,14 @@ class TelemetryModel {
   final int heartRateBpm;
   final int powerWatts;
   final double altitudeM;
+  bool get altitudeValid => altitudeM.isFinite;
   final double gradePct;
   final double distanceKm;
   final int rideTimeS;
   final int batteryPct;
   final int gpsFixStatus; // 0=None, 2=3D Fix
   final int satellites;
-  final int rideState;    // 0=IDLE, 1=ACTIVE, 2=PAUSED
+  final int rideState; // 0=IDLE, 1=ACTIVE, 2=PAUSED
 
   const TelemetryModel({
     this.speedKmh = 0.0,
@@ -36,7 +37,7 @@ class TelemetryModel {
 
     final int spdRaw = data.getUint16(0, Endian.little);
     final int cadRaw = data.getUint16(2, Endian.little);
-    final int hrRaw  = data.getUint16(4, Endian.little);
+    final int hrRaw = data.getUint16(4, Endian.little);
     final int pwrRaw = data.getUint16(6, Endian.little);
     final int altRaw = data.getInt16(8, Endian.little);
     final int grdRaw = data.getInt16(10, Endian.little);
@@ -53,7 +54,7 @@ class TelemetryModel {
       cadenceRpm: (cadRaw == 0xFFFF) ? -1 : cadRaw,
       heartRateBpm: (hrRaw == 0xFFFF) ? -1 : hrRaw,
       powerWatts: (pwrRaw == 0xFFFF) ? -1 : pwrRaw,
-      altitudeM: altRaw.toDouble(),
+      altitudeM: altRaw == -32768 ? double.nan : altRaw.toDouble(),
       gradePct: grdRaw / 10.0,
       distanceKm: distRaw / 1000.0,
       rideTimeS: timeRaw,

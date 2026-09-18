@@ -31,6 +31,7 @@ extern LGFX tft;
 extern LGFX_Sprite canvas;
 
 void initDisplay();
+bool isDisplayReady();
 void setDisplayBrightness(uint8_t duty);
 
 #endif // OPENCYCLO_HARDWARE_DISPLAY_H

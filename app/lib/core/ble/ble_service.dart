@@ -8,6 +8,12 @@ import '../models/telemetry_model.dart';
 import '../models/layout_config_model.dart';
 import '../models/route_model.dart';
 import 'route_transfer.dart';
+import 'ride_download.dart';
+import 'ride_download_fast.dart';
+import 'gps_assistance.dart';
+import 'gps_registration.dart';
+import 'gps_credentials.dart';
+import 'gps_cache.dart';
 
 class BleService {
   static final BleService instance = BleService._internal();
@@ -20,7 +26,14 @@ class BleService {
   BluetoothCharacteristic? _otaDataChar;
   BluetoothCharacteristic? _routeControlChar;
   BluetoothCharacteristic? _routeDataChar;
+  BluetoothCharacteristic? _rideExportChar;
+  BluetoothCharacteristic? _gpsAssistanceChar;
+  BluetoothCharacteristic? _gpsIdentityChar;
+  BluetoothCharacteristic? _gpsCacheChar;
+  String? _credentialKey;
+  final _gpsCredentials = const GpsCredentials();
   bool _routeBusy = false;
+  bool _commandBusy = false;
 
   final _telemetryController = StreamController<TelemetryModel>.broadcast();
   Stream<TelemetryModel> get telemetryStream => _telemetryController.stream;
@@ -46,6 +59,11 @@ class BleService {
       connectedDevice = device;
       _routeControlChar = null;
       _routeDataChar = null;
+      _rideExportChar = null;
+      _gpsAssistanceChar = null;
+      _gpsIdentityChar = null;
+      _gpsCacheChar = null;
+      _credentialKey = null;
       await device.connect(
           timeout: const Duration(seconds: 15), autoConnect: false);
 
@@ -55,6 +73,11 @@ class BleService {
         if (state == BluetoothConnectionState.disconnected) {
           _routeControlChar = null;
           _routeDataChar = null;
+          _rideExportChar = null;
+          _gpsAssistanceChar = null;
+          _gpsIdentityChar = null;
+          _gpsCacheChar = null;
+          _credentialKey = null;
         }
       });
 
@@ -84,6 +107,14 @@ class BleService {
               _routeControlChar = char;
             } else if (uuid.contains("1905")) {
               _routeDataChar = char;
+            } else if (uuid.contains("1906")) {
+              _rideExportChar = char;
+            } else if (uuid.contains("1907")) {
+              _gpsAssistanceChar = char;
+            } else if (uuid.contains("1908")) {
+              _gpsIdentityChar = char;
+            } else if (uuid.contains("1909")) {
+              _gpsCacheChar = char;
             }
           }
         } else if (sUuid.contains("1910")) {
@@ -106,6 +137,10 @@ class BleService {
   }
 
   Future<void> disconnect() async {
+    _gpsAssistanceChar = null;
+    _gpsIdentityChar = null;
+    _gpsCacheChar = null;
+    _credentialKey = null;
     if (connectedDevice != null) {
       await connectedDevice!.disconnect();
       connectedDevice = null;
@@ -127,6 +162,132 @@ class BleService {
   }
 
   // --- LAYOUT CONFIGURATION SYNC ---
+  Future<GpsIdentity> _readCurrentGpsIdentity() async {
+    final c = _gpsIdentityChar;
+    if (c == null) {
+      throw StateError('Connect and update firmware for GPS identity');
+    }
+    final id = await readGpsIdentity((p) async {
+      if (_gpsIdentityChar != c) throw StateError('Device disconnected');
+      await c.write(p, withoutResponse: false);
+    }, c.read);
+    if (_gpsIdentityChar != c) throw StateError('Device disconnected');
+    return id;
+  }
+
+  Future<String?> savedGpsChipcode({String? save, bool forget = false}) async {
+    if (_routeBusy) throw StateError('Wait for current transfer');
+    _routeBusy = true;
+    try {
+      final id = await _readCurrentGpsIdentity();
+      if (forget) await _gpsCredentials.forget(id);
+      if (save != null) await _gpsCredentials.save(id, save);
+      final code = await _gpsCredentials.load(id);
+      _credentialKey = code == null ? null : GpsCredentials.key(id);
+      return code;
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  Future<GpsCacheStatus> gpsCacheStatus() async {
+    final c = _gpsCacheChar;
+    if (c == null) throw StateError('Update firmware for GPS cache');
+    return GpsCacheStatus.parse(await c.read());
+  }
+
+  Future<void> syncGpsCache(
+      String chipcode, void Function(String, double) update,
+      {bool Function()? cancelled}) async {
+    if (_routeBusy) throw StateError('Wait for current transfer');
+    final c = _gpsCacheChar;
+    if (c == null) throw StateError('Update firmware for GPS cache');
+    _routeBusy = true;
+    try {
+      final id = await _readCurrentGpsIdentity();
+      if (_credentialKey != null && _credentialKey != GpsCredentials.key(id)) {
+        throw StateError('GPS receiver changed; load its Chipcode');
+      }
+      update('downloading 7-day predictions...', 0);
+      final cache = await PredictiveCache.fetch(chipcode);
+      await uploadGpsCache(cache, (p) async {
+        if (_gpsCacheChar != c) throw StateError('Device disconnected');
+        await c.write(p, withoutResponse: false);
+      }, c.read, connectedDevice?.mtuNow ?? 23,
+          (p) => update(p == 1 ? 'cache saved to SD' : 'saving cache...', p),
+          cancelled: cancelled);
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  Future<String> registerGps(String token, void Function(String) update,
+      {bool Function()? cancelled}) async {
+    normalizeZtpToken(token);
+    if (_routeBusy) throw StateError('Wait for the current transfer');
+    final c = _gpsIdentityChar;
+    if (c == null) {
+      throw StateError('Connect and update firmware for GPS registration');
+    }
+    void check() {
+      if ((cancelled?.call() ?? false) || _gpsIdentityChar != c) {
+        throw StateError('Registration cancelled or device disconnected');
+      }
+    }
+
+    _routeBusy = true;
+    try {
+      update('reading GPS identity...');
+      final identity = await readGpsIdentity((p) async {
+        if (_gpsIdentityChar != c) throw StateError('Device disconnected');
+        await c.write(p, withoutResponse: false);
+      }, c.read, cancelled: cancelled);
+      check();
+      update('registering with Thingstream...');
+      final chipcode = await registerGpsIdentity(token, identity);
+      check();
+      await _gpsCredentials.save(identity, chipcode);
+      _credentialKey = GpsCredentials.key(identity);
+      return chipcode;
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  Future<void> syncGps(String chipcode, void Function(String, double) update,
+      {bool Function()? cancelled}) async {
+    if (_routeBusy) throw StateError('Wait for the current transfer');
+    final characteristic = _gpsAssistanceChar;
+    if (characteristic == null) {
+      throw StateError('Connect and update firmware for GPS sync');
+    }
+    _routeBusy = true;
+    try {
+      update('downloading assistance...', 0);
+      final id = await _readCurrentGpsIdentity();
+      if (_credentialKey != null && _credentialKey != GpsCredentials.key(id)) {
+        throw StateError('GPS receiver changed; load its Chipcode');
+      }
+      final data = await LiveAssistance.fetch(chipcode);
+      await sendLiveAssistance(data, (bytes) async {
+        if (_gpsAssistanceChar != characteristic) {
+          throw StateError('Device disconnected');
+        }
+        await characteristic.write(bytes, withoutResponse: false);
+      },
+          characteristic.read,
+          connectedDevice?.mtuNow ?? 23,
+          (p) => update(
+              p == 1
+                  ? 'assistance accepted — waiting for GPS fix'
+                  : 'sending to GPS...',
+              p),
+          cancelled: cancelled);
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
   Future<UiConfigModel?> fetchLayoutConfig() async {
     if (_layoutChar == null) return null;
     try {
@@ -154,12 +315,67 @@ class BleService {
 
   // --- DEVICE COMMANDS ---
   Future<String> _routeCommand(List<int> bytes) async {
-    final c = _routeControlChar;
-    if (c == null) {
-      throw StateError('Connect to a device with navigation firmware');
+    if (_commandBusy) throw StateError('Device command busy. Try again.');
+    _commandBusy = true;
+    try {
+      final c = _routeControlChar;
+      if (c == null) {
+        throw StateError('Connect to a device with navigation firmware');
+      }
+      await c.write(bytes, withoutResponse: false, allowLongWrite: true);
+      return await waitForRouteReply(() async => utf8.decode(await c.read()));
+    } finally {
+      _commandBusy = false;
     }
-    await c.write(bytes, withoutResponse: false);
-    return waitForRouteReply(() async => utf8.decode(await c.read()));
+  }
+
+  Future<List<SavedRide>> savedRides() async {
+    if (_routeBusy) throw StateError('Wait for transfer');
+    _routeBusy = true;
+    try {
+      return await listSavedRides(_routeCommand);
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  Future<Uint8List> exportRide(SavedRide ride, void Function(double) progress,
+      {bool Function()? cancelled}) async {
+    if (_routeBusy) throw StateError('Wait for transfer');
+    _routeBusy = true;
+    try {
+      final export = _rideExportChar;
+      if (export != null) {
+        await export.setNotifyValue(true);
+        try {
+          return await downloadRideFast(ride, _routeCommand,
+              export.onValueReceived, connectedDevice?.mtuNow ?? 23, progress,
+              cancelled: cancelled,
+              diagnostic: (message) => debugPrint('[GPX] $message'));
+        } finally {
+          try {
+            await export.setNotifyValue(false);
+          } catch (_) {}
+        }
+      }
+      return await downloadRide(ride, _routeCommand, progress,
+          cancelled: cancelled);
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  Future<String> sensorDebug({bool scan = false}) async {
+    if (_routeBusy) throw StateError('Wait for transfer');
+    _routeBusy = true;
+    try {
+      if (scan) return await _routeCommand([0x22]);
+      return '${await _routeCommand([
+            0x20
+          ])}\nCSC sensors\n${await _routeCommand([0x21])}';
+    } finally {
+      _routeBusy = false;
+    }
   }
 
   Future<void> freeRide() async {

@@ -34,8 +34,11 @@ class GpsDecoder {
     if(seenPvt && now-pvt.receivedAtMs<1500 &&
        (next==epoch || (next<epoch && epoch-next<604799000u)))return false;
     epoch=next;seenPvt=true;pvt=GpsFix{};pvt.receivedAtMs=now;
+    pvt.receiverFixType=p[20];pvt.receiverFlags=p[21];pvt.receiverFlags3=p[78];
     pvt.latitude=i32(p+28)*1e-7;pvt.longitude=i32(p+24)*1e-7;
     pvt.altitudeM=i32(p+36)*0.001f;
+    pvt.altitudeValid=true; // NAV-PVT hMSL, not ellipsoid height.
+    pvt.verticalAccuracyM=u32(p+44)*0.001f;
     pvt.horizontalAccuracyM=u32(p+40)*0.001f;
     pvt.speedAccuracyMps=u32(p+68)*0.001f;pvt.accuracyValid=true;
     pvt.satellites=p[23];pvt.hdop=99.99f; // PVT pDOP is NOT HDOP.
@@ -81,6 +84,11 @@ class GpsDecoder {
     if(strlen(fields[0])!=5 || fields[0][0]!='G' || !strchr("PNABL",fields[0][1]))return false;
     const bool rmc=strlen(fields[0])==5 && !strcmp(fields[0]+2,"RMC");
     const bool gga=strlen(fields[0])==5 && !strcmp(fields[0]+2,"GGA");
+    const bool signal=!strcmp(fields[0]+2,"GSV")||!strcmp(fields[0]+2,"GSA");
+    if(signal || gga) {
+      memcpy(diagnosticLine,line,used+1);++diagnosticSequence;
+    }
+    if(signal)return true; // Valid checksum, diagnostic only; no fix mutation.
     if(!rmc&&!gga)return false;
     if((rmc&&count<10)||(gga&&count<10))return false;
     const int lat=rmc?3:2,lon=rmc?5:4;
@@ -104,6 +112,8 @@ class GpsDecoder {
     return true;
   }
 public:
+  char diagnosticLine[160]{};
+  uint32_t diagnosticSequence=0;
   uint32_t accepted=0,rejected=0;
   void reset(bool expectPvt=false) {
     // End lifetime before clearing storage; constructor leaves pending scalar
@@ -111,6 +121,7 @@ public:
     gps.~TinyGPSPlus();memset(static_cast<void*>(&gps),0,sizeof(gps));
     new(&gps)TinyGPSPlus();
     used=0;collecting=positionOk=speedOk=false;speedAt=0;accepted=rejected=0;
+    diagnosticLine[0]=0;diagnosticSequence=0;
     ubx=gnss::Parser();pvt=GpsFix{};requirePvt=expectPvt;seenPvt=false;epoch=0;
   }
   GpsDecoder(){reset();}
@@ -145,6 +156,7 @@ public:
     f.speedKmh=f.speedValid?float(gps.speed.kmph()):0;
     f.speedValid=f.speedValid&&std::isfinite(f.speedKmh)&&f.speedKmh>=0;
     f.altitudeM=gps.altitude.isValid()?gps.altitude.meters():0;
+    f.altitudeValid=gps.altitude.isValid() && gps.altitude.age()<1500;
     f.hdop=gps.hdop.isValid()&&gps.hdop.age()<1500?gps.hdop.hdop():99.99f;
     f.satellites=gps.satellites.isValid()&&gps.satellites.age()<1500?gps.satellites.value():0;
     if(gps.date.isValid()&&gps.time.isValid()&&gps.time.age()<1500) {

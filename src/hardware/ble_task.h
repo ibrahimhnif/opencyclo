@@ -13,7 +13,8 @@
 enum BleProfileType {
   BLE_PROFILE_CSC = 0,
   BLE_PROFILE_HR,
-  BLE_PROFILE_POWER
+  BLE_PROFILE_POWER,
+  BLE_PROFILE_CADENCE
 };
 
 struct DiscoveredDevice {

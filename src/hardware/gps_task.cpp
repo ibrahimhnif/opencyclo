@@ -2,7 +2,11 @@
 #include "config/pins.h"
 #include "gps_decoder.h"
 #include "gps_filter.h"
+#include "storage/gps_diagnostics.h"
 #include "gnss_power.h"
+#include "gps_assistance.h"
+#include "gps_identity.h"
+#include "storage/gps_cache.h"
 #include <mutex>
 #include <driver/gpio.h>
 #include <driver/uart.h>
@@ -13,6 +17,28 @@ static GpsDecoder gps;
 static GpsFilter gpsFilter;
 static HardwareSerial gpsSerial(1);
 static std::mutex gpsMutex;
+static std::mutex assistanceMutex;
+static gnss::Assistance assistance;
+static gnss::Identity identity;
+static gnss::Parser assistanceParser;
+void gpsAssistanceCommand(const uint8_t* bytes,size_t length) {
+  std::lock_guard<std::mutex> lock(assistanceMutex);
+  if(identity.busy() || gpsCacheInjecting())return;
+  assistance.command(bytes,length,millis());
+}
+void gpsIdentityCommand(const uint8_t* bytes,size_t length) {
+  std::lock_guard<std::mutex> lock(assistanceMutex);
+  if(assistance.busy() || gpsCacheInjecting())return;
+  identity.command(bytes,length);
+}
+size_t gpsIdentityRead(uint8_t out[20]) {
+  std::lock_guard<std::mutex> lock(assistanceMutex);
+  return identity.read(out);
+}
+void gpsAssistanceStatus(uint8_t out[12]) {
+  std::lock_guard<std::mutex> lock(assistanceMutex);
+  assistance.status(out);
+}
 static bool uartReady=false,quiesced=false;
 struct GpsPort : gnss::Port {
   uint32_t now() override {return millis();}
@@ -55,6 +81,12 @@ bool prepareGpsForPowerOff() {
   while(!lock.try_lock()) {if(millis()-start>=500)return false;delay(5);}
   if(!uartReady)return false;
   if(quiesced)return true;
+  {
+    std::lock_guard<std::mutex> aidLock(assistanceMutex);
+    if(assistance.busy())assistance.fail(gnss::Assistance::Cancelled);
+    if(identity.busy())identity.cancel();
+    gpsCacheCancel();
+  }
   const auto result=gpsPower.standby();
   if(result!=gnss::Standby::Quiet) {
     Serial.printf("[GPS POWER] Standby not verified (reason=%u); canceling shutdown\n",unsigned(result));
@@ -76,7 +108,7 @@ void startGpsTask() {
   xTaskCreatePinnedToCore(
     gpsTaskLoop,
     "GpsTask",
-    4096,
+    GPS_DIAGNOSTICS_ENABLED ? 8192 : 4096,
     NULL,
     2, // Priority 2
     NULL,
@@ -108,7 +140,18 @@ void gpsTaskLoop(void* pvParameters) {
     while (gpsSerial.available() > 0) {
       char c = (char)gpsSerial.read();
       totalChars++;
+      if(assistanceParser.feed(uint8_t(c))) {
+        std::lock_guard<std::mutex> aidLock(assistanceMutex);
+        assistance.receive(assistanceParser.frame);
+        identity.receive(assistanceParser.frame);
+        gpsCacheReceive(assistanceParser.frame);
+      }
+      const uint32_t sequence=gps.diagnosticSequence;
       changed=gps.feed(c,millis()) || changed;
+      if(sequence!=gps.diagnosticSequence) {
+        const uint32_t at=millis();const GpsFix raw=gps.snapshot(at);
+        captureGpsDiagnostic(raw,raw,"nmea-observation",at,gps.diagnosticLine);
+      }
 
       // Accumulate NMEA line into buffer for Live UI Debug Console
       if (c == '\n' || c == '\r') {
@@ -125,6 +168,21 @@ void gpsTaskLoop(void* pvParameters) {
     }
 
     uint32_t now = millis();
+    {
+      std::lock_guard<std::mutex> aidLock(assistanceMutex);
+      assistance.tick(gpsPort,gpsPower.supported());
+      identity.tick(gpsPort);
+      gpsCacheGpsTick(gpsPort,gpsPower.supported(),assistance.busy() || identity.busy());
+      static uint8_t previousState=gnss::Assistance::Idle;
+      if(previousState!=assistance.state) {
+        previousState=assistance.state;
+        if(assistance.state==gnss::Assistance::ConfigAck ||
+           assistance.state==gnss::Assistance::Done || assistance.state==gnss::Assistance::Error)
+          Serial.printf("[GPS AID] ms=%u state=%u acknowledged=%u error=%u receiver_code=%u\n",
+            unsigned(now),unsigned(assistance.state),unsigned(assistance.index),
+            unsigned(assistance.error),unsigned(assistance.receiverInfo));
+      }
+    }
 
     if (now - lastDebugLogMs >= 5000) {
       lastDebugLogMs = now;
@@ -132,15 +190,17 @@ void gpsTaskLoop(void* pvParameters) {
       g_gps_debug.sentences_passed = gps.accepted;
       g_gps_debug.active_rx_pin = PIN_GPS_RX;
       const GpsFix raw=gps.snapshot(now),status=gpsFilter.apply(raw,now);
-      Serial.printf("[GPS] raw_fix=%d quality=%u raw_speed=%.1f speed=%.1f sats=%u hdop=%.2f accuracy=%d hAcc=%.1fm sAcc=%.2fm/s age=%u chars=%u\n",
+      Serial.printf("[GPS] raw_fix=%d quality=%u raw_speed=%.1f speed=%.1f sats=%u hdop=%.2f accuracy=%d hAcc=%.1fm sAcc=%.2fm/s age=%u chars=%u reason=%s\n",
         raw.isValid,unsigned(status.quality),raw.speedKmh,status.speedKmh,unsigned(raw.satellites),
-        raw.hdop,raw.accuracyValid,raw.horizontalAccuracyM,raw.speedAccuracyMps,unsigned(raw.ageMs),unsigned(totalChars));
+        raw.hdop,raw.accuracyValid,raw.horizontalAccuracyM,raw.speedAccuracyMps,unsigned(raw.ageMs),unsigned(totalChars),gpsFilter.rejectionReason());
     }
 
     // Send GPS fix status to queue
     if (now - lastPushMs >= 500 || changed) {
       lastPushMs = now;
-      GpsFix fix=gpsFilter.apply(gps.snapshot(now),now);
+      const GpsFix raw=gps.snapshot(now);
+      GpsFix fix=gpsFilter.apply(raw,now);
+      captureGpsDiagnostic(raw,fix,gpsFilter.rejectionReason(),now);
 
       if (g_gps_queue != NULL) {
         xQueueOverwrite(g_gps_queue, &fix);

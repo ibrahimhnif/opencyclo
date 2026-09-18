@@ -294,13 +294,12 @@ class _DevicePreviewState extends State<DevicePreview> {
       ]);
     }
     return Stack(children: [
-      _button('Scan', Icons.search, 6, 6, width - 12,
-          bg: AppTheme.cyan, fg: AppTheme.bg),
-      for (int i = 0; i < 3; i++) ...[
-        _text(['Speed', 'Heart', 'Power'][i], 10, 64 + i * 52, 120),
-        _text('Not paired', 10, 87 + i * 52, width - 20, color: AppTheme.label),
-      ],
-      _text('GPS ready', 10, 230, width - 20, color: AppTheme.label),
+      _text('Paired', 8, 18, 120, color: AppTheme.cyan),
+      _button('Scan', Icons.search, width - 88, 6, 80),
+      _text('No paired sensors. Tap Scan.', 8, 90, width - 16,
+          color: AppTheme.label),
+      _text('Debug sensors', 8, 242, 120, color: AppTheme.cyan),
+      _text('Calibrate', 144, 242, width - 152, color: AppTheme.cyan),
     ]);
   }
 

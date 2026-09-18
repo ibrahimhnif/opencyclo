@@ -7,6 +7,9 @@
 #include <atomic>
 #include <cmath>
 #include "sd_access.h"
+#include "sd_mount_policy.h"
+#include "gps_diagnostics.h"
+#include "gps_cache.h"
 
 static GpxWriter gpxWriter;
 // 0 = running, 1 = stop requested, 2 = file closed and quiescent.
@@ -31,7 +34,8 @@ void startLoggerTask() {
   xTaskCreatePinnedToCore(
     loggerTaskLoop,
     "LoggerTask",
-    4096,
+    // SD/FAT plus float CSV formatting need more headroom with diagnostics.
+    GPS_DIAGNOSTICS_ENABLED ? 12288 : 4096,
     NULL,
     1, // Priority 1
     NULL,
@@ -41,29 +45,12 @@ void startLoggerTask() {
 
 void loggerTaskLoop(void* pvParameters) {
   bool sdMounted = false;
-
-  {
-  SdGuard sd;
-
-  // Configure SDIO pins for SD_MMC
-  SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0, PIN_SD_D1, PIN_SD_D2, PIN_SD_D3);
-
-  if (SD_MMC.begin("/sdcard", false /* 4-bit mode */, false /* format_if_mount_failed */)) {
-    sdMounted = true;
-    uint8_t cardType = SD_MMC.cardType();
-    uint64_t cardSize = SD_MMC.cardSize() / (1024 * 1024);
-    Serial.printf("[SD LOG] microSD card mounted successfully! Type: %d, Size: %llu MB\n", cardType, cardSize);
-  } else {
-    Serial.println("[SD LOG WARNING] microSD card not inserted or failed to mount via SDIO.");
-  }
-  g_sd_ready = sdMounted;
-  if (sdMounted) { SD_MMC.mkdir("/routes"); SD_MMC.mkdir("/maps"); }
-  }
+  SdMountPolicy mountPolicy;
 
   // Update SD status in global telemetry state
   TelemetryState state = getTelemetrySnapshot();
   state.sd_status = sdMounted;
-  setTelemetryState(state);
+  setSdStatus(sdMounted);
 
   uint32_t lastLogMs = 0;
 
@@ -72,6 +59,7 @@ void loggerTaskLoop(void* pvParameters) {
     SdGuard sd;
     if (!sd.locked) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
     if (stopState.load() != 0) {
+      closeGpsDiagnostics();
       if (!gpxWriter.isOpen() || gpxWriter.closeRideFile()) {
         int expected = 1;
         stopState.compare_exchange_strong(expected, 2);
@@ -80,6 +68,32 @@ void loggerTaskLoop(void* pvParameters) {
       continue;
     }
     state = getTelemetrySnapshot();
+
+    if(mountPolicy.tick(millis(),gpxWriter.isOpen() || state.ride_save==RIDE_SAVE_ERROR,
+      [](bool oneBit,int khz) {
+        // Called only while holding the shared SD lock, before any file opens.
+        SD_MMC.end();
+        if(!SD_MMC.setPins(PIN_SD_CLK,PIN_SD_CMD,PIN_SD_D0,PIN_SD_D1,PIN_SD_D2,PIN_SD_D3)) {
+          Serial.println("[SD MOUNT] pin configuration failed");return false;
+        }
+        Serial.printf("[SD MOUNT] trying %u-bit %d kHz; CLK=%d CMD=%d D0=%d D1=%d D2=%d D3=%d; format=OFF\n",
+          oneBit?1:4,khz,PIN_SD_CLK,PIN_SD_CMD,PIN_SD_D0,PIN_SD_D1,PIN_SD_D2,PIN_SD_D3);
+        if(!SD_MMC.begin("/sdcard",oneBit,false,khz) || SD_MMC.cardType()==CARD_NONE) {
+          SD_MMC.end();Serial.println("[SD MOUNT] failed; retry in 5s. Check card, wiring and supply; no format performed.");
+          return false;
+        }
+        Serial.printf("[SD MOUNT] OK %u-bit %d kHz, size=%llu MB; maps=%d routes=%d\n",
+          oneBit?1:4,khz,SD_MMC.cardSize()/(1024*1024),SD_MMC.exists("/maps"),SD_MMC.exists("/routes"));
+        return true;
+      })) {
+      sdMounted=true;g_sd_ready=true;
+      SD_MMC.mkdir("/routes");SD_MMC.mkdir("/maps");
+      state.sd_status=true;setSdStatus(true);
+    }
+
+    if(sdMounted)drainGpsDiagnostics(state,gpxWriter.isOpen()?gpxWriter.getFilename():"");
+    // Cache filesystem work is owned by the logger and never runs in BLE/GPS callbacks.
+    if(state.ride_state==RIDE_STATE_IDLE)gpsCacheStorageTick(sdMounted);
 
     if (state.ride_save == RIDE_SAVE_PENDING) {
       auto result=finishRideLog(gpxWriter,sdMounted,g_settings.sd_logging_enabled,state);
