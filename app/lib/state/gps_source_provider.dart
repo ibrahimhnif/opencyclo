@@ -17,7 +17,7 @@ abstract class GpsSourceBleChannel {
   Future<int?> readGpsSourceMode();
   Future<void> writeGpsSourceMode(int mode);
   Future<void> writePhoneGpsSample(
-      double lat, double lon, double accuracyM, int seq);
+      double lat, double lon, double accuracyM, int seq, int utcEpochS);
 }
 
 enum GpsSourceMode { hardware, phoneForced }
@@ -139,8 +139,8 @@ class GpsSourceNotifier extends StateNotifier<GpsSourceState> {
     _positionSub = _phoneGpsService.positions().listen(
       (sample) {
         _seq = (_seq + 1) & 0xFF;
-        _bleChannel.writePhoneGpsSample(
-            sample.latitude, sample.longitude, sample.accuracyM, _seq);
+        _bleChannel.writePhoneGpsSample(sample.latitude, sample.longitude,
+            sample.accuracyM, _seq, sample.timestamp.toUtc().millisecondsSinceEpoch ~/ 1000);
       },
       onError: (Object error) {
         debugPrint('[GPS SOURCE] position stream error: $error');

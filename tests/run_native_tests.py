@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
         ("position_heading", ["tests/test_position_heading.cpp"], []),
         ("sensor_catalog", ["tests/test_sensor_catalog.cpp"], []),
         ("baro_calibration", ["tests/test_baro_calibration.cpp"], []),
+        ("utc_time", ["tests/test_utc_time.cpp"], []),
         # Vendor C uses valid {0} aggregate initialization; host C++ warns on it.
         ("bme280", ["tests/test_bme280.cpp", "src/hardware/bosch/bme280.c"],
          ["-x", "c++", "-Wno-missing-field-initializers"]),

@@ -27,8 +27,8 @@ class FakeGpsSourceBleChannel implements GpsSourceBleChannel {
 
   @override
   Future<void> writePhoneGpsSample(
-      double lat, double lon, double accuracyM, int seq) async {
-    writtenSamples.add([lat, lon, accuracyM, seq]);
+      double lat, double lon, double accuracyM, int seq, int utcEpochS) async {
+    writtenSamples.add([lat, lon, accuracyM, seq, utcEpochS]);
   }
 
   void dispose() {
@@ -48,10 +48,12 @@ class PermittedPhoneGpsService extends PhoneGpsService {
   Future<bool> ensurePermission() async => true;
 }
 
-Position _fakePosition(double lat, double lon, double accuracy) => Position(
+Position _fakePosition(double lat, double lon, double accuracy,
+        {DateTime? timestamp}) =>
+    Position(
       latitude: lat,
       longitude: lon,
-      timestamp: DateTime.now(),
+      timestamp: timestamp ?? DateTime.now(),
       accuracy: accuracy,
       altitude: 0,
       altitudeAccuracy: 0,
@@ -139,7 +141,9 @@ void main() {
 
     channel.setConnected(true);
     await _settle();
-    positions.add(_fakePosition(37.7749, -122.4194, 8.0));
+    final fixedTimestamp = DateTime.utc(2026, 9, 18, 11, 59, 30);
+    positions.add(
+        _fakePosition(37.7749, -122.4194, 8.0, timestamp: fixedTimestamp));
     await _settle();
 
     expect(channel.writtenSamples, isNotEmpty);
@@ -147,6 +151,8 @@ void main() {
     expect(channel.writtenSamples.first[1], -122.4194);
     expect(channel.writtenSamples.first[2], 8.0);
     expect(channel.writtenSamples.first[3], 1); // seq starts at 1
+    expect(channel.writtenSamples.first[4],
+        fixedTimestamp.millisecondsSinceEpoch ~/ 1000);
     expect(notifier.state.error, isNull);
   });
 

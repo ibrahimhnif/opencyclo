@@ -8,10 +8,12 @@ class PhoneGpsSample {
   final double latitude;
   final double longitude;
   final double accuracyM;
+  final DateTime timestamp;
   const PhoneGpsSample({
     required this.latitude,
     required this.longitude,
     required this.accuracyM,
+    required this.timestamp,
   });
 }
 
@@ -69,6 +71,7 @@ class PhoneGpsService {
           latitude: p.latitude,
           longitude: p.longitude,
           accuracyM: p.accuracy,
+          timestamp: p.timestamp,
         ));
   }
 }

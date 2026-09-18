@@ -509,12 +509,13 @@ class BleService
   }
 
   @override
-  Future<void> writePhoneGpsSample(
-      double lat, double lon, double accuracyM, int seq) async {
+  Future<void> writePhoneGpsSample(double lat, double lon, double accuracyM,
+      int seq, int utcEpochS) async {
     final c = _phoneGpsChar;
     if (c == null) return;
     try {
-      await c.write(encodePhoneGpsSample(lat, lon, accuracyM, seq),
+      await c.write(
+          encodePhoneGpsSample(lat, lon, accuracyM, seq, utcEpochS),
           withoutResponse: true);
     } catch (e) {
       debugPrint("[BLE ERROR] Failed to write phone GPS sample: $e");

@@ -9,6 +9,7 @@
 #include "storage/gps_cache.h"
 #include "gps_source_arbiter.h"
 #include "storage/settings.h"
+#include "core/utc_time.h"
 #include <mutex>
 #include <driver/gpio.h>
 #include <driver/uart.h>
@@ -20,12 +21,13 @@ struct PhoneGpsSample {
   double latitude;
   double longitude;
   float accuracyM;
+  uint32_t utcEpochS;
   uint32_t receivedAtMs;
 };
 
-void setPhoneGpsSample(double lat, double lon, float accuracyM) {
+void setPhoneGpsSample(double lat, double lon, float accuracyM, uint32_t utcEpochS) {
   if (g_phone_gps_queue == NULL) return;
-  PhoneGpsSample sample{lat, lon, accuracyM, millis()};
+  PhoneGpsSample sample{lat, lon, accuracyM, utcEpochS, millis()};
   xQueueOverwrite(g_phone_gps_queue, &sample);
 }
 
@@ -293,7 +295,15 @@ void gpsTaskLoop(void* pvParameters) {
         // sample when this push is a re-read of the same queue entry.
         outFix.speedValid = havePhoneSpeed;
         outFix.speedKmh = cachedPhoneSpeedKmh;
-        if (haveHardwareUtc) {
+        if (phone.utcEpochS != 0) {
+          const utc::Calendar cal = utc::civilFromEpoch(phone.utcEpochS);
+          outFix.year = cal.year;
+          outFix.month = cal.month;
+          outFix.day = cal.day;
+          outFix.hour = cal.hour;
+          outFix.minute = cal.minute;
+          outFix.second = cal.second;
+        } else if (haveHardwareUtc) {
           outFix.year = lastHardwareYear;
           outFix.month = lastHardwareMonth;
           outFix.day = lastHardwareDay;

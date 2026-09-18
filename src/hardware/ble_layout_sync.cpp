@@ -104,7 +104,11 @@ class PhoneGpsCallbacks : public NimBLECharacteristicCallbacks {
     memcpy(&lonE7, v.data() + 4, 4);
     memcpy(&accCm, v.data() + 8, 2);
     // Byte 10 is a sequence number, informational only (no reassembly needed).
-    setPhoneGpsSample(latE7 / 1e7, lonE7 / 1e7, accCm / 100.0f);
+    // Bytes 11-14 (UTC epoch seconds) are optional -- older app builds send
+    // only the original 11 bytes, and 0 means "not sent" either way.
+    uint32_t utcEpochS = 0;
+    if (v.size() >= 15) memcpy(&utcEpochS, v.data() + 11, 4);
+    setPhoneGpsSample(latE7 / 1e7, lonE7 / 1e7, accCm / 100.0f, utcEpochS);
   }
 };
 
