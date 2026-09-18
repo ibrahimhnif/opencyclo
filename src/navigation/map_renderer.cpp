@@ -101,7 +101,10 @@ void rasterize(Raster& out,const View& v) {
       int bx=int((x*256.0+p[2]/256.0-v.x)*s+size/2);
       int by=int((y*256.0+p[3]/256.0-v.y)*s+size/2);
       if(std::max(ax,bx)<0 || std::min(ax,bx)>=size || std::max(ay,by)<0 || std::min(ay,by)>=size)continue;
-      out.image.drawLine(ax,ay,bx,by,t.bytes[i+8]==2?0x35ad:(t.bytes[i+8]==1?0x8410:0x4208));
+      const uint8_t style=t.bytes[i+8];
+      const int width=style==1?3:style==0?2:1;
+      const uint16_t color=style==2?0x35ad:(style==1?0x8410:0x4208);
+      out.image.drawWideLine(ax,ay,bx,by,width,color);
     }
 #ifndef UNIT_TEST
     // Let core-0 services run even in dense cities.
