@@ -90,6 +90,8 @@ Full verified pinout is in the design doc and `src/config/pins.h`.
   [Hybrid UI direction](docs/hybrid-ui.md),
   [SD mount recovery](docs/sd-mount-recovery.md),
   [Android Bluetooth access](docs/android-bluetooth-access.md)
+- [Android release](docs/android-release.md) — upload keystore, Fastlane lanes,
+  tagged GitHub Releases
 - Design specs in [`docs/superpowers/specs/`](docs/superpowers/specs/):
   firmware architecture, companion app and OTA, modular UI engine, map road
   names, phone GPS source

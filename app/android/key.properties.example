@@ -1,0 +1,11 @@
+# Copy to key.properties and fill in with your own upload keystore.
+#
+#   keytool -genkeypair -v -keystore upload-keystore.p12 -storetype PKCS12 \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# storeFile is resolved against app/android/, so a bare filename points at the
+# file next to this one. key.properties and the keystore are gitignored.
+storePassword=
+keyPassword=
+keyAlias=upload
+storeFile=upload-keystore.p12

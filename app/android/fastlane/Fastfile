@@ -1,0 +1,66 @@
+default_platform(:android)
+
+# This file lives in app/android/fastlane, so the Flutter project root is two
+# levels up. Everything below is resolved from there, never from the CWD.
+APP_DIR = File.expand_path("../..", __dir__)
+PUBSPEC = File.join(APP_DIR, "pubspec.yaml")
+AAB_PATH = File.join(APP_DIR, "build/app/outputs/bundle/release/app-release.aab")
+APK_PATH = File.join(APP_DIR, "build/app/outputs/flutter-apk/app-release.apk")
+
+# The version lives in pubspec.yaml ("1.0.0+1"), the same place Flutter reads
+# versionName/versionCode from. Fastlane does not bump it - bumping pubspec and
+# tagging the matching "vX.Y.Z" is the release step.
+def pubspec_version
+  UI.user_error!("No pubspec.yaml at #{PUBSPEC}") unless File.exist?(PUBSPEC)
+  match = File.read(PUBSPEC)[/^version:\s*(\S+)/, 1]
+  UI.user_error!("No version found in #{PUBSPEC}") if match.nil?
+  match
+end
+
+platform :android do
+  desc "Build a signed release AAB and APK"
+  lane :build do
+    version = pubspec_version
+    UI.message("Building OpenCyclo #{version}")
+
+    sh("cd #{APP_DIR} && flutter build appbundle --release")
+    sh("cd #{APP_DIR} && flutter build apk --release")
+
+    [AAB_PATH, APK_PATH].each do |path|
+      UI.user_error!("Expected artifact was not produced: #{path}") unless File.exist?(path)
+    end
+
+    UI.success("AAB: #{AAB_PATH}")
+    UI.success("APK: #{APK_PATH}")
+  end
+
+  desc "Build and publish a GitHub Release for the current git tag"
+  lane :release do
+    version = pubspec_version.split("+").first
+    tag = ENV["RELEASE_TAG"] || sh("git describe --tags --exact-match").strip
+
+    unless tag == "v#{version}"
+      UI.user_error!("Tag #{tag} does not match pubspec version v#{version}")
+    end
+
+    build
+
+    sh("gh release create #{tag} '#{AAB_PATH}' '#{APK_PATH}' " \
+       "--title 'OpenCyclo #{version}' --generate-notes")
+  end
+
+  desc "Upload the signed bundle to the Google Play internal testing track"
+  lane :internal do
+    json_key = ENV["PLAY_STORE_JSON_KEY_PATH"]
+    if json_key.to_s.empty?
+      UI.user_error!("Set PLAY_STORE_JSON_KEY_PATH to a Play service-account JSON file. " \
+                     "This lane needs a Google Play Console account; run `fastlane build` to get " \
+                     "a signed bundle without one.")
+    end
+    unless File.exist?(AAB_PATH)
+      UI.user_error!("No bundle at #{AAB_PATH}. Run `fastlane build` first.")
+    end
+
+    upload_to_play_store(track: "internal", aab: AAB_PATH, json_key: json_key)
+  end
+end
