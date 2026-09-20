@@ -1,0 +1,34 @@
+OpenCyclo is the companion app for the OpenCyclo DIY GPS cycling computer - an open, repairable bike computer you build and maintain yourself. The app connects to your OpenCyclo over Bluetooth and lets you configure it, load routes, sync assisted GPS and update its firmware.
+
+WHAT YOU NEED
+
+OpenCyclo is a companion app. It controls the OpenCyclo device and is not a standalone ride tracker, so it needs the OpenCyclo hardware to do anything.
+
+RIDE AND SENSORS
+
+- Live dashboard of the device's telemetry over Bluetooth
+- Pair standard speed/cadence, heart-rate and cycling power sensors
+- Use your phone as a GPS, barometer or compass source when the device's own receiver has a slow or weak fix
+- Sensor diagnostics and pairing management
+
+LAYOUT BUILDER
+
+- Design your own dashboard pages on the phone and sync them to the device
+- Rearrange widgets, pages and templates without reflashing anything
+
+ROUTES AND RIDES
+
+- Import GPX routes and send them to the device for navigation with turn cues
+- Browse the rides saved on the device's SD card and export them as GPX files, with heart rate and cadence
+
+DEVICE MANAGEMENT
+
+- Take a screenshot of the device screen and download it to your phone as a PNG
+- Register a u-blox Thingstream token and sync AssistNow assisted GPS for faster fixes
+- Update the device firmware over Bluetooth
+
+PRIVACY
+
+Your rides, routes and location stay on your phone and your device. There are no accounts, no ads and no analytics, and no tracking of any kind. The only network requests the app makes are the assisted-GPS downloads you explicitly trigger, which go to u-blox so the device can get a fix faster.
+
+Built for riders who want to understand and repair their own kit.

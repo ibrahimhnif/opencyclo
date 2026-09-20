@@ -92,6 +92,9 @@ Full verified pinout is in the design doc and `src/config/pins.h`.
   [Android Bluetooth access](docs/android-bluetooth-access.md)
 - [Android release](docs/android-release.md) — upload keystore, Fastlane lanes,
   tagged GitHub Releases
+- [Publishing on Google Play](docs/play-console-setup.md) — console steps,
+  declarations, and the production-access gate
+- [Privacy policy](docs/privacy-policy.md) — what the app does with your data
 - Design specs in [`docs/superpowers/specs/`](docs/superpowers/specs/):
   firmware architecture, companion app and OTA, modular UI engine, map road
   names, phone GPS source

@@ -87,17 +87,21 @@ Required repository secrets (Settings → Secrets and variables → Actions):
 `workflow_dispatch` is also enabled, but it defaults to `github.ref_name`, so
 dispatch it from a tag or the version check will fail.
 
-## Google Play (later)
+## Google Play
 
-Not wired up yet — it needs a Google Play Console account, an app listing for
-`id.liostech.opencyclo`, and a Play service-account JSON with release
-permissions. Once those exist:
+The app exists in the Play Console as `id.liostech.opencyclo`, with the store
+listing drafted from `app/android/fastlane/metadata/android/en-US/`. See
+`docs/play-console-setup.md` for the console steps, the declarations and their
+answers, and the production-access gate.
+
+Uploading to the internal testing track needs a Play service-account JSON with
+release permissions on the app. Once that exists:
 
 ```sh
 cd app/android
 PLAY_STORE_JSON_KEY_PATH=~/play-service-account.json fastlane internal
 ```
 
-The `internal` lane uploads the existing bundle to the **internal testing**
-track and fails with a clear message when the JSON key is missing. A CI job for
-it should only run after that secret (`PLAY_STORE_JSON_KEY`) is added.
+From CI, run the **Play upload** workflow (`workflow_dispatch`) after adding the
+key as the `PLAY_STORE_JSON_KEY` repository secret; it builds the bundle itself.
+The `internal` lane fails with a clear message when the JSON key is missing.
