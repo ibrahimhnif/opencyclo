@@ -1,0 +1,60 @@
+name: Firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  firmware:
+    name: Build, native tests, host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: platformio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      # Also populates .pio/libdeps/esp32-s3-devkitc-1, which the GPS host test
+      # needs to compile TinyGPSPlus from source.
+      - name: Build firmware
+        run: pio run -e esp32-s3-devkitc-1
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencyclo-firmware-${{ github.sha }}
+          path: |
+            .pio/build/esp32-s3-devkitc-1/firmware.bin
+            .pio/build/esp32-s3-devkitc-1/firmware.elf
+            .pio/build/esp32-s3-devkitc-1/partitions.bin
+            .pio/build/esp32-s3-devkitc-1/bootloader.bin
+          if-no-files-found: error
+
+      - name: Native unit tests
+        run: pio test -e native
+
+      # Compile the production .cpp files against fake Arduino/ESP-IDF headers
+      # and run them on the host; no board is involved. Each runner exits
+      # non-zero on a compile error or a failed assert.
+      - name: Host tests
+        run: |
+          python3 tests/run_native_tests.py
+          python3 tests/run_navigation_tests.py
+          python3 tests/run_ride_tests.py
+          python3 tests/run_gps_tests.py
+          python3 tests/run_gps_cache_tests.py
+          python3 tests/run_gps_diagnostic_tests.py
+          python3 tests/run_csc_pairing_tests.py
+          python3 tests/test_offline_map.py
