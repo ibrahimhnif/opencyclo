@@ -1,3 +1,4 @@
+#include "storage/screenshot.h"
 #include "ble_layout_sync.h"
 #include "storage/layout_config.h"
 #include "storage/settings.h"
@@ -88,6 +89,9 @@ class DeviceCommandCallbacks : public NimBLECharacteristicCallbacks {
       Serial.println("[BLE CMD] Rebooting ESP32-S3 via App command...");
       delay(500);
       ESP.restart();
+    } else if (cmd == 0x05) { // Screenshot: the UI task captures its next frame to SD
+      requestScreenshot();
+      Serial.println("[BLE CMD] Screenshot requested via App command.");
     }
   }
 };

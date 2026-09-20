@@ -89,3 +89,15 @@ ERR export backpressure retries the window with a short delay. Flutter logs
 received/rejected packet counts and lengths to distinguish missing data from
 size mismatch. These changes require fresh app and firmware builds; tests do
 not establish success on the affected physical macOS link.
+
+## Screenshot download (0x16 / 0x17)
+
+The app's Device tab → "download screenshot" reuses this session protocol for
+the device's most recent screen capture (see README: Device tab → screenshot
+saves a 240×320 24-bit BMP to /screenshots). Command 0x16 (one byte) replies
+`SHOT <size> <name>` for the last file saved this boot, or `ERR no screenshot`.
+Command 0x17 has the same payload as 0x12 (uint32 size + name) and opens the
+file from /screenshots instead of /rides; names must end in .bmp and follow the
+ride-name character rules. Window reads (0x13) and close (0x14) are unchanged,
+as are the ride-idle and single-session guards. The app re-encodes the BMP as
+PNG on the phone before offering the save dialog.

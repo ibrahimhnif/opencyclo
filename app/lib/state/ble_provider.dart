@@ -1,3 +1,4 @@
+import '../core/ble/ble_protocol.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -140,6 +141,11 @@ class BleNotifier extends StateNotifier<BleState> {
           errorMessage: 'Failed to connect');
     }
   }
+
+  /// Asks the device to save its current screen to /screenshots on its SD
+  /// card. Fire-and-forget: the device shows the saved file name itself.
+  Future<void> requestScreenshot() =>
+      BleService.instance.sendCommand(BleProtocol.cmdScreenshot);
 
   Future<void> disconnect() async {
     await BleService.instance.disconnect();

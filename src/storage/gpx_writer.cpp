@@ -1,4 +1,5 @@
 #include "gpx_writer.h"
+#include "unique_path.h"
 #include <stdio.h>
 
 GpxWriter::GpxWriter() : _isOpen(false), _bufferCount(0), _pendingOffset(0), _closing(false) {
@@ -20,26 +21,12 @@ bool GpxWriter::openNewRideFile(uint16_t year, uint8_t month, uint8_t day, uint8
     if(!closeRideFile())return false;
   }
 
-  if (!SD_MMC.exists("/rides")) {
-    SD_MMC.mkdir("/rides");
-  }
-
-  if (year < 2020) {
-    snprintf(_filename, sizeof(_filename), "/rides/ride_%lu.gpx", millis() / 1000);
-  } else {
-    snprintf(_filename, sizeof(_filename), "/rides/%04u%02u%02u_%02u%02u%02u.gpx",
-             year, month, day, hour, minute, second);
-  }
-
   // Preserve earlier rides even when the clock is unavailable or repeated.
-  // FILE_WRITE truncates, so never open an existing path for a new ride.
-  char baseName[64];
-  snprintf(baseName, sizeof(baseName), "%s", _filename);
-  baseName[strlen(baseName) - 4] = '\0'; // remove .gpx
-  uint32_t suffix = 0;
-  while (SD_MMC.exists(_filename)) {
-    snprintf(_filename, sizeof(_filename), "%.48s_%lu.gpx", baseName, (unsigned long)++suffix);
-  }
+  storage::ensureDir("/rides");
+  char base[64];
+  storage::timestampedBase(base, sizeof(base), "/rides", "ride",
+                           year, month, day, hour, minute, second, millis() / 1000);
+  storage::nextFreePath(_filename, sizeof(_filename), base, ".gpx");
   _file = SD_MMC.open(_filename, FILE_WRITE);
   if (!_file) {
     Serial.printf("[GPX ERROR] Failed to create GPX file: %s\n", _filename);
@@ -55,7 +42,8 @@ bool GpxWriter::openNewRideFile(uint16_t year, uint8_t month, uint8_t day, uint8
   // Write GPX XML Header
   strcpy(_pending,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<gpx version=\"1.1\" creator=\"OpenCyclo Cycling Computer\""
-    " xmlns=\"http://www.topografix.com/GPX/1/1\">\n"
+    " xmlns=\"http://www.topografix.com/GPX/1/1\""
+    " xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\">\n"
     "  <metadata><name>OpenCyclo Ride</name></metadata>\n"
     "  <trk><name>OpenCyclo Track</name>\n    <trkseg>\n");
   if(!flushPending())return false;
@@ -85,7 +73,9 @@ bool GpxWriter::appendTrackPoint(const TelemetryState& state, uint16_t year, uin
 
   char timeTag[96]={0};
   char elevationTag[48]={0};
-  char extensionsTag[128]={0};
+  // Worst case is 149 chars: indent + both wrappers + hr/cad at int16 max.
+  // 128 used to cut the closing tags off every HR+cadence point.
+  char extensionsTag[192]={0};
   if(state.altitude_valid)snprintf(elevationTag,sizeof(elevationTag),"        <ele>%.1f</ele>\n",state.altitude_m);
   if(year>=2020 && month>=1 && month<=12 && day>=1 && day<=31)
     snprintf(timeTag,sizeof(timeTag),"        <time>%04u-%02u-%02uT%02u:%02u:%02uZ</time>\n",

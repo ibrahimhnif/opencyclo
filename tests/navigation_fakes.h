@@ -120,3 +120,9 @@ struct LGFX_Sprite : FakeCanvas {
   void pushSprite(FakeCanvas* dst,int x,int y){dst->lines+=lines;mapBlitX=x;mapBlitY=y;}
   void pushRotateZoom(FakeCanvas* dst,float x,float y,float,float,float){dst->lines+=lines;mapBlitX=int(x);mapBlitY=int(y);}
 };
+
+// ui/frame_present.h: the map renderer ends its frame here; capture is not under test.
+inline void presentFrame(){canvas.pushSprite(0,0);}
+// storage/screenshot.h: the control channel's "last screenshot" is whatever the test sets.
+extern const char* g_fakeLastScreenshot;
+inline const char* lastScreenshotPath(){return g_fakeLastScreenshot;}

@@ -8,6 +8,7 @@
 #include "ride_menu.h"
 #include <stdlib.h>
 #include "navigation/navigation.h"
+#include "ui/frame_present.h"
 
 static uint8_t currentPageIdx = 0;
 static uint8_t activePageDrawn = 255;
@@ -155,7 +156,7 @@ void uiTaskLoop(void* pvParameters) {
     // renderPage() above still only touch canvas, so without this the panel
     // would never see them. Measured at ~19-20ms on this hardware (240x320
     // RGB565, ~153KB) at the 80MHz SPI clock set in display.cpp.
-    canvas.pushSprite(0, 0);
+    presentFrame();
 
     if (forceRedraw) {
       forceRedraw = false;

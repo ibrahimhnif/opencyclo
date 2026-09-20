@@ -6,7 +6,7 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='opencyclo-nav-tests-') as temp:
     work=Path(temp)
-    for header in ['Arduino.h','NimBLEDevice.h','SD_MMC.h','storage/sd_access.h','core/telemetry_state.h','hardware/display.h']:
+    for header in ['Arduino.h','NimBLEDevice.h','SD_MMC.h','storage/sd_access.h','core/telemetry_state.h','hardware/display.h','ui/frame_present.h','storage/screenshot.h']:
         target=work/header;target.parent.mkdir(parents=True,exist_ok=True)
         target.write_text('#include "navigation_fakes.h"\n')
     binary=work/'navigation'

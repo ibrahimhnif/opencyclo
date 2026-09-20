@@ -10,6 +10,7 @@ import '../models/route_model.dart';
 import 'route_transfer.dart';
 import 'ride_download.dart';
 import 'ride_download_fast.dart';
+import 'screenshot_download.dart';
 import 'gps_assistance.dart';
 import 'gps_registration.dart';
 import 'gps_credentials.dart';
@@ -415,6 +416,27 @@ class BleService
     }
   }
 
+  /// Windowed binary export over the 0x1906 notifications. `openCommand`
+  /// picks the firmware folder: 0x12 for rides, 0x17 for screenshots.
+  Future<Uint8List> _fastExport(BluetoothCharacteristic export, SavedRide file,
+      void Function(double) progress,
+      {required int openCommand,
+      required String tag,
+      bool Function()? cancelled}) async {
+    await export.setNotifyValue(true);
+    try {
+      return await downloadRideFast(file, _routeCommand, export.onValueReceived,
+          connectedDevice?.mtuNow ?? 23, progress,
+          cancelled: cancelled,
+          openCommand: openCommand,
+          diagnostic: (message) => debugPrint('[$tag] $message'));
+    } finally {
+      try {
+        await export.setNotifyValue(false);
+      } catch (_) {}
+    }
+  }
+
   Future<Uint8List> exportRide(SavedRide ride, void Function(double) progress,
       {bool Function()? cancelled}) async {
     if (_routeBusy) throw StateError('Wait for transfer');
@@ -422,20 +444,33 @@ class BleService
     try {
       final export = _rideExportChar;
       if (export != null) {
-        await export.setNotifyValue(true);
-        try {
-          return await downloadRideFast(ride, _routeCommand,
-              export.onValueReceived, connectedDevice?.mtuNow ?? 23, progress,
-              cancelled: cancelled,
-              diagnostic: (message) => debugPrint('[GPX] $message'));
-        } finally {
-          try {
-            await export.setNotifyValue(false);
-          } catch (_) {}
-        }
+        return await _fastExport(export, ride, progress,
+            openCommand: 0x12, tag: 'GPX', cancelled: cancelled);
       }
       return await downloadRide(ride, _routeCommand, progress,
           cancelled: cancelled);
+    } finally {
+      _routeBusy = false;
+    }
+  }
+
+  /// The device's most recent screenshot as raw BMP bytes, with its name, or
+  /// null when it has none this boot. Same binary export session as rides.
+  Future<(SavedRide, Uint8List)?> exportLastScreenshot(
+      void Function(double) progress,
+      {bool Function()? cancelled}) async {
+    if (_routeBusy) throw StateError('Wait for transfer');
+    _routeBusy = true;
+    try {
+      final shot = await lastScreenshot(_routeCommand);
+      if (shot == null) return null;
+      final export = _rideExportChar;
+      if (export == null) {
+        throw StateError('Connect to a device with binary export firmware');
+      }
+      final bytes = await _fastExport(export, shot, progress,
+          openCommand: 0x17, tag: 'SHOT', cancelled: cancelled);
+      return (shot, bytes);
     } finally {
       _routeBusy = false;
     }

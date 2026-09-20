@@ -15,4 +15,11 @@ void main() {
     expect(find.text('device'), findsWidgets);
     expect(find.text('scan'), findsOneWidget);
   });
+
+  testWidgets('device tab offers a screenshot button', (WidgetTester tester) async {
+    await tester.pumpWidget(const ProviderScope(child: OpenCycloApp()));
+    // Rendered alongside sensor debug / assisted GPS; disabled until connected.
+    expect(find.text('screenshot'), findsOneWidget);
+    expect(find.text('download screenshot'), findsOneWidget);
+  });
 }

@@ -26,6 +26,7 @@ class BleProtocol {
   static const int cmdPauseRide    = 0x02;
   static const int cmdResetDefault = 0x03;
   static const int cmdReboot       = 0x04;
+  static const int cmdScreenshot   = 0x05; // UI task saves its next frame to SD
 
   // OTA Commands
   static const int otaCmdBegin = 0x01;

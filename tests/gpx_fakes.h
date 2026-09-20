@@ -28,6 +28,7 @@ class File {
   explicit operator bool() const { return content_ != nullptr; }
   size_t print(const char* value) { size_t n=std::min(writeLimit,strlen(value));content_->append(value,n);return n; }
   size_t println(const char* value) { return print(value) + print("\n"); }
+  size_t write(const uint8_t* buf, size_t len) { size_t n=std::min(writeLimit,len);content_->append(reinterpret_cast<const char*>(buf),n);return n; }
   template<typename... Args> void printf(const char* format, Args... args) {
     char buffer[512];
     snprintf(buffer, sizeof(buffer), format, args...);

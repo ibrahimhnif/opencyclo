@@ -1,3 +1,4 @@
+#include "ui/frame_present.h"
 #include "ride_menu.h"
 #include "ride_view.h"
 #include "hardware/display.h"
@@ -74,7 +75,7 @@ void render(const TelemetryState& s,const View& v) {
   char footer[39];snprintf(footer,sizeof(footer),"%.38s",hint);
   canvas.setFont(&fonts::Font0);canvas.setTextColor(muted,TFT_BLACK);
   canvas.drawString(footer,6,310);
-  canvas.pushSprite(0,0);
+  presentFrame();
 }
 void dispatch(Action action) {
   switch(action) {

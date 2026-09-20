@@ -32,6 +32,7 @@ void previewMapFixture() {
   raw=(const uint8_t*)box;bounds->bytes.insert(bounds->bytes.end(),raw,raw+sizeof(box));fs["/maps/coverage.bin"]=bounds;
 }
 
+const char* g_fakeLastScreenshot=nullptr;
 int main(int argc,char**){
   if(argc>1) {
     failMemory=true;
@@ -232,6 +233,30 @@ int main(int argc,char**){
   drawMapBackground(512,512,13);
   assert(drawMapBackground(0,0,13)==MapStatus::Missing);
   assert(drawMapBackground(nav::world,nav::world,13)==MapStatus::Missing);
+  // Last-screenshot download: 0x16 info, 0x17 opens the same fast-export session from /screenshots.
+  exportTestState().ride_state=RIDE_STATE_IDLE;exportTestState().ride_save=RIDE_SAVE_NONE;
+  control->write({0x16});assert(control->getValue()=="ERR no screenshot");
+  fs["/screenshots/20260920_083012.bmp"]=std::make_shared<FakeFile>();
+  fs["/screenshots/20260920_083012.bmp"]->bytes={'x','y','z'};
+  g_fakeLastScreenshot="/screenshots/20260920_083012.bmp";
+  control->write({0x16});assert(control->getValue()=="SHOT 3 20260920_083012.bmp");
+  std::vector<uint8_t> shotOpen{0x17,3,0,0,0};std::string shotName="20260920_083012.bmp";
+  shotOpen.insert(shotOpen.end(),shotName.begin(),shotName.end());
+  control->write(shotOpen);
+  const std::string opened=control->getValue();assert(opened.rfind("FAST ",0)==0);
+  assert(opened.substr(opened.find(' ',5)+1)=="3");
+  const uint32_t shotToken=uint32_t(std::stoul(opened.substr(5)));
+  const uint8_t t0=uint8_t(shotToken),t1=uint8_t(shotToken>>8),t2=uint8_t(shotToken>>16),t3=uint8_t(shotToken>>24);
+  fastData->notifications.clear();
+  control->write({0x13,t0,t1,t2,t3,0,0,0,0,12,0});
+  assert(control->getValue().rfind("BLOCK 0 3 ",0)==0);
+  assert(fastData->notifications.size()==1 && fastData->notifications[0].substr(8)=="xyz");
+  control->write({0x14,t0,t1,t2,t3});assert(control->getValue()=="OK closed");
+  // Ride names and traversal are rejected by the screenshot opener too.
+  shotOpen={0x17,3,0,0,0};shotName="test.gpx";shotOpen.insert(shotOpen.end(),shotName.begin(),shotName.end());
+  control->write(shotOpen);assert(control->getValue()=="ERR filename");
+  shotOpen={0x17,3,0,0,0};shotName="../20260920_083012.bmp";shotOpen.insert(shotOpen.end(),shotName.begin(),shotName.end());
+  control->write(shotOpen);assert(control->getValue()=="ERR filename");
   control->writeOnly(begin);
   detachNavigationService();service.chars.clear();
   tickRouteTransfer(); // Cleanup must not access characteristics deleted by BLE.

@@ -54,3 +54,6 @@ struct Canvas {
   }
 };
 extern Canvas canvas;
+
+// ui/frame_present.h: the ride menu ends its frame here; capture is not under test.
+inline void presentFrame() { canvas.pushSprite(0, 0); }

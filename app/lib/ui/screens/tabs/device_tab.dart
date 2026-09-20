@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/ble/ble_service.dart';
+import '../../../core/ble/save_ride_file.dart';
+import '../../../core/ble/screenshot_download.dart';
 import '../../../state/ble_provider.dart';
 import '../../../state/gps_source_provider.dart';
 import '../../../state/baro_source_provider.dart';
@@ -24,6 +27,34 @@ class DeviceTab extends ConsumerStatefulWidget {
 
 class _DeviceTabState extends ConsumerState<DeviceTab>
     with WidgetsBindingObserver {
+  bool _shotBusy = false;
+
+  /// Pulls the device's last screenshot over the ride export path and saves
+  /// it as PNG wherever the user picks, like a GPX export.
+  Future<void> _downloadScreenshot() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _shotBusy = true);
+    try {
+      final result = await BleService.instance.exportLastScreenshot((_) {});
+      if (result == null) {
+        messenger.showSnackBar(const SnackBar(
+            content: Text('no screenshot on the device yet: tap screenshot first')));
+        return;
+      }
+      final (shot, bmp) = result;
+      final png = await bmpToPng(bmp);
+      final name = shot.name.replaceAll(RegExp(r'\.bmp$'), '.png');
+      final path = await saveRideFile(name, png);
+      messenger.showSnackBar(SnackBar(
+          content: Text(path == null ? 'save cancelled' : 'saved $name')));
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('screenshot download failed: $e')));
+    } finally {
+      if (mounted) setState(() => _shotBusy = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -232,6 +263,27 @@ class _DeviceTabState extends ConsumerState<DeviceTab>
                   ? () => Navigator.of(context).push(MaterialPageRoute<void>(
                       builder: (_) => const GpsAssistanceScreen()))
                   : null),
+          const SizedBox(height: 8),
+          DeviceButton(
+              text: 'screenshot',
+              icon: Icons.screenshot_outlined,
+              color: AppTheme.cyan,
+              onPressed: connected
+                  ? () async {
+                      await bleNotifier.requestScreenshot();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          content: Text(
+                              'screenshot requested: saved to /screenshots on the device sd card')));
+                    }
+                  : null),
+          const SizedBox(height: 8),
+          DeviceButton(
+              text: 'download screenshot',
+              icon: Icons.download_outlined,
+              color: AppTheme.cyan,
+              busy: _shotBusy,
+              onPressed: connected && !_shotBusy ? _downloadScreenshot : null),
           const SizedBox(height: 16),
 
           DeviceSectionLabel(text: 'gps source'),

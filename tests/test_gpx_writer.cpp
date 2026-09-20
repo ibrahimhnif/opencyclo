@@ -98,6 +98,11 @@ int main() {
   auto sensorXml = SD_MMC.files[sensorPath];
   assert(sensorXml.find("<gpxtpx:hr>142</gpxtpx:hr>") != std::string::npos);
   assert(sensorXml.find("<gpxtpx:cad>88</gpxtpx:cad>") != std::string::npos);
+  // A 3-digit HR plus cadence line must not be cut by the formatting buffer:
+  // the extension block closes on its own line before </trkpt>.
+  assert(sensorXml.find("</gpxtpx:cad></gpxtpx:TrackPointExtension></extensions>\n      </trkpt>") != std::string::npos);
+  // The gpxtpx prefix is declared on the root, or namespace-aware parsers reject the file.
+  assert(sensorXml.find("xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\"") != std::string::npos);
   // Disconnected sensors (-1 sentinel) emit no extensions block at all.
   sensors.heart_rate_bpm = -1; sensors.cadence_rpm = -1;
   assert(writer.openNewRideFile(2026, 9, 18, 8, 1, 0));

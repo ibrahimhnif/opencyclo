@@ -7,7 +7,8 @@ import sys
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     work = Path(temp)
-    for header in ["Arduino.h", "freertos/FreeRTOS.h", "freertos/semphr.h", "hardware/display.h"]:
+    for header in ["Arduino.h", "freertos/FreeRTOS.h", "freertos/semphr.h", "hardware/display.h",
+                   "ui/frame_present.h"]:
         target = work / header
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('#include "ride_fakes.h"\n')

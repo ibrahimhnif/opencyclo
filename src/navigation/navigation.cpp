@@ -1,3 +1,5 @@
+#include "ui/frame_present.h"
+#include "storage/screenshot.h"
 #include "navigation.h"
 #include "map_renderer.h"
 #include "ui/ride_menu.h"
@@ -198,20 +200,29 @@ public:
     if(isPowerOffRequested()) { reply("ERR powering off");return; }
     const uint8_t op=uint8_t(v[0]);
     if(op==0x15 && v.size()==1){reply("CAPS 64");return;}
+    if(op==0x16 && v.size()==1){
+      const char* last=lastScreenshotPath();
+      File f=(last && last[0])?SD_MMC.open(last):File();
+      if(!f || f.isDirectory()){reply("ERR no screenshot");return;}
+      const char* slash=strrchr(last,'/');
+      char b[100];snprintf(b,sizeof(b),"SHOT %lu %s",(unsigned long)f.size(),slash?slash+1:last);
+      reply(b);return;
+    }
     if(op==0x14 && v.size()==5){
       if(exportFile && word(v,1)==exportToken){exportFile.close();endRouteSync();}
       reply("OK closed");return;
     }
-    if(op==0x12 && v.size()>5){
+    if((op==0x12 || op==0x17) && v.size()>5){ // 0x17: same session, /screenshots instead of /rides
+      const bool shot=op==0x17;
       auto state=getTelemetrySnapshot();
       if(exportFile || incoming || state.ride_state!=RIDE_STATE_IDLE ||
          state.ride_save==RIDE_SAVE_PENDING || state.ride_save==RIDE_SAVE_ERROR){
         reply("ERR finish ride and transfer first");return;
       }
       std::string name=v.substr(5);
-      if(!safeRideName(name)){reply("ERR filename");return;}
+      if(!(shot?safeScreenshotName(name):safeRideName(name))){reply("ERR filename");return;}
       if(!beginRouteSync()){reply("ERR update or shutdown busy");return;}
-      exportFile=SD_MMC.open((std::string("/rides/")+name).c_str());
+      exportFile=SD_MMC.open((std::string(shot?"/screenshots/":"/rides/")+name).c_str());
       if(!exportFile || exportFile.isDirectory() || !exportFile.size() ||
          exportFile.size()>32*1024*1024 || exportFile.size()!=word(v,1)){
         if(exportFile)exportFile.close();endRouteSync();reply("ERR file size");return;
@@ -695,5 +706,5 @@ void renderNavigation(const TelemetryState& state) {
     if(list){canvas.setTextColor(TFT_WHITE,bg);canvas.drawString(listLabels[i],r.x+36,r.y+18);}
   }
   label("(c) OpenStreetMap contributors",4,312,0x8410);
-  canvas.pushSprite(0,0);
+  presentFrame();
 }

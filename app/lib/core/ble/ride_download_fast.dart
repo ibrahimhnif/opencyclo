@@ -5,9 +5,13 @@ import 'ride_download.dart';
 
 /// Credit-based binary transfer: one command requests at most 16 notifications.
 /// Offset + session ID reject stale packets; each complete window has a CRC.
+/// `openCommand` selects the firmware folder: 0x12 opens /rides, 0x17 opens
+/// /screenshots. The window/close protocol is identical after that.
 Future<Uint8List> downloadRideFast(SavedRide ride, RideCommand command,
     Stream<List<int>> notifications, int mtu, void Function(double) progress,
-    {bool Function()? cancelled, void Function(String)? diagnostic}) async {
+    {bool Function()? cancelled,
+    void Function(String)? diagnostic,
+    int openCommand = 0x12}) async {
   if (ride.size <= 0 || ride.size > 32 * 1024 * 1024) {
     throw StateError('Ride is empty or exceeds 32 MB');
   }
@@ -43,7 +47,7 @@ Future<Uint8List> downloadRideFast(SavedRide ride, RideCommand command,
       // Previous binary-export firmware has no capability command.
       if (!e.toString().contains('ERR command')) rethrow;
     }
-    final open = await command(rideRequest(0x12, ride.size, ride.name));
+    final open = await command(rideRequest(openCommand, ride.size, ride.name));
     final match = RegExp(r'^FAST (\d+) (\d+)$').firstMatch(open);
     if (match == null) throw FormatException('Invalid export session: $open');
     token = int.parse(match[1]!);

@@ -41,6 +41,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
                        "src/ui/charging_screen.cpp"],
          ["-DPIN_USB_POWER_SENSE=2"]),
         ("gpx", ["tests/test_gpx_writer.cpp", "src/storage/gpx_writer.cpp"], []),
+        ("screenshot", ["tests/test_screenshot.cpp", "src/storage/screenshot.cpp"], []),
     ):
         binary = work / name
         subprocess.run([
