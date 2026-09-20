@@ -13,3 +13,9 @@ key.properties
 **/*.keystore
 **/*.jks
 **/*.p12
+
+# Rewritten by fastlane on every run.
+fastlane/README.md
+fastlane/report.xml
+fastlane/screenshots/
+fastlane/test_output/
