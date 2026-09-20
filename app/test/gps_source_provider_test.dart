@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:opencyclo_app/core/location/phone_gps_service.dart';
-import 'package:opencyclo_app/state/gps_source_provider.dart';
+import 'package:opencyclo/core/location/phone_gps_service.dart';
+import 'package:opencyclo/state/gps_source_provider.dart';
 
 class FakeGpsSourceBleChannel implements GpsSourceBleChannel {
   int? modeToReturnOnRead;

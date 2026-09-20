@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:opencyclo_app/core/ble/gps_cache.dart';
-import 'package:opencyclo_app/core/ble/gps_credentials.dart';
-import 'package:opencyclo_app/core/ble/gps_assistance.dart';
-import 'package:opencyclo_app/core/ble/gps_registration.dart';
+import 'package:opencyclo/core/ble/gps_cache.dart';
+import 'package:opencyclo/core/ble/gps_credentials.dart';
+import 'package:opencyclo/core/ble/gps_assistance.dart';
+import 'package:opencyclo/core/ble/gps_registration.dart';
 import 'gps_registration_test.dart' show identityBytes;
 
 Uint8List orbit(int day) {

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/save_ride_file.dart';
+import 'package:opencyclo/core/ble/save_ride_file.dart';
 
 class SavePicker extends FilePicker {
   String? destination;

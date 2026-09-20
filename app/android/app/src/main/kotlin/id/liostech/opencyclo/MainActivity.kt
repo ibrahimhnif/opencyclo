@@ -1,4 +1,4 @@
-package com.opencyclo.opencyclo_app
+package id.liostech.opencyclo
 
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine

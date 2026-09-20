@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/gps_assistance.dart';
+import 'package:opencyclo/core/ble/gps_assistance.dart';
 
 Uint8List frame(int id, int type, int length) {
   final f = Uint8List(length + 8);

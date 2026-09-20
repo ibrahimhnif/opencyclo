@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/ui/theme/app_theme.dart';
-import 'package:opencyclo_app/ui/widgets/device_ui.dart';
+import 'package:opencyclo/ui/theme/app_theme.dart';
+import 'package:opencyclo/ui/widgets/device_ui.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/ble_protocol.dart';
+import 'package:opencyclo/core/ble/ble_protocol.dart';
 
 void main() {
   test('encodePhoneGpsSample packs lat/lon/accuracy/seq/utc into 15 bytes', () {

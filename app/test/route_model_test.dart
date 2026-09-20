@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/models/route_model.dart';
+import 'package:opencyclo/core/models/route_model.dart';
 
 void main() {
   test('namespaced GPX produces firmware-compatible packet and checksum', () {

@@ -1,4 +1,4 @@
-name: opencyclo_app
+name: opencyclo
 description: "OpenCyclo BLE Companion and Wireless OTA Manager for Android & iOS"
 publish_to: 'none'
 version: 1.0.0+1

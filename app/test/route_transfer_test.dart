@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/route_transfer.dart';
-import 'package:opencyclo_app/core/models/route_model.dart';
+import 'package:opencyclo/core/ble/route_transfer.dart';
+import 'package:opencyclo/core/models/route_model.dart';
 
 void main() {
   test('worker BUSY is polled until ACK, including legacy immediate ACK',

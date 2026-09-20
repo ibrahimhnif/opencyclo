@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/ui/screens/gps_assistance_screen.dart';
+import 'package:opencyclo/ui/screens/gps_assistance_screen.dart';
 
 void main() {
   testWidgets(

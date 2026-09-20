@@ -764,7 +764,7 @@ Create `app/test/ble_protocol_gps_test.dart`:
 ```dart
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/ble_protocol.dart';
+import 'package:opencyclo/core/ble/ble_protocol.dart';
 
 void main() {
   test('encodePhoneGpsSample packs lat/lon/accuracy/seq into 11 bytes', () {
@@ -876,7 +876,7 @@ Create `app/test/phone_gps_service_test.dart`:
 ```dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:opencyclo_app/core/location/phone_gps_service.dart';
+import 'package:opencyclo/core/location/phone_gps_service.dart';
 
 Position _fakePosition(double lat, double lon, double accuracy) {
   return Position(
@@ -1126,8 +1126,8 @@ Create `app/test/gps_source_provider_test.dart`:
 ```dart
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/location/phone_gps_service.dart';
-import 'package:opencyclo_app/state/gps_source_provider.dart';
+import 'package:opencyclo/core/location/phone_gps_service.dart';
+import 'package:opencyclo/state/gps_source_provider.dart';
 
 class FakeGpsSourceBleChannel implements GpsSourceBleChannel {
   int? modeToReturnOnRead;

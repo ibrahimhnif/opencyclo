@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sensors_plus/sensors_plus.dart';
-import 'package:opencyclo_app/core/location/phone_baro_service.dart';
-import 'package:opencyclo_app/state/baro_source_provider.dart';
+import 'package:opencyclo/core/location/phone_baro_service.dart';
+import 'package:opencyclo/state/baro_source_provider.dart';
 
 class FakeBaroSourceBleChannel implements BaroSourceBleChannel {
   int? modeToReturnOnRead;

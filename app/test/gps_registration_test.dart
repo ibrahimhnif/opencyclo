@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/gps_assistance.dart';
-import 'package:opencyclo_app/core/ble/gps_registration.dart';
+import 'package:opencyclo/core/ble/gps_assistance.dart';
+import 'package:opencyclo/core/ble/gps_registration.dart';
 
 List<int> identityBytes() {
   final ver = Uint8List(78)..setAll(0, [0xb5, 0x62, 0x0a, 4, 70, 0]);

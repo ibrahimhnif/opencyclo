@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/ride_download_fast.dart';
-import 'package:opencyclo_app/core/ble/ride_download.dart';
-import 'package:opencyclo_app/core/models/route_model.dart';
+import 'package:opencyclo/core/ble/ride_download_fast.dart';
+import 'package:opencyclo/core/ble/ride_download.dart';
+import 'package:opencyclo/core/models/route_model.dart';
 
 void main() {
   for (final failure in [

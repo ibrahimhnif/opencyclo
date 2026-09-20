@@ -2,8 +2,8 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/models/layout_config_model.dart';
-import 'package:opencyclo_app/ui/widgets/device_preview.dart';
+import 'package:opencyclo/core/models/layout_config_model.dart';
+import 'package:opencyclo/ui/widgets/device_preview.dart';
 
 void main() {
   test('preview slot rectangles exactly match current C++ templates', () {

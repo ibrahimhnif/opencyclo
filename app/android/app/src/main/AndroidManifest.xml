@@ -11,7 +11,7 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <application
         android:allowBackup="false"
-        android:label="opencyclo_app"
+        android:label="OpenCyclo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

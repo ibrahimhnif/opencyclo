@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:opencyclo_app/core/location/phone_gps_service.dart';
+import 'package:opencyclo/core/location/phone_gps_service.dart';
 
 Position _fakePosition(double lat, double lon, double accuracy) {
   return Position(

@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.opencyclo" "\0"
-            VALUE "FileDescription", "opencyclo_app" "\0"
+            VALUE "CompanyName", "Liostech" "\0"
+            VALUE "FileDescription", "OpenCyclo" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "opencyclo_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.opencyclo. All rights reserved." "\0"
-            VALUE "OriginalFilename", "opencyclo_app.exe" "\0"
-            VALUE "ProductName", "opencyclo_app" "\0"
+            VALUE "InternalName", "opencyclo" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Liostech. All rights reserved." "\0"
+            VALUE "OriginalFilename", "opencyclo.exe" "\0"
+            VALUE "ProductName", "OpenCyclo" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

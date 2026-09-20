@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_compass/flutter_compass.dart';
-import 'package:opencyclo_app/core/location/phone_compass_service.dart';
-import 'package:opencyclo_app/state/compass_source_provider.dart';
+import 'package:opencyclo/core/location/phone_compass_service.dart';
+import 'package:opencyclo/state/compass_source_provider.dart';
 
 class FakeCompassSourceBleChannel implements CompassSourceBleChannel {
   int? modeToReturnOnRead;

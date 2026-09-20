@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/models/layout_config_model.dart';
+import 'package:opencyclo/core/models/layout_config_model.dart';
 
 /// Guards the app against emitting a layout the firmware will refuse.
 ///

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:opencyclo_app/main.dart';
+import 'package:opencyclo/main.dart';
 
 void main() {
   testWidgets('OpenCyclo App smoke test', (WidgetTester tester) async {

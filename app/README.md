@@ -1,4 +1,4 @@
-# opencyclo_app
+# opencyclo
 
 A new Flutter project.
 

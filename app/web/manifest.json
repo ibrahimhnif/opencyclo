@@ -1,11 +1,11 @@
 {
-    "name": "opencyclo_app",
-    "short_name": "opencyclo_app",
+    "name": "OpenCyclo",
+    "short_name": "OpenCyclo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#000000",
     "theme_color": "#000000",
-    "description": "A new Flutter project.",
+    "description": "OpenCyclo BLE Companion and Wireless OTA Manager for Android & iOS",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

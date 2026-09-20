@@ -4,9 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/models/route_model.dart';
-import 'package:opencyclo_app/ui/screens/tabs/routes_tab.dart';
-import 'package:opencyclo_app/ui/theme/app_theme.dart';
+import 'package:opencyclo/core/models/route_model.dart';
+import 'package:opencyclo/ui/screens/tabs/routes_tab.dart';
+import 'package:opencyclo/ui/theme/app_theme.dart';
 
 void main() {
   for (final selection in ['cancel', 'oversized', 'unreadable']) {

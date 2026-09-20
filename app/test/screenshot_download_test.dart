@@ -2,9 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/ride_download.dart';
-import 'package:opencyclo_app/core/ble/ride_download_fast.dart';
-import 'package:opencyclo_app/core/ble/screenshot_download.dart';
+import 'package:opencyclo/core/ble/ride_download.dart';
+import 'package:opencyclo/core/ble/ride_download_fast.dart';
+import 'package:opencyclo/core/ble/screenshot_download.dart';
 
 /// 2x1 24-bit bottom-up BMP: left pixel red, right pixel blue. Rows are
 /// B,G,R and padded to 4 bytes (6 -> 8), so the file is 54 + 8 bytes.

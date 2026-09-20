@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opencyclo_app/core/ble/ble_access.dart';
-import 'package:opencyclo_app/state/ble_provider.dart';
+import 'package:opencyclo/core/ble/ble_access.dart';
+import 'package:opencyclo/state/ble_provider.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 void main() {
