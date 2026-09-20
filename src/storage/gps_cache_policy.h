@@ -22,7 +22,8 @@ inline bool validate(const uint8_t* p,size_t n,uint32_t& first,uint32_t& last) {
     if(f[0]!=0xb5 || f[1]!=0x62 || f[2]!=0x13 || f[3]!=0x20 || f[4]!=76 || f[5] || f[6] || f[7] || (f[9]!=0 && f[9]!=2))return false;
     uint8_t a=0,b=0;for(unsigned j=2;j<82;j++){a+=f[j];b+=a;}
     const uint32_t date=day(f);if(!date || a!=f[82] || b!=f[83])return false;
-    if(date<first)first=date;if(date>last)last=date;
+    if(date<first)first=date;
+    if(date>last)last=date;
   }
   return last-first<=6; // seven calendar days, no timeless or arbitrary UBX cache
 }

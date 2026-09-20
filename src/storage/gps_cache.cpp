@@ -107,7 +107,8 @@ void gpsCacheStorageTick(bool mounted) {
     for(int s=0;s<2;s++) {
       uint32_t n,stamp,a,b;
       if(loadSlot(s,temp,n,stamp,a,b) && (slot<0 || stamp>created)) {
-        if(!active)active=allocate();if(!active){free(temp);status=7;return;}
+        if(!active)active=allocate();
+        if(!active){free(temp);status=7;return;}
         memcpy(active,temp,n);size=n;created=stamp;first=a;last=b;slot=s;
       }
     }
@@ -127,7 +128,8 @@ void gpsCacheStorageTick(bool mounted) {
     ok=ok && check && loadSlot(target,check,n,stamp,x,y) && n==expected && stamp==generation;
     if(check)free(check);
     if(!ok){error(4);return;}
-    if(active)free(active);active=incoming;incoming=nullptr;
+    if(active)free(active);
+    active=incoming;incoming=nullptr;
     size=expected;first=a;last=b;slot=target;created=generation;loaded=true;appliedDay=attemptDay=0;transfer=3;
   }
 }
