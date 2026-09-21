@@ -55,6 +55,10 @@ This specification defines the architecture for:
 - **Characteristic 1: Layout Config (`UUID: 00001901-...`)**:
   - **Properties**: Read, Write, Notify
   - **Payload**: JSON string describing `UiConfig` (pages, templates, assigned widget IDs).
+  - Every write is answered on the notify leg with `OK` or `ERR`; the app
+    reports a sync as successful only after `OK`. A read of a layout too large
+    for the firmware's 1024-byte export buffer returns an empty value rather
+    than the previous layout.
 - **Characteristic 2: Live Telemetry (`UUID: 00001902-...`)**:
   - **Properties**: Notify
   - **Payload (Binary 24-byte packet)**:
@@ -72,23 +76,34 @@ This specification defines the architecture for:
     - `uint8_t ride_state` (0: IDLE, 1: ACTIVE, 2: PAUSED)
 - **Characteristic 3: Device Commands (`UUID: 00001903-...`)**:
   - **Properties**: Write
-  - **Commands**: `0x01` Start Ride, `0x02` Pause Ride, `0x03` Reset Defaults, `0x04` Reboot Device.
+  - **Commands**: `0x01` Start Ride, `0x02` Pause Ride, `0x03` Reset Defaults, `0x04` Reboot Device, `0x05` Screenshot to SD.
+  - Write-only: the firmware has no reply channel here, so the app cannot
+    confirm that a command landed.
 
 ### 3.3 OpenCyclo OTA Service (`UUID: 00001910-0000-1000-8000-00805F9B34FB`)
 - **Characteristic 1: OTA Control (`UUID: 00001911-...`)**:
   - **Properties**: Write, Notify
   - **Control Commands**:
-    - `0x01 [4-byte uint32 size] [16-byte MD5]`: Begin OTA update
-    - `0x02`: End OTA & verify checksum
+    - `0x01 [4-byte uint32 size]`: Begin OTA update
+    - `0x02`: End OTA & verify the image
     - `0x03`: Abort OTA
-  - **Status Notifications**:
-    - `0x00`: Ready / Idle
-    - `0x01`: In Progress (ACK chunk)
-    - `0x02`: Flash Complete, Rebooting
-    - `0xFF [error code]`: OTA Error (Size mismatch, Checksum fail, Write error)
+  - **Status Notifications**, exactly one per accepted control write:
+    - `0x00 0x00`: Client abort acknowledged
+    - `0x01 0x00`: Ready for data (BEGIN accepted)
+    - `0x02 0x00`: Image committed, rebooting
+    - `0xFF [code]`: Failure. `code` is `Update.getError()`, or one of the
+      reserved reasons in `src/hardware/ble_ota_handler.h`: `0xFE` busy, `0xFB`
+      no update in progress, `0xFA` byte-count/overrun mismatch, `0xF9` short
+      write.
+  - No MD5 trailer is sent. This section originally specified a 16-byte MD5
+    after the size; neither the firmware nor the app ever implemented it.
+    Integrity comes from the ESP32 image header that `Update.end(true)` validates.
 - **Characteristic 2: OTA Data (`UUID: 00001912-...`)**:
   - **Properties**: Write Without Response
-  - **Payload**: Binary firmware chunk (up to 490 bytes per packet under MTU 512).
+  - **Payload**: Binary firmware chunk. The app sizes each chunk from the
+    negotiated MTU (`mtuNow - 3`, capped at 480, so 480 only on Android's
+    512-byte MTU); the firmware aborts if a stream would exceed the size
+    declared in BEGIN.
 
 ---
 
@@ -140,7 +155,7 @@ app/
 1. **Device Discovery & Auto-Reconnect**: Discovers `"OpenCyclo-GPS"` devices and establishes MTU 512 connection.
 2. **Visual Page Builder**: Select page, choose grid template (`Hero 6-Grid`, `4-Grid`, `2-Grid + Chart`, `8-Grid`), customize slots with 18 data widgets, and tap **"Sync to OpenCyclo"**.
 3. **Live Dashboard**: Real-time telemetry monitoring with high-contrast widgets.
-4. **Wireless OTA Flasher**: File picker to select `firmware.bin`, streams chunks with progress percentage, verifies MD5, and reboots ESP32-S3 upon completion.
+4. **Wireless OTA Flasher**: File picker to select `firmware.bin`, streams MTU-sized chunks with progress percentage, and reports success only after the device's own BEGIN/END replies on 0x1911 confirm it.
 
 ---
 

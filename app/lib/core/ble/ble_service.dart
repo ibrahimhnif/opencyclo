@@ -131,55 +131,82 @@ class BleService
         }
       }
 
-      // Discover Services
+      // Discover Services. Match the full UUIDs from BleProtocol rather than
+      // digit substrings: a substring match silently binds to any unrelated
+      // service/characteristic whose UUID text happens to contain "1901".."190f".
       final services = await device.discoverServices();
       for (final service in services) {
         final sUuid = service.uuid.toString().toLowerCase();
-        if (sUuid.contains("1900")) {
+        if (sUuid == BleProtocol.openCycloServiceUuid) {
           for (final char in service.characteristics) {
-            final uuid = char.uuid.toString().toLowerCase();
-            if (uuid.contains("1901")) {
-              _layoutChar = char;
-            } else if (uuid.contains("1902")) {
-              await _subscribeTelemetry(char);
-            } else if (uuid.contains("1903")) {
-              _commandChar = char;
-            } else if (uuid.contains("1904")) {
-              _routeControlChar = char;
-            } else if (uuid.contains("1905")) {
-              _routeDataChar = char;
-            } else if (uuid.contains("1906")) {
-              _rideExportChar = char;
-            } else if (uuid.contains("1907")) {
-              _gpsAssistanceChar = char;
-            } else if (uuid.contains("1908")) {
-              _gpsIdentityChar = char;
-            } else if (uuid.contains("1909")) {
-              _gpsCacheChar = char;
-            } else if (uuid.contains("190a")) {
-              _phoneGpsChar = char;
-            } else if (uuid.contains("190b")) {
-              _gpsSourceModeChar = char;
-              await _subscribeGpsSourceMode(char);
-            } else if (uuid.contains("190c")) {
-              _phoneBaroChar = char;
-            } else if (uuid.contains("190d")) {
-              _phoneCompassChar = char;
-            } else if (uuid.contains("190e")) {
-              _baroSourceModeChar = char;
-              await _subscribeModeChar(char, _baroSourceModeController);
-            } else if (uuid.contains("190f")) {
-              _compassSourceModeChar = char;
-              await _subscribeModeChar(char, _compassSourceModeController);
+            switch (char.uuid.toString().toLowerCase()) {
+              case BleProtocol.layoutConfigCharUuid:
+                _layoutChar = char;
+                // The device answers every layout write with OK/ERR on this
+                // characteristic's notify leg; without the subscription a
+                // rejected layout still looks like a successful sync.
+                await char.setNotifyValue(true);
+                break;
+              case BleProtocol.telemetryStreamCharUuid:
+                await _subscribeTelemetry(char);
+                break;
+              case BleProtocol.deviceCommandCharUuid:
+                _commandChar = char;
+                break;
+              case BleProtocol.routeControlCharUuid:
+                _routeControlChar = char;
+                break;
+              case BleProtocol.routeDataCharUuid:
+                _routeDataChar = char;
+                break;
+              case BleProtocol.exportCharUuid:
+                _rideExportChar = char;
+                break;
+              case BleProtocol.gpsAssistanceCharUuid:
+                _gpsAssistanceChar = char;
+                break;
+              case BleProtocol.gpsIdentityCharUuid:
+                _gpsIdentityChar = char;
+                break;
+              case BleProtocol.gpsCacheCharUuid:
+                _gpsCacheChar = char;
+                break;
+              case BleProtocol.phoneGpsCharUuid:
+                _phoneGpsChar = char;
+                break;
+              case BleProtocol.gpsSourceModeCharUuid:
+                _gpsSourceModeChar = char;
+                await _subscribeGpsSourceMode(char);
+                break;
+              case BleProtocol.phoneBaroCharUuid:
+                _phoneBaroChar = char;
+                break;
+              case BleProtocol.phoneCompassCharUuid:
+                _phoneCompassChar = char;
+                break;
+              case BleProtocol.baroSourceModeCharUuid:
+                _baroSourceModeChar = char;
+                await _subscribeModeChar(char, _baroSourceModeController);
+                break;
+              case BleProtocol.compassSourceModeCharUuid:
+                _compassSourceModeChar = char;
+                await _subscribeModeChar(char, _compassSourceModeController);
+                break;
             }
           }
-        } else if (sUuid.contains("1910")) {
+        } else if (sUuid == BleProtocol.otaServiceUuid) {
           for (final char in service.characteristics) {
-            final uuid = char.uuid.toString().toLowerCase();
-            if (uuid.contains("1911")) {
-              _otaControlChar = char;
-            } else if (uuid.contains("1912")) {
-              _otaDataChar = char;
+            switch (char.uuid.toString().toLowerCase()) {
+              case BleProtocol.otaControlCharUuid:
+                _otaControlChar = char;
+                // Every OTA control write is answered with a {status, code}
+                // notification; without this subscription the flasher cannot
+                // tell a rejected update from a successful one.
+                await char.setNotifyValue(true);
+                break;
+              case BleProtocol.otaDataCharUuid:
+                _otaDataChar = char;
+                break;
             }
           }
         }
@@ -216,9 +243,11 @@ class BleService
   Future<void> _subscribeTelemetry(BluetoothCharacteristic char) async {
     await char.setNotifyValue(true);
     char.lastValueStream.listen((value) {
-      if (value.isNotEmpty) {
-        final model = TelemetryModel.fromBytes(value);
-        _telemetryController.add(model);
+      if (value.isEmpty) return;
+      try {
+        _telemetryController.add(TelemetryModel.fromBytes(value));
+      } on FormatException catch (e) {
+        debugPrint('[BLE ERROR] Dropping malformed telemetry packet: $e');
       }
     });
   }
@@ -239,6 +268,27 @@ class BleService
   }
 
   // --- LAYOUT CONFIGURATION SYNC ---
+
+  /// Writes [payload] and waits for the single reply the firmware sends on the
+  /// same characteristic's notify leg (0x1901 layout OK/ERR, 0x1911 OTA
+  /// result). Both callers are one-shot and serialised, so one outstanding
+  /// request at a time is enough.
+  Future<List<int>> _writeForAck(
+    BluetoothCharacteristic char,
+    List<int> payload, {
+    required String what,
+    bool allowLongWrite = false,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final reply = char.lastValueStream.first.timeout(
+          timeout,
+          onTimeout: () => throw StateError('$what: no reply from the device'),
+        );
+    await char.write(payload,
+        withoutResponse: false, allowLongWrite: allowLongWrite);
+    return reply;
+  }
+
   Future<GpsIdentity> _readCurrentGpsIdentity() async {
     final c = _gpsIdentityChar;
     if (c == null) {
@@ -378,11 +428,20 @@ class BleService
   }
 
   Future<bool> sendLayoutConfig(UiConfigModel config) async {
-    if (_layoutChar == null) return false;
+    final c = _layoutChar;
+    if (c == null) return false;
     try {
-      final jsonStr = config.toJsonString();
-      final bytes = utf8.encode(jsonStr);
-      await _layoutChar!.write(bytes, withoutResponse: false);
+      final bytes = utf8.encode(config.toJsonString());
+      // allowLongWrite, matching _routeCommand: without it the platform layer
+      // rejects anything longer than MTU-3 before it reaches the device, which
+      // Android's 512-byte MTU hides and iOS/macOS do not.
+      final reply = await _writeForAck(c, bytes,
+          what: 'Layout sync', allowLongWrite: true);
+      final text = utf8.decode(reply, allowMalformed: true);
+      if (text != 'OK') {
+        debugPrint('[BLE ERROR] Device rejected layout: $text');
+        return false;
+      }
       return true;
     } catch (e) {
       debugPrint("[BLE ERROR] Failed to write layout: $e");
@@ -659,7 +718,9 @@ class BleService
     if (_routeBusy) {
       throw StateError('Wait for the route transfer before updating firmware');
     }
-    if (_otaControlChar == null || _otaDataChar == null) {
+    final control = _otaControlChar;
+    final data = _otaDataChar;
+    if (control == null || data == null) {
       throw Exception(
           "OTA GATT characteristics not found on connected device.");
     }
@@ -667,37 +728,62 @@ class BleService
     final int totalBytes = firmwareBytes.length;
     yield 0.0;
 
-    // Step 1: Send Begin Command (0x01 + 4-byte size)
-    final beginPayload = ByteData(5);
-    beginPayload.setUint8(0, BleProtocol.otaCmdBegin);
-    beginPayload.setUint32(1, totalBytes, Endian.little);
+    try {
+      // Step 1: Send Begin Command (0x01 + 4-byte size) and wait for the
+      // device's ready/failed reply on 0x1911 before streaming anything.
+      final beginPayload = ByteData(5);
+      beginPayload.setUint8(0, BleProtocol.otaCmdBegin);
+      beginPayload.setUint32(1, totalBytes, Endian.little);
 
-    await _otaControlChar!
-        .write(beginPayload.buffer.asUint8List(), withoutResponse: false);
-    await Future.delayed(const Duration(milliseconds: 200));
+      final begin = await _writeForAck(
+          control, beginPayload.buffer.asUint8List(),
+          what: 'Firmware update begin');
+      if (begin.isEmpty || begin[0] != BleProtocol.otaStatusReady) {
+        throw Exception('Device refused the update: ${describeOtaFailure(begin)}');
+      }
 
-    // Step 2: Stream binary chunks (480 bytes per packet)
-    const int chunkSize = 480;
-    int offset = 0;
+      // Step 2: Stream binary chunks, sized from the negotiated MTU rather than
+      // a constant: 480 bytes only fits the Android 512-byte MTU, and on
+      // iOS/macOS the platform rejects larger-than-MTU payloads before they
+      // ever reach the radio.
+      final int chunkSize = ((connectedDevice?.mtuNow ?? 23) - 3).clamp(1, 480);
+      int offset = 0;
 
-    while (offset < totalBytes) {
-      final int end =
-          (offset + chunkSize < totalBytes) ? offset + chunkSize : totalBytes;
-      final chunk = firmwareBytes.sublist(offset, end);
+      while (offset < totalBytes) {
+        final int end =
+            (offset + chunkSize < totalBytes) ? offset + chunkSize : totalBytes;
+        final chunk = firmwareBytes.sublist(offset, end);
 
-      await _otaDataChar!.write(chunk, withoutResponse: true);
-      offset = end;
+        await data.write(chunk, withoutResponse: true);
+        offset = end;
 
-      final progress = offset / totalBytes;
-      yield progress;
+        final progress = offset / totalBytes;
+        yield progress;
 
-      // Small throttle to avoid buffer congestion
-      await Future.delayed(const Duration(milliseconds: 8));
+        // Small throttle to avoid buffer congestion
+        await Future.delayed(const Duration(milliseconds: 8));
+      }
+
+      // Step 3: Send End Command (0x02) to verify & reboot. The device only
+      // commits after this reply; a byte-count mismatch or a failed
+      // Update.end arrives here as 0xFF.
+      final end = await _writeForAck(
+          control, [BleProtocol.otaCmdEnd],
+          what: 'Firmware update finalize',
+          timeout: const Duration(seconds: 30));
+      if (end.isEmpty || end[0] != BleProtocol.otaStatusDone) {
+        throw Exception('Device rejected the firmware image: ${describeOtaFailure(end)}');
+      }
+      yield 1.0;
+    } catch (e) {
+      // Best effort: an aborted stream must not leave the device holding the
+      // update slot until it disconnects.
+      try {
+        await control.write([BleProtocol.otaCmdAbort], withoutResponse: false);
+      } catch (_) {
+        // The link may already be gone; the original error is what matters.
+      }
+      rethrow;
     }
-
-    // Step 3: Send End Command (0x02) to verify & reboot
-    await _otaControlChar!
-        .write([BleProtocol.otaCmdEnd], withoutResponse: false);
-    yield 1.0;
   }
 }

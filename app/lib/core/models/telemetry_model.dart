@@ -31,7 +31,13 @@ class TelemetryModel {
   });
 
   factory TelemetryModel.fromBytes(List<int> bytes) {
-    if (bytes.length < 24) return const TelemetryModel();
+    // A short packet used to be replaced by a default (plausible-looking)
+    // model: "IDLE ride, 100% battery, 0 km/h". Reject it instead so the
+    // caller can drop the sample and log it.
+    if (bytes.length < 24) {
+      throw FormatException(
+          'telemetry packet must be 24 bytes, got ${bytes.length}');
+    }
 
     final data = ByteData.sublistView(Uint8List.fromList(bytes));
 

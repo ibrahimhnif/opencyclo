@@ -10,6 +10,24 @@ static size_t otaTotalBytes = 0;
 static size_t otaWrittenBytes = 0;
 static bool otaInProgress = false;
 
+// Every control write must produce exactly one reply, otherwise the app (which
+// waits for it) cannot distinguish a rejected update from a successful one.
+static void notifyOtaResult(uint8_t status, uint8_t code) {
+  if (pOtaControlChar == nullptr) return;
+  uint8_t resp[2] = {status, code};
+  pOtaControlChar->setValue(resp, 2);
+  pOtaControlChar->notify();
+}
+
+// Fatal mid-stream failure: release the update slot and tell the client why,
+// so its final END cannot be mistaken for a successful flash.
+static void abortOtaWithError(uint8_t code) {
+  Update.abort();
+  otaInProgress = false;
+  endFirmwareUpdate();
+  notifyOtaResult(0xFF, code);
+}
+
 void abortBleOtaOnDisconnect() {
   // Invoked on the same NimBLE host task as the OTA write callbacks.
   if (!otaInProgress) return;
@@ -29,9 +47,7 @@ class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
     // CMD 0x01: BEGIN OTA (Payload: 1 byte cmd + 4 bytes totalSize)
     if (cmd == 0x01 && val.length() >= 5) {
       if (!beginFirmwareUpdate()) {
-        uint8_t resp[2] = {0xFF, 0xFE}; // busy: OTA or shutdown already owns power
-        pChar->setValue(resp, 2);
-        pChar->notify();
+        notifyOtaResult(0xFF, OTA_ERR_BUSY); // OTA or shutdown already owns power
         return;
       }
       uint32_t size = 0;
@@ -42,36 +58,42 @@ class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
       Serial.printf("[BLE OTA] Starting OTA update, size: %u bytes...\n", (unsigned int)size);
       if (!Update.begin(otaTotalBytes, U_FLASH)) {
         Serial.printf("[BLE OTA] Update.begin failed: %s\n", Update.errorString());
-        uint8_t resp[2] = {0xFF, (uint8_t)Update.getError()};
-        pChar->setValue(resp, 2);
-        pChar->notify();
+        notifyOtaResult(0xFF, (uint8_t)Update.getError());
         otaInProgress = false;
         endFirmwareUpdate();
         return;
       }
 
       otaInProgress = true;
-      uint8_t resp[2] = {0x01, 0x00}; // ACK Ready for data
-      pChar->setValue(resp, 2);
-      pChar->notify();
+      notifyOtaResult(0x01, 0x00); // ACK Ready for data
     }
     // CMD 0x02: END OTA & REBOOT
-    else if (cmd == 0x02 && otaInProgress) {
+    else if (cmd == 0x02) {
+      // Without this reply an END after a mid-stream abort produced no answer
+      // at all, and the client sat on its timeout.
+      if (!otaInProgress) {
+        Serial.println("[BLE OTA] END with no update in progress.");
+        notifyOtaResult(0xFF, OTA_ERR_NO_UPDATE);
+        return;
+      }
       Serial.printf("[BLE OTA] Finalizing OTA, written %u/%u bytes...\n",
                     (unsigned int)otaWrittenBytes, (unsigned int)otaTotalBytes);
 
+      // A stream that lost bytes must not be committed as if it were complete.
+      if (otaWrittenBytes != otaTotalBytes) {
+        Serial.println("[BLE OTA] Byte count mismatch; refusing to commit.");
+        abortOtaWithError(OTA_ERR_OVERRUN);
+        return;
+      }
+
       if (Update.end(true)) {
         Serial.println("[BLE OTA] OTA Update successful! Rebooting in 1 second...");
-        uint8_t resp[2] = {0x02, 0x00}; // Flash success
-        pChar->setValue(resp, 2);
-        pChar->notify();
+        notifyOtaResult(0x02, 0x00); // Flash success
         delay(1000);
         ESP.restart();
       } else {
         Serial.printf("[BLE OTA] Update.end failed: %s\n", Update.errorString());
-        uint8_t resp[2] = {0xFF, (uint8_t)Update.getError()};
-        pChar->setValue(resp, 2);
-        pChar->notify();
+        notifyOtaResult(0xFF, (uint8_t)Update.getError());
       }
       otaInProgress = false;
       endFirmwareUpdate();
@@ -82,9 +104,7 @@ class OtaControlCallbacks : public NimBLECharacteristicCallbacks {
       Update.abort();
       otaInProgress = false;
       endFirmwareUpdate();
-      uint8_t resp[2] = {0x00, 0x00};
-      pChar->setValue(resp, 2);
-      pChar->notify();
+      notifyOtaResult(0x00, 0x00);
     }
   }
 };
@@ -97,11 +117,23 @@ class OtaDataCallbacks : public NimBLECharacteristicCallbacks {
     size_t len = val.length();
     if (len == 0) return;
 
+    // The BEGIN command declared otaTotalBytes. Anything past that is a client
+    // bug (wrong chunk size, restarted stream) and must abort rather than
+    // silently writing a corrupt image, since the client cannot see the
+    // short-write counter otherwise.
+    if (otaWrittenBytes + len > otaTotalBytes) {
+      Serial.printf("[BLE OTA] Overrun: %u + %u > %u, aborting.\n",
+                    (unsigned int)otaWrittenBytes, (unsigned int)len, (unsigned int)otaTotalBytes);
+      abortOtaWithError(OTA_ERR_OVERRUN);
+      return;
+    }
+
     size_t written = Update.write((uint8_t*)val.data(), len);
     otaWrittenBytes += written;
 
     if (written != len) {
       Serial.printf("[BLE OTA] Write error: expected %u, wrote %u\n", (unsigned int)len, (unsigned int)written);
+      abortOtaWithError(OTA_ERR_SHORT_WRITE);
     }
   }
 };

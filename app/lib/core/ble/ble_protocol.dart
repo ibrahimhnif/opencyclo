@@ -10,6 +10,12 @@ class BleProtocol {
   static const String layoutConfigCharUuid    = "00001901-0000-1000-8000-00805f9b34fb";
   static const String telemetryStreamCharUuid = "00001902-0000-1000-8000-00805f9b34fb";
   static const String deviceCommandCharUuid   = "00001903-0000-1000-8000-00805f9b34fb";
+  static const String routeControlCharUuid    = "00001904-0000-1000-8000-00805f9b34fb";
+  static const String routeDataCharUuid       = "00001905-0000-1000-8000-00805f9b34fb";
+  static const String exportCharUuid          = "00001906-0000-1000-8000-00805f9b34fb";
+  static const String gpsAssistanceCharUuid   = "00001907-0000-1000-8000-00805f9b34fb";
+  static const String gpsIdentityCharUuid     = "00001908-0000-1000-8000-00805f9b34fb";
+  static const String gpsCacheCharUuid        = "00001909-0000-1000-8000-00805f9b34fb";
   static const String phoneGpsCharUuid        = "0000190a-0000-1000-8000-00805f9b34fb";
   static const String gpsSourceModeCharUuid   = "0000190b-0000-1000-8000-00805f9b34fb";
   static const String phoneBaroCharUuid       = "0000190c-0000-1000-8000-00805f9b34fb";
@@ -32,6 +38,19 @@ class BleProtocol {
   static const int otaCmdBegin = 0x01;
   static const int otaCmdEnd   = 0x02;
   static const int otaCmdAbort = 0x03;
+
+  // OTA control replies arrive on the 0x1911 notify leg as {status, code}:
+  // status 0x01 = ready for data, 0x02 = committed, 0x00 = aborted by client,
+  // 0xFF = failure. Mirrors the OTA_ERR_* reasons in
+  // firmware `src/hardware/ble_ota_handler.h`.
+  static const int otaStatusReady   = 0x01;
+  static const int otaStatusDone    = 0x02;
+  static const int otaStatusAborted = 0x00;
+  static const int otaStatusFailed  = 0xFF;
+  static const int otaErrBusy       = 0xFE;
+  static const int otaErrNoUpdate   = 0xFB;
+  static const int otaErrOverrun    = 0xFA;
+  static const int otaErrShortWrite = 0xF9;
 
   // GPS Source Modes (0x190B payload)
   static const int gpsSourceHardware    = 0x00;
@@ -82,4 +101,24 @@ Uint8List encodePhoneHeadingSample(double headingDeg, int accuracy, int seq) {
   bytes.setUint8(2, accuracy & 0xFF);
   bytes.setUint8(3, seq & 0xFF);
   return bytes.buffer.asUint8List();
+}
+
+/// Human-readable reason for a `0xFF` OTA reply on 0x1911. `code` is either one
+/// of the OTA_ERR_* reasons or a small ESP `Update.getError()` value.
+String describeOtaFailure(List<int> reply) {
+  if (reply.length < 2) {
+    return 'malformed reply from device (${reply.length} bytes)';
+  }
+  switch (reply[1]) {
+    case BleProtocol.otaErrBusy:
+      return 'device is busy (shutting down, or an update is already running)';
+    case BleProtocol.otaErrNoUpdate:
+      return 'device has no update in progress (it aborted the stream)';
+    case BleProtocol.otaErrOverrun:
+      return 'device received more data than declared, or a byte-count mismatch';
+    case BleProtocol.otaErrShortWrite:
+      return 'device failed to store a received chunk';
+  }
+  final code = reply[1].toRadixString(16).padLeft(2, '0');
+  return 'device reported update error 0x$code';
 }

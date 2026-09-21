@@ -45,10 +45,15 @@ static NimBLECharacteristic* pDeviceCommandChar = nullptr;
 class LayoutConfigCallbacks : public NimBLECharacteristicCallbacks {
   void onRead(NimBLECharacteristic* pChar) override {
     char buf[1024];
-    size_t len = exportLayoutToString(buf, sizeof(buf));
+    const size_t len = exportLayoutToString(buf, sizeof(buf));
+    // An oversized layout returns 0. Publish that as an empty value rather than
+    // leaving the characteristic at its previous content: the app then sees an
+    // unparseable read instead of silently receiving a stale layout.
+    pChar->setValue((const uint8_t*)buf, len);
     if (len > 0) {
-      pChar->setValue((const uint8_t*)buf, len);
       Serial.printf("[BLE SYNC] Layout JSON read requested (%u bytes).\n", (unsigned int)len);
+    } else {
+      Serial.println("[BLE SYNC] Layout JSON exceeds the export buffer; served empty.");
     }
   }
 
@@ -112,7 +117,13 @@ class PhoneGpsCallbacks : public NimBLECharacteristicCallbacks {
     // only the original 11 bytes, and 0 means "not sent" either way.
     uint32_t utcEpochS = 0;
     if (v.size() >= 15) memcpy(&utcEpochS, v.data() + 11, 4);
-    setPhoneGpsSample(latE7 / 1e7, lonE7 / 1e7, accCm / 100.0f, utcEpochS);
+    const double lat = latE7 / 1e7;
+    const double lon = lonE7 / 1e7;
+    // Guardrail: any paired client may write here. A malformed or hostile
+    // sample must never become a track point or steer navigation. NaN fails
+    // both comparisons, so it is rejected too.
+    if (!(lat >= -90.0 && lat <= 90.0) || !(lon >= -180.0 && lon <= 180.0)) return;
+    setPhoneGpsSample(lat, lon, accCm / 100.0f, utcEpochS);
   }
 };
 
@@ -132,7 +143,11 @@ class GpsSourceModeCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     const std::string v = c->getValue();
     if (v.empty()) return;
-    setGpsSourceMode((uint8_t)v[0]);
+    // 0 = hardware, 1 = phone-forced (gps_source_arbiter.h). Reject anything
+    // else instead of persisting an undefined mode into NVS.
+    const uint8_t mode = (uint8_t)v[0];
+    if (mode > 1) return;
+    setGpsSourceMode(mode);
   }
 };
 
@@ -154,6 +169,9 @@ class PhoneCompassCallbacks : public NimBLECharacteristicCallbacks {
     uint16_t headingDeciDeg;
     memcpy(&headingDeciDeg, v.data() + 0, 2);
     uint8_t accuracy = (uint8_t)v[2];
+    // Only 0=low, 1=medium, 2=high are defined; a stray value must not reach
+    // TelemetryState as a distinct accuracy class.
+    if (accuracy > 2) return;
     // Byte 3 is a sequence number, informational only.
     setPhoneHeadingSample((headingDeciDeg % 3600) / 10.0f, accuracy);
   }
@@ -175,7 +193,9 @@ class BaroSourceModeCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     const std::string v = c->getValue();
     if (v.empty()) return;
-    setBaroSourceMode((uint8_t)v[0]);
+    const uint8_t mode = (uint8_t)v[0];
+    if (mode > 1) return;
+    setBaroSourceMode(mode);
   }
 };
 
@@ -195,7 +215,9 @@ class CompassSourceModeCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c) override {
     const std::string v = c->getValue();
     if (v.empty()) return;
-    setCompassSourceMode((uint8_t)v[0]);
+    const uint8_t mode = (uint8_t)v[0];
+    if (mode > 1) return;
+    setCompassSourceMode(mode);
   }
 };
 
