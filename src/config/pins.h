@@ -30,7 +30,7 @@
 #define PIN_GPS_RX    44
 #define GPS_BAUD_RATE 115200
 
-// External I2C (Barometer BMP280 - shares I2C bus with touch screen)
+// External I2C (Barometer BME280 at 0x76 - shares I2C bus with touch screen)
 #define PIN_I2C_SDA   16
 #define PIN_I2C_SCL   15
 

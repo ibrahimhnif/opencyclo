@@ -3,6 +3,23 @@
 **Date:** 2026-08-21
 **Status:** Approved for implementation planning
 
+**Deviations as built (checked 2026-09-21):** this document is the original v1
+plan. The concurrency model below still holds, but the tree has moved on:
+
+- `ui/pages/*` was replaced by the modular widget engine
+  (`src/ui/engine/{widget_catalog,template_engine,layout_manager,widget_registry}.cpp`,
+  page config synced from the companion app) — see
+  [the UI engine design](2026-08-22-modular-ui-component-engine-design.md).
+- Map rendering and GPX navigation (`src/navigation/`) exist, so "map
+  rendering" is no longer out of scope; see
+  [offline navigation](../../offline-navigation.md).
+- Phone-sourced GPS/altitude/heading
+  (`src/hardware/phone_sensor_bridge.cpp`, `gps_source_arbiter.{h,cpp}`),
+  the Insta360 camera remote, the BLE OTA handler and SD screenshot capture
+  were added after this plan.
+- The live task list is `src/main.cpp`; the live pin map remains
+  `src/config/pins.h`.
+
 ## Purpose
 
 OpenCyclo is a DIY GPS cycling computer built on a 2.8" ESP32-S3 smart
@@ -38,8 +55,8 @@ source of truth (`config/pins.h`).
 
 **External sensors:**
 - GPS: u-blox M10 module via UART JST port.
-- Barometer: BMP280 via external I2C JST port (shares bus with touch
-  controller — no address conflict; BMP280 is 0x76/0x77, FT6336G is 0x38).
+- Barometer: BME280 via external I2C JST port (shares bus with touch
+  controller — no address conflict; BME280 is 0x76/0x77, FT6336G is 0x38).
 - BLE: any standard sensor advertising Cycling Speed & Cadence (0x1816),
   Heart Rate (0x180D), or Cycling Power (0x1818) GATT services.
 
@@ -71,7 +88,7 @@ queues into a single fusion point:
 |---|---|---|
 | `UiTask` | 1 | LovyanGFX rendering + FT6336G touch input, ~15-20Hz. Reads a snapshot of `TelemetryState`; never touches UART/I2C/SD directly. |
 | `GpsTask` | 0 | Owns `HardwareSerial` on GPIO43/44, feeds TinyGPS++, pushes `GpsFix` to a queue on each valid sentence. |
-| `BaroTask` | 0 | Polls BMP280 over I2C at ~2-5Hz, pushes `BaroSample` (altitude, grade) to a queue. |
+| `BaroTask` | 0 | Polls BME280 over I2C at ~2-5Hz, pushes `BaroSample` (altitude, grade) to a queue. |
 | `BleTask` | 0 | NimBLE-Arduino central: scan/connect/subscribe to CSC/HR/Power characteristics; parses notifications, pushes `SensorSample` to a queue; owns reconnect logic. |
 | `FusionTask` | 0 | Sole consumer of the GPS/Baro/BLE queues and **sole writer** of `TelemetryState` (mutex-protected for readers). Owns ride auto-start/stop state machine. |
 | `LoggerTask` | 0 | Consumes ride-point events from `FusionTask` (1Hz while active), buffers and writes GPX via `SD_MMC`; owns file lifecycle. |
@@ -82,7 +99,7 @@ writes.
 
 One explicit cross-task shared resource requiring its own mutex: the
 I2C bus (SDA16/SCL15) is touched by both `UiTask` (touch polling) and
-`BaroTask` (BMP280), so `Wire` access is guarded by a bus mutex.
+`BaroTask` (BME280), so `Wire` access is guarded by a bus mutex.
 
 ### Module/file layout
 
@@ -203,13 +220,13 @@ by `FusionTask` and `UiTask`.
   continue in-memory regardless — SD logging is best-effort and never
   blocks the ride experience.
 - **I2C bus contention:** guarded by an explicit bus mutex shared
-  between `UiTask` (touch) and `BaroTask` (BMP280).
+  between `UiTask` (touch) and `BaroTask` (BME280).
 
 ## Libraries (Arduino framework via PlatformIO)
 
 - **LovyanGFX** — display (ILI9341) + touch (FT6336G via its FT5x06-family driver)
 - **TinyGPSPlus** — GPS NMEA parsing
-- **Adafruit BMP280** — barometer over I2C
+- **Adafruit BME280** — barometer over I2C
 - **NimBLE-Arduino** — BLE central for CSC/HR/CP GATT clients
 - **SD_MMC** (bundled with arduino-esp32) — SDIO microSD access
 - **Preferences** (NVS, bundled) — settings persistence

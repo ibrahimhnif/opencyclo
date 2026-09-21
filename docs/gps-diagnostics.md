@@ -20,10 +20,18 @@ fix flags and quoted GSV/GSA/GGA observations. See [GPS baseline test](gps-basel
 for the current mode, extra columns and interpretation. The schema 1 details
 below describe earlier logs; the same SD safety/size policy still applies.
 
-In `platformio.ini`, set `-D GPS_DIAGNOSTICS_ENABLED=1` to enable or `=0`
-to disable, then rebuild and flash. Currently enabled for debugging. This is
-a build parameter, not yet a screen/app switch. Normal GPX recording is
-unchanged when disabled; diagnostic code and its buffer compile out.
+Diagnostics are off in the default firmware. To enable them, build and flash
+the dedicated environment, which defines `GPS_DIAGNOSTICS_ENABLED=1`:
+
+```bash
+pio run -e esp32-s3-gps-diag -t upload
+```
+
+`GPS_DIAGNOSTICS_ENABLED` is also settable directly in `platformio.ini`
+(`=1` to enable, `=0` to disable) if you need a one-off variant, but keep the
+shipped `esp32-s3-devkitc-1` env at `=0`. This is a build parameter, not yet a
+screen/app switch. Normal GPX recording is unchanged when disabled;
+diagnostic code and its buffer compile out.
 
 With debug enabled, copy both:
 

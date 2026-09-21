@@ -117,6 +117,13 @@ pio run -t upload    # flash
 pio device monitor   # serial monitor (native USB CDC)
 ```
 
+Debugging builds (not for normal rides):
+
+```bash
+pio run -e esp32-s3-gps-diag -t upload   # records GPS diagnostics to /debug on SD
+pio run -e esp32-s3-usb-sense -t upload  # only with a voltage-safe VBUS detector on GPIO2
+```
+
 Host tests (no board required):
 
 ```bash

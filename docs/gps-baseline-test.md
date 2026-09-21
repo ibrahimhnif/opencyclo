@@ -2,8 +2,9 @@
 
 Archived comparison procedure: baseline bypass has now been removed from the
 firmware. Normal acknowledged receiver configuration and verified PMREQ standby
-are restored; `GPS_DIAGNOSTICS_ENABLED=1` remains enabled. The schema-3 CSV
-`baseline_mode` column remains for compatibility and is always 0 in new logs.
+are restored, and GPS diagnostics are off in the default build — see
+[diagnostics](gps-diagnostics.md) for the `esp32-s3-gps-diag` env. The schema-3
+CSV `baseline_mode` column remains for compatibility and is always 0 in new logs.
 Instructions below describe the historical test build, not the current firmware.
 
 Latest filter/logging revision: qualified UBX 3D fixes may use four satellites
