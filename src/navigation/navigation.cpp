@@ -244,7 +244,11 @@ public:
       if(!limit){reply("ERR export not subscribed");return;}
       if(payload>limit){char b[64];snprintf(b,sizeof(b),"ERR export MTU %u",limit);reply(b);return;}
       if(getTelemetrySnapshot().ride_state!=RIDE_STATE_IDLE){resetTransfer();reply("ERR ride active");return;}
-      const size_t wanted=std::min(size_t(payload*credits),exportFile.size()-offset);
+      // Clamped against the buffer as well as the file: `wanted` is
+      // payload*credits, and the payload cap lives in export_limits.h while
+      // the credits cap lives here, so neither alone bounds the read into
+      // exportBlock.
+      const size_t wanted=std::min({size_t(payload*credits),exportFile.size()-offset,sizeof exportBlock});
       if((offset!=exportCursor && !exportFile.seek(offset)) ||
          exportFile.read(exportBlock,wanted)!=wanted){exportCursor=UINT32_MAX;reply("ERR read");return;}
       exportCursor=offset+wanted;

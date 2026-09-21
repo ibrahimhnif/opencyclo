@@ -233,6 +233,32 @@ int main(int argc,char**){
   drawMapBackground(512,512,13);
   assert(drawMapBackground(0,0,13)==MapStatus::Missing);
   assert(drawMapBackground(nav::world,nav::world,13)==MapStatus::Missing);
+  // Zoom outside the supported range is clamped to it, not rasterized at a
+  // size covered[] cannot hold.
+  const MapStatus clampedZoom=drawMapBackground(512,512,13);
+  assert(drawMapBackground(512,512,12)==clampedZoom);
+  assert(drawMapBackground(512,512,18)==clampedZoom);
+  // Visible-area coverage must use the current 44px header geometry. At zoom 15
+  // (s=2) this position sits 2.5 world px below tile row 64's northern edge, so
+  // the whole visible area is inside that row. The old 121px top margin (from
+  // the 32px header) additionally required row 63 and reported "map missing"
+  // while every visible pixel was covered. Row 63 is deliberately outside the
+  // coverage box, so this assertion fails on the old margin and passes on the
+  // current one.
+  {
+    const int edgeColumn=64,edgeRow=64;
+    const double edgeX=edgeColumn*256.0+128,edgeY=edgeRow*256.0+57;
+    auto edgeColumnFile=std::make_shared<FakeFile>();
+    edgeColumnFile->bytes={'O','C','P','1'};put(edgeColumnFile->bytes,1);put(edgeColumnFile->bytes,edgeRow);
+    put(edgeColumnFile->bytes,20);put(edgeColumnFile->bytes,1);
+    edgeColumnFile->bytes.insert(edgeColumnFile->bytes.end(),raw,raw+8);edgeColumnFile->bytes.push_back(1);
+    fs["/maps/14/"+std::to_string(edgeColumn)+".ocp"]=edgeColumnFile;
+    auto edgeBounds=std::make_shared<FakeFile>();edgeBounds->bytes={'O','C','B','1'};
+    double edgeBox[]={edgeColumn*256.0,edgeRow*256.0+1,edgeColumn*256.0+256,edgeRow*256.0+256};
+    auto edgeRaw=(const uint8_t*)edgeBox;edgeBounds->bytes.insert(edgeBounds->bytes.end(),edgeRaw,edgeRaw+sizeof(edgeBox));
+    fs["/maps/coverage.bin"]=edgeBounds;
+    assert(drawMapBackground(edgeX,edgeY,15)==MapStatus::Ready);
+  }
   // Last-screenshot download: 0x16 info, 0x17 opens the same fast-export session from /screenshots.
   exportTestState().ride_state=RIDE_STATE_IDLE;exportTestState().ride_save=RIDE_SAVE_NONE;
   control->write({0x16});assert(control->getValue()=="ERR no screenshot");

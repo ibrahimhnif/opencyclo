@@ -16,7 +16,7 @@ namespace {
 constexpr int size=480;
 struct Tile { int x=-1,y=-1; bool present=false; PsBuffer<uint8_t> bytes; };
 Tile tiles[16];
-int nextTile=0;
+size_t nextTile=0; // size_t: a signed counter would wrap (UB) and index negatively
 Tile& tile(int x,int y) {
   for(auto& t:tiles) if(t.x==x&&t.y==y) return t;
   Tile& t=tiles[nextTile++%16];t.x=x;t.y=y;t.bytes.clear();t.present=false;
@@ -55,7 +55,7 @@ Tile& tile(int x,int y) {
 
 struct NamedTile { int x=-1,y=-1; bool present=false; PsBuffer<uint8_t> pool; PsBuffer<uint8_t> segments; };
 NamedTile namedTiles[4];
-int nextNamedTile=0;
+size_t nextNamedTile=0;
 NamedTile& namedTile(int x,int y) {
   for(auto& t:namedTiles) if(t.x==x&&t.y==y) return t;
   NamedTile& t=namedTiles[nextNamedTile++%4];t.x=x;t.y=y;t.pool.clear();t.segments.clear();t.present=false;
@@ -86,12 +86,19 @@ NamedTile& namedTile(int x,int y) {
 }
 
 struct View { double x=0,y=0; int zoom=15; };
+// covered[] holds one flag per tile in the overscan block. 5x5 is the worst
+// case for the supported zoom range (block span is 1.875 * 2^(14-zoom) tiles:
+// 3.75 at the 13 floor, so at most 5 columns/rows). rasterize() re-clamps
+// columns/rows to these bounds at the point where the array is actually
+// indexed, so a future caller passing an unsupported zoom cannot overrun it.
+constexpr int kMinZoom=13,kMaxZoom=17;
+constexpr int kMaxOverscanColumns=5,kMaxOverscanRows=5;
 struct Raster {
   LGFX_Sprite image;
   View view;
   bool valid=false;
   int left=0,top=0,columns=0,rows=0;
-  bool covered[25]{};
+  bool covered[kMaxOverscanColumns*kMaxOverscanRows]{};
 };
 Raster buffers[2];
 int front=0;
@@ -117,8 +124,9 @@ void rasterize(Raster& out,const View& v) {
   out.left=int(std::floor((v.x-size/2/s)/256));
   out.top=int(std::floor((v.y-size/2/s)/256));
   int right=int(std::floor((v.x+size/2/s)/256)),bottom=int(std::floor((v.y+size/2/s)/256));
-  out.columns=right-out.left+1;out.rows=bottom-out.top+1;
-  for(int y=out.top;y<=bottom;y++)for(int x=out.left;x<=right;x++) {
+  out.columns=std::min(right-out.left+1,kMaxOverscanColumns);
+  out.rows=std::min(bottom-out.top+1,kMaxOverscanRows);
+  for(int y=out.top;y<out.top+out.rows;y++)for(int x=out.left;x<out.left+out.columns;x++) {
     Tile* loaded=nullptr;
     {
       // The worker alone owns tiles; release SD before the expensive raster loop.
@@ -189,8 +197,14 @@ void initMapRenderer() {
 }
 bool covered(const Raster& r,const View& v) {
   double s=scale(v);
+  // Visible map area is screen rows ui::headerHeight(44)..249 with the view's
+  // world anchor drawn at y=153 (drawMapBackground's +153 blit) and x=120, so
+  // the exact world span is y-109/s..y+96/s and x-120/s..x+119/s. The top used
+  // to be 121/s, a leftover from the 32px header: 12/s world px too far up, so
+  // standing near the northern edge of a pack reported "map missing" while
+  // every visible pixel was covered.
   int left=int(std::floor((v.x-120/s)/256)),right=int(std::floor((v.x+119/s)/256));
-  int top=int(std::floor((v.y-121/s)/256)),bottom=int(std::floor((v.y+96/s)/256));
+  int top=int(std::floor((v.y-109/s)/256)),bottom=int(std::floor((v.y+96/s)/256));
   for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++) {
     if(x<r.left || x>=r.left+r.columns || y<r.top || y>=r.top+r.rows ||
        !r.covered[(y-r.top)*r.columns+x-r.left])return false;
@@ -244,7 +258,7 @@ bool nearestRoadName(double lat,double lon,char* name,size_t nameLen) {
 }
 MapStatus drawMapBackground(double x,double y,int zoom) {
   initMapRenderer();if(failed)return MapStatus::NoMemory;
-  View v;v.x=x;v.y=y;v.zoom=zoom;
+  View v;v.x=x;v.y=y;v.zoom=std::max(kMinZoom,std::min(kMaxZoom,zoom));
   {
     Lock lock;
     if(!buffers[front].valid || !near(v,buffers[front].view,80)) {

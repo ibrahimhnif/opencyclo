@@ -207,9 +207,15 @@ space around the viewport. Small drags shift the cached image; a new raster is
 requested after 80 pixels of movement or a zoom change. Requests are coalesced,
 and offscreen road segments are culled. The worker releases the SD lock before
 drawing. Navigation state has its own mutex, so tile SD reads do not block cached
-map movement. UI state updates use nonblocking acquisition during route sync and
-retain touch deltas across busy samples. Navigation has a 33 ms minimum frame interval instead of
-200 ms; this is a scheduling target, not a guaranteed hardware frame rate.
+map movement. One exception: the at-most-1 Hz road-name lookup
+(`nearestRoadName()` for the on-road indicator) runs on the render task and, on
+a named-tile cache miss, reads that column's `.ocn` index, string pool and row
+in place — up to a few hundred KiB of blocking SD I/O while both the navigation
+and SD locks are held. It only triggers when the GPS tile changes, so it is a
+per-second spike on a new row/column, not per-frame. UI state updates use
+nonblocking acquisition during route sync and retain touch deltas across busy
+samples. Navigation has a 33 ms minimum frame interval instead of 200 ms; this
+is a scheduling target, not a guaranteed hardware frame rate.
 Fast drags beyond the cache show `loading map...` until data catches up, distinct
 from a missing map. No SD map conversion or re-copy is needed for this renderer.
 
