@@ -558,6 +558,7 @@ const TemplateSlotDefinition& getTemplateDefinition(LayoutTemplateId templateId)
 
 - [ ] **Step 4: Update `template_engine.cpp`**
 
+{% raw %}
 ```cpp
 #include "template_engine.h"
 
@@ -643,6 +644,7 @@ const TemplateSlotDefinition& getTemplateDefinition(LayoutTemplateId templateId)
   return s_templates[TEMPLATE_FULL_CONTAINER];
 }
 ```
+{% endraw %}
 
 - [ ] **Step 5: Run to confirm it passes**
 
