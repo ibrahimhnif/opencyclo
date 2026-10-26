@@ -78,6 +78,19 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"tests/test_components.cpp"),"-o",str(components),
     ],check=True)
     subprocess.run([str(components)],check=True)
+    power_screen=work/"power_screen"
+    subprocess.run([
+        "c++","-std=c++11","-Wall","-Wextra","-Werror",
+        f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
+        *UI_THEME_SOURCES,*COMPONENT_SOURCES,str(root/"src/ui/power_screen.cpp"),
+        str(root/"tests/test_power_screen.cpp"),"-o",str(power_screen),
+    ],check=True)
+    subprocess.run([str(power_screen)],check=True)
+    check_golden("power", power_screen, ["preview"])
+    if len(sys.argv)>1:
+        commands=subprocess.check_output([str(power_screen),"preview"],text=True)
+        subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),str(Path(sys.argv[1])/"power")],
+                       input=commands,text=True,check=True)
     preview=work/"preview"
     subprocess.run([
         "c++", "-std=c++11", f"-I{work}", f"-I{root}/tests", f"-I{root}/src",
