@@ -75,20 +75,24 @@ export function modelRideTime(rideTimeS) {
   };
 }
 
-function signedOrDash(v) {
-  return v >= 0 ? String(v) : "--";
+// Negative sensor values mean disconnected; the panel draws them as 0.
+function orZero(v) {
+  return v >= 0 ? String(v) : "0";
 }
 
+const FEET = 3.28084;
+
 export function modelTile(widgetId, sample) {
+  const ft = (m) => (sample.imperial ? m * FEET : m).toFixed(0);
   switch (widgetId) {
     case 5:
       return modelRideTime(sample.rideTimeS);
     case 6:
-      return { label: "cad", value: sample.cadence < 0 ? "0" : String(sample.cadence), tone: "accent" };
+      return { label: "cad", value: orZero(sample.cadence), tone: "accent" };
     case 7:
-      return { label: "hr", value: signedOrDash(sample.hr), tone: "danger" };
+      return { label: "heart", value: orZero(sample.hr), tone: "danger" };
     case 8:
-      return { label: "power", value: signedOrDash(sample.power), tone: "warning" };
+      return { label: "power", value: orZero(sample.power), tone: "success" };
     case 4:
       return modelDistance(sample.distanceKm, sample.imperial);
     case 2:
@@ -96,13 +100,19 @@ export function modelTile(widgetId, sample) {
     case 3:
       return { label: "max", value: (sample.imperial ? sample.maxKmh * MPH : sample.maxKmh).toFixed(1), tone: "text" };
     case 9:
-      return { label: "alt (m)", value: sample.altM.toFixed(0), tone: "text" };
-    case 10:
-      return { label: "grade", value: `${sample.gradePct.toFixed(1)}%`, tone: "text" };
+      return { label: sample.imperial ? "alt (ft)" : "alt (m)", value: ft(sample.altM), tone: "text" };
+    case 10: {
+      const g = sample.gradePct;
+      return {
+        label: "grade",
+        value: `${g >= 0 ? "+" : ""}${g.toFixed(1)}%`,
+        tone: g > 3 ? "warning" : g < -2 ? "accent" : "success",
+      };
+    }
     case 11:
-      return { label: "ascent", value: sample.ascentM.toFixed(0), tone: "text" };
+      return { label: sample.imperial ? "asc (ft)" : "asc (m)", value: ft(sample.ascentM), tone: "success" };
     case 13:
-      return { label: "battery", value: `${sample.batteryPct}%`, tone: sample.batteryPct <= 20 ? "danger" : "text" };
+      return { label: "battery", value: `${sample.batteryPct}%`, tone: sample.batteryPct < 20 ? "warning" : "success" };
     default:
       return null;
   }
@@ -114,6 +124,7 @@ export const TONE_TO_THEME = {
   success: "success",
   warning: "warning",
   danger: "danger",
+  muted: "label",
 };
 
 export function defaultSample() {

@@ -30,6 +30,7 @@ root = Path(__file__).resolve().parents[1]
 # Theme resolution and view models every component-drawing build links.
 UI_THEME_SOURCES = [str(root/"src/ui/engine/theme.cpp"), str(root/"src/ui/engine/resolved_theme.cpp"),
                     str(root/"src/ui/engine/widget_model.cpp")]
+COMPONENT_SOURCES = [str(p) for p in sorted((root/"src/ui/components").glob("*.cpp"))]
 with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     work = Path(temp)
     for header in ["Arduino.h", "freertos/FreeRTOS.h", "freertos/semphr.h", "hardware/display.h",
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     subprocess.run([
         "c++","-std=c++11","-Wall","-Wextra","-Werror",
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
-        *UI_THEME_SOURCES, *[str(p) for p in sorted((root/"src/ui/components").glob("*.cpp"))],
+        *UI_THEME_SOURCES, *COMPONENT_SOURCES,
         str(root/"tests/test_components.cpp"),"-o",str(components),
     ],check=True)
     subprocess.run([str(components)],check=True)
@@ -89,6 +90,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"src/ui/engine/widget_model.cpp"),
         str(root/"src/ui/engine/theme.cpp"),
         str(root/"src/hardware/camera_protocol.cpp"),
+        str(root/"src/ui/engine/resolved_theme.cpp"),*COMPONENT_SOURCES,
         str(root/"tests/test_camera_ui.cpp"),"-o",str(camera),
     ],check=True)
     subprocess.run([str(camera)],check=True)
@@ -101,6 +103,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"src/ui/engine/widget_model.cpp"),
         str(root/"src/ui/engine/theme.cpp"),
         str(root/"src/hardware/camera_protocol.cpp"),
+        str(root/"src/ui/engine/resolved_theme.cpp"),*COMPONENT_SOURCES,
         str(root/"tests/test_sensor_ui.cpp"),"-o",str(sensor_ui),
     ],check=True)
     subprocess.run([str(sensor_ui)],check=True)
@@ -122,6 +125,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"src/ui/engine/widget_model.cpp"),str(root/"src/ui/engine/theme.cpp"),
         str(root/"src/ui/engine/template_engine.cpp"),str(root/"src/ui/engine/layout_manager.cpp"),
         str(root/"src/hardware/camera_protocol.cpp"),
+        str(root/"src/ui/engine/resolved_theme.cpp"),*COMPONENT_SOURCES,
         str(root/"tests/test_page_ui.cpp"),"-o",str(pages)],check=True)
     subprocess.run([str(pages)],check=True)
     check_golden("pages", pages, ["preview"])

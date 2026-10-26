@@ -37,10 +37,37 @@ int main() {
   modelCadence(-1, tile);
   assert(!strcmp(tile.value, "0"));
 
+  // Heart rate and power match what the panel has always drawn: "heart"/"0"
+  // in danger, "power"/"0" in success.
   modelHeartRate(-1, tile);
-  assert(!strcmp(tile.value, "--"));
+  assert(!strcmp(tile.label, "heart") && !strcmp(tile.value, "0") && tile.tone == TONE_DANGER);
+  modelPower(212, tile);
+  assert(!strcmp(tile.label, "power") && !strcmp(tile.value, "212") && tile.tone == TONE_SUCCESS);
   modelPower(-1, tile);
+  assert(!strcmp(tile.value, "0"));
+
+  modelAltitude(100, true, true, tile);
+  assert(!strcmp(tile.label, "alt (ft)") && !strcmp(tile.value, "328") && tile.tone == TONE_TEXT);
+  modelAltitude(100, true, false, tile);
+  assert(!strcmp(tile.label, "alt (m)") && !strcmp(tile.value, "100"));
+  modelAltitude(100, false, false, tile);
   assert(!strcmp(tile.value, "--"));
+  modelTotalAscent(100, true, tile);
+  assert(!strcmp(tile.label, "asc (ft)") && !strcmp(tile.value, "328") && tile.tone == TONE_SUCCESS);
+  modelAvgSpeed(21.4f, true, tile);
+  assert(!strcmp(tile.label, "avg") && !strcmp(tile.value, "13.3"));
+  modelMaxSpeed(48.2f, false, tile);
+  assert(!strcmp(tile.label, "max") && !strcmp(tile.value, "48.2"));
+  modelGrade(4.0f, tile);
+  assert(!strcmp(tile.label, "grade") && !strcmp(tile.value, "+4.0%") && tile.tone == TONE_WARNING);
+  modelGrade(-3.0f, tile);
+  assert(tile.tone == TONE_ACCENT);
+  modelGrade(0.0f, tile);
+  assert(tile.tone == TONE_SUCCESS);
+  modelBattery(19, tile);
+  assert(!strcmp(tile.label, "battery") && !strcmp(tile.value, "19%") && tile.tone == TONE_WARNING);
+  modelBattery(20, tile);
+  assert(tile.tone == TONE_SUCCESS);
 
   puts("widget model tests passed");
 }

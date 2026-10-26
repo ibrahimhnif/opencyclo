@@ -62,10 +62,17 @@ struct StatusModel {
 void modelSpeed(float displayKmh, bool imperial, SpeedSourceHint src, HeroModel& out);
 void modelDistance(float tripKm, bool imperial, TileModel& out);
 void modelRideTime(uint32_t rideTimeS, TileModel& out);
-// rpm < 0 means disconnected; renders as 0 to match current panel behavior.
+// Negative sensor values mean disconnected and render as 0, as the panel does.
 void modelCadence(int16_t rpm, TileModel& out);
 void modelHeartRate(int16_t bpm, TileModel& out);
 void modelPower(int16_t watts, TileModel& out);
+void modelAvgSpeed(float kmh, bool imperial, TileModel& out);
+void modelMaxSpeed(float kmh, bool imperial, TileModel& out);
+// Units ride in the label ("alt (ft)"): a SMALL tile can't fit "12345 ft".
+void modelAltitude(float meters, bool valid, bool imperial, TileModel& out);
+void modelGrade(float pct, TileModel& out);
+void modelTotalAscent(float meters, bool imperial, TileModel& out);
+void modelBattery(uint8_t pct, TileModel& out);
 
 // fixQuality 1 = weak fix; satellites clamp to 99, battery to 100%.
 void modelStatus(bool fix, uint8_t fixQuality, uint8_t sats, RideStateHint ride,

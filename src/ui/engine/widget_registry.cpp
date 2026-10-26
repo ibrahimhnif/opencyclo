@@ -4,8 +4,10 @@
 #include "widget_registry.h"
 #include "widget_catalog.h"
 #include "theme.h"
+#include "resolved_theme.h"
+#include "ui/components/hero_value.h"
+#include "ui/components/value_tile.h"
 #include "widget_model.h"
-#include "storage/theme_config.h"
 #include "ui/power_menu.h"
 #include "ui/control_layout.h"
 #include "storage/settings.h"
@@ -18,164 +20,75 @@
 #include "hardware/camera_protocol.h"
 #include <stdio.h>
 
-// Colors resolve from the shared theme store so the browser editor previews
-// the same tokens the panel renders. Defaults equal the legacy hardcoded
-// palette, so existing renders are unchanged until a custom theme is set.
-static uint16_t COLOR_BG = uitheme::toRgb565(uitheme::kBg);
+// Every color comes from the active resolved theme, so a browser-pushed theme
+// recolors the panel live. Defaults equal the legacy hardcoded palette.
+static uint16_t tok(uitheme::ColorToken token) { return ui::activeTheme().colors[token]; }
+static ui::HitRect hitRect(const Rect& b) { return {b.x, b.y, b.w, b.h}; }
+static bool imperial() { return g_settings.units == 1; }
 
-static uint16_t COLOR_HAIRLINE = uitheme::toRgb565(uitheme::kHairline);
-static uint16_t COLOR_TEXT     = uitheme::toRgb565(uitheme::kText);
-static uint16_t COLOR_LABEL    = uitheme::toRgb565(uitheme::kLabel);
-static uint16_t COLOR_GREEN    = uitheme::toRgb565(uitheme::kSuccess);
-static uint16_t COLOR_AMBER    = uitheme::toRgb565(uitheme::kWarning);
-static uint16_t COLOR_RED      = uitheme::toRgb565(uitheme::kDanger);
-static uint16_t COLOR_CYAN     = uitheme::toRgb565(uitheme::kAccent);
-
-void applyActiveTheme() {
-  COLOR_BG = uitheme::toRgb565(g_theme.bg);
-  COLOR_HAIRLINE = uitheme::toRgb565(g_theme.hairline);
-  COLOR_TEXT = uitheme::toRgb565(g_theme.text);
-  COLOR_LABEL = uitheme::toRgb565(g_theme.label);
-  COLOR_GREEN = uitheme::toRgb565(g_theme.success);
-  COLOR_AMBER = uitheme::toRgb565(g_theme.warning);
-  COLOR_RED = uitheme::toRgb565(g_theme.danger);
-  COLOR_CYAN = uitheme::toRgb565(g_theme.accent);
+static void drawTile(const Rect& b, const wmodel::TileModel& m, bool force) {
+  ui::drawValueTile(canvas, hitRect(b), m, force, ui::activeTheme());
 }
 
 // 1. SPEED (hero) — the one widget with its own layout, everything else is a "tile."
 static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool force) {
-  if (force) {
-    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-  }
-  // Text comes from the shared view model; this function only draws.
   wmodel::HeroModel m;
-  wmodel::modelSpeed(state.display_speed_kmh, g_settings.units == 1,
+  wmodel::modelSpeed(state.display_speed_kmh, imperial(),
                      state.speed_source == SPEED_SOURCE_BLE_CSC ? wmodel::SPEED_HINT_BLE : wmodel::SPEED_HINT_GPS, m);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-  canvas.setTextPadding(b.w - 8);
-  canvas.drawString(m.source, b.x + 4, b.y + 4);
-  canvas.setTextPadding(0);
-
-  canvas.setFont(&fonts::FreeSansBold24pt7b);
-  canvas.setTextColor(COLOR_TEXT, COLOR_BG);
-  canvas.setTextPadding(b.w - 70);
-  canvas.drawString(m.value, b.x + 4, b.y + 24);
-  canvas.setTextPadding(0);
-
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-  canvas.setCursor(b.x + b.w - 44, b.y + b.h - 18);
-  canvas.print(m.unit);
+  ui::drawHeroValue(canvas, hitRect(b), m, force, ui::activeTheme());
 }
 
-// Shared layout for every SMALL/MEDIUM "label above, value below, hairline
-// above the tile" widget — same visual pattern, different label/value/color.
-//
-// Vertical budget inside the shortest (SMALL, 54px) tile: the label is
-// FreeSans9pt7b (18px tall) at +4, so it owns rows 4..21; the value is
-// FreeSans12pt7b (23px tall) at +24, owning rows 24..46. The 2px gap keeps the
-// value's background fill off the label's descenders ("avg spd", "power",
-// "grade"), which the previous +6 / +22 pair clipped.
-static void renderTile(const Rect& b, const char* label, const char* valueStr, uint16_t valueColor, bool force) {
-  if (force) {
-    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-    canvas.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
-  }
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(COLOR_LABEL, COLOR_BG);
-  canvas.setTextPadding(b.w - 8);
-  canvas.drawString(label, b.x + 4, b.y + 4);
-  canvas.setTextPadding(0);
-
-  canvas.setFont(&fonts::FreeSansBold12pt7b);
-  canvas.setTextColor(valueColor, COLOR_BG);
-  canvas.setTextPadding(b.w - 8);
-  canvas.drawString(valueStr, b.x + 4, b.y + 24);
-  canvas.setTextPadding(0);
-}
-
-// 2. DISTANCE
-// The unit rides in the 9pt label, not the 12pt value: "125.75 km" measures
-// 108px in FreeSans12pt7b, which is wider than a MEDIUM tile's 106px erase
-// padding and reaches to within 2px of the tile edge. The bare number is 71px.
+// Tile text, units and tones live in widget_model (shared with the browser
+// preview); these functions only pick the model and draw it.
 static void renderWidgetDistance(const Rect& b, const TelemetryState& state, bool force) {
   wmodel::TileModel m;
-  wmodel::modelDistance(state.trip_distance_km, g_settings.units == 1, m);
-  renderTile(b, m.label, m.value, COLOR_TEXT, force);
+  wmodel::modelDistance(state.trip_distance_km, imperial(), m);
+  drawTile(b, m, force);
 }
 
-// 3. RIDE TIME
 static void renderWidgetRideTime(const Rect& b, const TelemetryState& state, bool force) {
   wmodel::TileModel m;
   wmodel::modelRideTime(state.ride_time_s, m);
-  renderTile(b, m.label, m.value, COLOR_TEXT, force);
+  drawTile(b, m, force);
 }
 
-// 4. CADENCE
-// "cad" not "cadence": Cadence is SIZE_SMALL-only (74px tiles), and
-// FreeSansBold9pt7b measures "cadence" at 72px against the tile's 66px erase
-// budget (b.w-8) — it was already tight at regular weight (68px) and bold
-// pushed it over. There's no headroom to widen the budget without also
-// shrinking the tile's side margins.
 static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool force) {
   wmodel::TileModel m;
   wmodel::modelCadence(state.cadence_rpm, m);
-  renderTile(b, m.label, m.value, COLOR_CYAN, force);
+  drawTile(b, m, force);
 }
 
-// 5. HEART RATE
 static void renderWidgetHeartRate(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[8];
-  if (state.heart_rate_bpm >= 0) snprintf(buf, sizeof(buf), "%d", state.heart_rate_bpm);
-  else snprintf(buf, sizeof(buf), "0");
-  renderTile(b, "heart", buf, COLOR_RED, force);
+  wmodel::TileModel m;
+  wmodel::modelHeartRate(state.heart_rate_bpm, m);
+  drawTile(b, m, force);
 }
 
-// 6. POWER
 static void renderWidgetPower(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[8];
-  if (state.power_watts >= 0) snprintf(buf, sizeof(buf), "%d", state.power_watts);
-  else snprintf(buf, sizeof(buf), "0");
-  renderTile(b, "power", buf, COLOR_GREEN, force);
+  wmodel::TileModel m;
+  wmodel::modelPower(state.power_watts, m);
+  drawTile(b, m, force);
 }
 
-// 7. ALTITUDE
-// Same unit-in-the-label treatment as Distance, and more urgently so: altitude
-// declares SIZE_SMALL support, and a SMALL tile is only 74px wide. "12345 ft"
-// measures 85px in FreeSans12pt7b, i.e. it would spill 15px past the tile edge
-// into its neighbour. The bare number is 65px, inside the 66px erase padding.
 static void renderWidgetAltitude(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[16];
-  float alt = (g_settings.units == 1) ? (state.altitude_m * 3.28084f) : state.altitude_m;
-  snprintf(buf, sizeof(buf), "%.0f", alt);
-  if(!state.altitude_valid)snprintf(buf,sizeof(buf),"--");
-  renderTile(b, (g_settings.units == 1) ? "alt (ft)" : "alt (m)", buf, COLOR_TEXT, force);
+  wmodel::TileModel m;
+  wmodel::modelAltitude(state.altitude_m, state.altitude_valid, imperial(), m);
+  drawTile(b, m, force);
 }
 
-// 8. GRADE
-// Known limitation: Grade is SIZE_SMALL-capable, and a value at or past
-// +/-10.0% ("+15.0%" = 81px bold) exceeds a canonical 74px SMALL tile's 66px
-// value budget. Not reachable on any default page (Climb places Grade in a
-// 114px-wide slot, well within budget), only if a future phone-app layout
-// puts it in a Hero-6-Grid bottom-row slot AND the grade happens to hit double
-// digits at that exact moment. Left as a documented edge case rather than
-// truncating displayed precision to force a fit everywhere.
+// Known limitation: a grade at or past +/-10.0% ("+15.0%" = 81px bold)
+// exceeds a 74px SMALL tile's 66px value budget. No default page puts Grade
+// in a SMALL slot; left as a documented edge case.
 static void renderWidgetGrade(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[12];
-  snprintf(buf, sizeof(buf), "%+.1f%%", state.grade_pct);
-  uint16_t gradeColor = (state.grade_pct > 3.0f) ? COLOR_AMBER : ((state.grade_pct < -2.0f) ? COLOR_CYAN : COLOR_GREEN);
-  renderTile(b, "grade", buf, gradeColor, force);
+  wmodel::TileModel m;
+  wmodel::modelGrade(state.grade_pct, m);
+  drawTile(b, m, force);
 }
 
-// 9. TOTAL ASCENT
-// SIZE_SMALL-capable like Altitude, so the unit moves into the label for the
-// same reason ("12345 ft" = 85px vs a 74px tile).
 static void renderWidgetTotalAscent(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[16];
-  float asc = (g_settings.units == 1) ? (state.total_ascent_m * 3.28084f) : state.total_ascent_m;
-  snprintf(buf, sizeof(buf), "%.0f", asc);
-  renderTile(b, (g_settings.units == 1) ? "asc (ft)" : "asc (m)", buf, COLOR_GREEN, force);
+  wmodel::TileModel m;
+  wmodel::modelTotalAscent(state.total_ascent_m, imperial(), m);
+  drawTile(b, m, force);
 }
 
 // 10. ELEVATION CHART
@@ -190,10 +103,10 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
   if (s_elevHead == 0) s_elevFilled = true;
 
   if (force) {
-    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
-    canvas.drawFastHLine(b.x, b.y, b.w, COLOR_HAIRLINE);
+    canvas.fillRect(b.x, b.y, b.w, b.h, tok(uitheme::TOK_BG));
+    canvas.drawFastHLine(b.x, b.y, b.w, tok(uitheme::TOK_HAIRLINE));
     canvas.setFont(&fonts::FreeSansBold9pt7b);
-    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+    canvas.setTextColor(tok(uitheme::TOK_LABEL), tok(uitheme::TOK_BG));
     canvas.setCursor(b.x + 4, b.y + 6);
     canvas.print("elevation profile");
   }
@@ -212,7 +125,7 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
   int innerY = b.y + 26;
   int innerW = b.w - 8;
   int innerH = b.h - 32;
-  canvas.fillRect(innerX, innerY, innerW, innerH, COLOR_BG);
+  canvas.fillRect(innerX, innerY, innerW, innerH, tok(uitheme::TOK_BG));
 
   int prevPx = -1, prevPy = -1;
   for (uint8_t i = 0; i < count; i++) {
@@ -221,42 +134,31 @@ static void renderWidgetElevationChart(const Rect& b, const TelemetryState& stat
     int px = innerX + (i * innerW) / (ELEV_SAMPLES - 1);
     int py = innerY + innerH - (int)(((val - minAlt) / (maxAlt - minAlt)) * (innerH - 4));
     if (prevPx != -1) {
-      canvas.drawLine(prevPx, prevPy, px, py, COLOR_GREEN);
+      canvas.drawLine(prevPx, prevPy, px, py, tok(uitheme::TOK_SUCCESS));
     }
     prevPx = px;
     prevPy = py;
   }
 }
 
-// 11. AVG SPEED
-// "avg" not "avg spd": same SIZE_SMALL budget problem as Cadence — bold
-// "avg spd" measures 68px against a 66px SMALL-tile erase budget.
 static void renderWidgetAvgSpeed(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[12];
-  float avg = (g_settings.units == 1) ? (state.avg_speed_kmh * 0.621371f) : state.avg_speed_kmh;
-  snprintf(buf, sizeof(buf), "%.1f", avg);
-  renderTile(b, "avg", buf, COLOR_TEXT, force);
+  wmodel::TileModel m;
+  wmodel::modelAvgSpeed(state.avg_speed_kmh, imperial(), m);
+  drawTile(b, m, force);
 }
 
-// 12. MAX SPEED
-// "max" not "max spd": bold "max spd" measures 73px against the same 66px
-// SMALL-tile budget.
 static void renderWidgetMaxSpeed(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[12];
-  float maxS = (g_settings.units == 1) ? (state.max_speed_kmh * 0.621371f) : state.max_speed_kmh;
-  snprintf(buf, sizeof(buf), "%.1f", maxS);
-  renderTile(b, "max", buf, COLOR_TEXT, force);
+  wmodel::TileModel m;
+  wmodel::modelMaxSpeed(state.max_speed_kmh, imperial(), m);
+  drawTile(b, m, force);
 }
 
-// 13. BATTERY
 static void renderWidgetBattery(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[8];
-  snprintf(buf, sizeof(buf), "%u%%", state.battery_pct);
-  uint16_t color = (state.battery_pct < 20) ? COLOR_AMBER : COLOR_GREEN;
-  renderTile(b, "battery", buf, color, force);
+  wmodel::TileModel m;
+  wmodel::modelBattery(state.battery_pct, m);
+  drawTile(b, m, force);
 }
 
-// 14. BLE MANAGER
 static bool sensorDebug=false,sensorResults=false;
 static bool baroCalibrationOpen=false,baroCanSave=false;
 static int baroElevation=0;
@@ -297,33 +199,33 @@ static void buildSensorItems(){
 static bool touchWidgetBleManager(const Rect& b,int16_t x,int16_t y);
 static void renderWidgetBleManager(const Rect& b,const TelemetryState& state,bool force) {
   (void)force;
-  canvas.fillRect(b.x,b.y,b.w,b.h,COLOR_BG);canvas.setTextPadding(0);
+  canvas.fillRect(b.x,b.y,b.w,b.h,tok(uitheme::TOK_BG));canvas.setTextPadding(0);
   if(baroCalibrationOpen) {
-    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_BG));
     canvas.drawString("Back",b.x+8,b.y+12);
     canvas.drawString("Calibrate",b.x+112,b.y+12);
     char line[48];snprintf(line,sizeof(line),"%d m",baroElevation);
-    canvas.setTextColor(COLOR_TEXT,COLOR_BG);canvas.drawString(line,b.x+86,b.y+58);
+    canvas.setTextColor(tok(uitheme::TOK_TEXT),tok(uitheme::TOK_BG));canvas.drawString(line,b.x+86,b.y+58);
     const char* labels[]={"-10","-1","+1","+10"};
     for(int i=0;i<4;i++){
-      canvas.fillRoundRect(b.x+8+i*55,b.y+90,50,42,6,ui::panel);
-      canvas.setTextColor(COLOR_CYAN,ui::panel);canvas.drawString(labels[i],b.x+14+i*55,b.y+102);
+      canvas.fillRoundRect(b.x+8+i*55,b.y+90,50,42,6,tok(uitheme::TOK_PANEL));
+      canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_PANEL));canvas.drawString(labels[i],b.x+14+i*55,b.y+102);
     }
-    canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
     snprintf(line,sizeof(line),"Reference %.2f hPa",getBaroReference());canvas.drawString(line,b.x+8,b.y+148);
     baroCanSave=state.baro_valid && state.baro_age_ms<2000 && state.ride_state==RIDE_STATE_IDLE &&
       getBaroCalibrationStatus()!=BaroCalibrationStatus::Saving;
     canvas.drawString(state.ride_state!=RIDE_STATE_IDLE?"Finish ride to calibrate":
       !state.baro_valid?"Waiting for barometer":calibrationMessage(),b.x+8,b.y+169);
-    canvas.fillRoundRect(b.x+8,b.y+184,b.w-16,40,8,ui::panel);
-    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(baroCanSave?COLOR_CYAN:COLOR_LABEL,ui::panel);
+    canvas.fillRoundRect(b.x+8,b.y+184,b.w-16,40,8,tok(uitheme::TOK_PANEL));
+    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(baroCanSave?tok(uitheme::TOK_ACCENT):tok(uitheme::TOK_LABEL),tok(uitheme::TOK_PANEL));
     canvas.drawString("Save",b.x+90,b.y+198);
-    canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_BG));
     canvas.drawString(getBaroAutoEnabled()?(baroAutoDone()?"GPS auto: ON - calibrated":"GPS auto: ON - waiting stable fix"):
       "GPS auto: OFF - tap to enable",b.x+8,b.y+240);return;
   }
   if(sensorDebug) {
-    canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_BG));
     canvas.drawString("Sensor debug - tap to close",b.x+8,b.y+10);
     char line[80];const int x=b.x+8;
     snprintf(line,sizeof(line),"Speed raw %.1f / shown %.1f",state.speed_kmh,state.display_speed_kmh);canvas.drawString(line,x,b.y+42);
@@ -339,36 +241,36 @@ static void renderWidgetBleManager(const Rect& b,const TelemetryState& state,boo
   buildSensorItems();
   const int listTop=54,listBottom=b.h-42,listHeight=listBottom-listTop;
   sensorScroll.clamp(std::max(0,sensorContentHeight-listHeight));
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_CYAN,COLOR_BG);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_BG));
   canvas.drawString(sensorResults?"Back":"Paired",b.x+8,b.y+18);
-  canvas.fillRoundRect(b.x+b.w-88,b.y+6,80,40,8,ui::panel);
-  canvas.setTextColor(sensorFrame.scanning?COLOR_AMBER:COLOR_CYAN,ui::panel);
+  canvas.fillRoundRect(b.x+b.w-88,b.y+6,80,40,8,tok(uitheme::TOK_PANEL));
+  canvas.setTextColor(sensorFrame.scanning?tok(uitheme::TOK_WARNING):tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_PANEL));
   canvas.drawString(sensorFrame.scanning?"Scan...":"Scan",b.x+b.w-76,b.y+18);
   canvas.setClipRect(b.x,b.y+listTop,b.w,listHeight);
   for(unsigned i=0;i<sensorItemCount;i++){
     const auto& item=sensorItems[i];int y=b.y+listTop+item.top-sensorScroll.offset;
     if(y+56<b.y+listTop || y>=b.y+listBottom)continue;
-    if(item.group){canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_CYAN,COLOR_BG);canvas.drawString(sensorKindName(item.row.kind),b.x+8,y+6);continue;}
-    canvas.setFont(&fonts::Font0);canvas.setTextColor(TFT_WHITE,COLOR_BG);
+    if(item.group){canvas.setFont(&fonts::Font0);canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_BG));canvas.drawString(sensorKindName(item.row.kind),b.x+8,y+6);continue;}
+    canvas.setFont(&fonts::Font0);canvas.setTextColor(TFT_WHITE,tok(uitheme::TOK_BG));
     const char* name=item.row.name[0]?item.row.name:sensorKindName(item.row.kind);
     char shortName[22];snprintf(shortName,sizeof(shortName),"%.20s",name);
     canvas.drawString(shortName,b.x+8,y+3);
-    canvas.setTextColor(COLOR_LABEL,COLOR_BG);canvas.drawString(item.row.mac,b.x+8,y+18);
+    canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));canvas.drawString(item.row.mac,b.x+8,y+18);
     char status[32];if(sensorResults)snprintf(status,sizeof(status),"%d dBm",item.row.rssi);
     else snprintf(status,sizeof(status),"%s",item.row.connected?"Connected":"Offline");
     canvas.drawString(status,b.x+8,y+33);
-    canvas.fillRoundRect(b.x+b.w-76,y+4,68,36,6,ui::panel);
-    canvas.setTextColor(sensorFrame.busy?COLOR_LABEL:sensorResults?COLOR_CYAN:COLOR_RED,ui::panel);
+    canvas.fillRoundRect(b.x+b.w-76,y+4,68,36,6,tok(uitheme::TOK_PANEL));
+    canvas.setTextColor(sensorFrame.busy?tok(uitheme::TOK_LABEL):sensorResults?tok(uitheme::TOK_ACCENT):tok(uitheme::TOK_DANGER),tok(uitheme::TOK_PANEL));
     canvas.drawString(sensorResults?"Connect":"Forget",b.x+b.w-65,y+17);
-    canvas.drawFastHLine(b.x+8,y+53,b.w-16,COLOR_HAIRLINE);
+    canvas.drawFastHLine(b.x+8,y+53,b.w-16,tok(uitheme::TOK_HAIRLINE));
   }
-  if(!sensorItemCount){canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);canvas.drawString(sensorResults?(sensorFrame.scanning?"Searching...":"No new sensors. Tap Scan."):"No paired sensors. Tap Scan.",b.x+8,b.y+90);}
+  if(!sensorItemCount){canvas.setFont(&fonts::Font0);canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));canvas.drawString(sensorResults?(sensorFrame.scanning?"Searching...":"No new sensors. Tap Scan."):"No paired sensors. Tap Scan.",b.x+8,b.y+90);}
   canvas.clearClipRect();
-  if(sensorContentHeight>listHeight){int height=std::max(10,listHeight*listHeight/sensorContentHeight);int y=b.y+listTop+(listHeight-height)*sensorScroll.offset/(sensorContentHeight-listHeight);canvas.fillRect(b.x+b.w-3,y,2,height,COLOR_CYAN);}
-  canvas.setFont(&fonts::Font0);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+  if(sensorContentHeight>listHeight){int height=std::max(10,listHeight*listHeight/sensorContentHeight);int y=b.y+listTop+(listHeight-height)*sensorScroll.offset/(sensorContentHeight-listHeight);canvas.fillRect(b.x+b.w-3,y,2,height,tok(uitheme::TOK_ACCENT));}
+  canvas.setFont(&fonts::Font0);canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
   char briefStatus[36];snprintf(briefStatus,sizeof(briefStatus),"%.35s",sensorFrame.full?"Scan full (24). Rescan closer.":sensorFrame.status);
   canvas.drawString(briefStatus,b.x+8,b.y+b.h-36);
-  canvas.setTextColor(COLOR_CYAN,COLOR_BG);canvas.drawString("Debug sensors",b.x+8,b.y+b.h-16);
+  canvas.setTextColor(tok(uitheme::TOK_ACCENT),tok(uitheme::TOK_BG));canvas.drawString("Debug sensors",b.x+8,b.y+b.h-16);
   canvas.drawString("Calibrate",b.x+144,b.y+b.h-16);
 }
 static bool touchWidgetBleManager(const Rect& b,int16_t x,int16_t y) {
@@ -429,7 +331,7 @@ static const int SETTINGS_ROW_DIVIDER = 20;
 
 static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state, bool force) {
   if (force) {
-    canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
+    canvas.fillRect(b.x, b.y, b.w, b.h, tok(uitheme::TOK_BG));
   }
   int y = b.y + SETTINGS_ROW_Y0;
   canvas.setFont(&fonts::FreeSansBold9pt7b);
@@ -442,52 +344,52 @@ static void renderWidgetSettingsList(const Rect& b, const TelemetryState& state,
   // a 232px FULL-size widget — that's an actual off-tile overflow, not just a
   // ghosting-erase shortfall.
   auto row = [&](const char* label, const char* value, uint16_t valueColor) {
-    canvas.setTextColor(COLOR_LABEL, COLOR_BG);
+    canvas.setTextColor(tok(uitheme::TOK_LABEL), tok(uitheme::TOK_BG));
     canvas.setTextPadding(110);
     canvas.drawString(label, b.x + 10, y);
     canvas.setTextPadding(0);
-    canvas.setTextColor(valueColor, COLOR_BG);
+    canvas.setTextColor(valueColor, tok(uitheme::TOK_BG));
     canvas.setTextPadding(b.w - 120);
     canvas.drawString(value, b.x + 116, y);
     canvas.setTextPadding(0);
-    canvas.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, COLOR_HAIRLINE);
+    canvas.drawFastHLine(b.x + 6, y + SETTINGS_ROW_DIVIDER, b.w - 12, tok(uitheme::TOK_HAIRLINE));
     y += SETTINGS_ROW_STRIDE;
   };
 
-  row("units", g_settings.units == 0 ? "metric" : "imperial", COLOR_TEXT);
+  row("units", g_settings.units == 0 ? "metric" : "imperial", tok(uitheme::TOK_TEXT));
 
   char brightStr[8];
   snprintf(brightStr, sizeof(brightStr), "%u%%", (g_settings.brightness * 100) / 255);
-  row("brightness", brightStr, COLOR_TEXT);
+  row("brightness", brightStr, tok(uitheme::TOK_TEXT));
 
   char wheelStr[24];
   snprintf(wheelStr, sizeof(wheelStr), "%u mm", g_settings.wheel_circumference_mm);
-  row("wheel size", wheelStr, COLOR_TEXT);
+  row("wheel size", wheelStr, tok(uitheme::TOK_TEXT));
 
   row("sd logging", g_settings.sd_logging_enabled ? "enabled" : "disabled",
-      g_settings.sd_logging_enabled ? COLOR_GREEN : COLOR_AMBER);
+      g_settings.sd_logging_enabled ? tok(uitheme::TOK_SUCCESS) : tok(uitheme::TOK_WARNING));
 
   row("gps source", g_settings.gps_source_mode == 0 ? "hardware" : "phone",
-      g_settings.gps_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
+      g_settings.gps_source_mode == 0 ? tok(uitheme::TOK_TEXT) : tok(uitheme::TOK_ACCENT));
 
   row("baro source", g_settings.baro_source_mode == 0 ? "hardware" : "phone",
-      g_settings.baro_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
+      g_settings.baro_source_mode == 0 ? tok(uitheme::TOK_TEXT) : tok(uitheme::TOK_ACCENT));
 
   row("compass source", g_settings.compass_source_mode == 0 ? "hardware" : "phone",
-      g_settings.compass_source_mode == 0 ? COLOR_TEXT : COLOR_CYAN);
+      g_settings.compass_source_mode == 0 ? tok(uitheme::TOK_TEXT) : tok(uitheme::TOK_ACCENT));
 
   char batStr[24];
   snprintf(batStr, sizeof(batStr), "%u%% (%.2fV)", state.battery_pct, readBatteryVoltage());
-  row("battery", batStr, COLOR_GREEN);
+  row("battery", batStr, tok(uitheme::TOK_SUCCESS));
 
-  row("firmware", "v0.2.0", COLOR_CYAN);
+  row("firmware", "v0.2.0", tok(uitheme::TOK_ACCENT));
 
   // Filled controls are the only raised surfaces in the Minimal UI. Keep the
   // power entry in the same cyan/black treatment as the other primary action
   // buttons, and render it to the shared sprite like the rest of the page.
   if (b.h >= 252) {
-    canvas.fillRoundRect(b.x + 10, b.y + 208, b.w - 20, 44, 8, COLOR_CYAN);
-    canvas.setTextColor(TFT_BLACK, COLOR_CYAN);
+    canvas.fillRoundRect(b.x + 10, b.y + 208, b.w - 20, 44, 8, tok(uitheme::TOK_ACCENT));
+    canvas.setTextColor(TFT_BLACK, tok(uitheme::TOK_ACCENT));
     ui::drawIcon(canvas,ui::Icon::Power,b.x+20,b.y+218,TFT_BLACK);
     canvas.setTextPadding(b.w - 64);
     canvas.drawString("Power", b.x + 54, b.y + 221);
@@ -579,35 +481,35 @@ static void cameraButton(const Rect& b,ui::HitRect r,ui::Icon icon,const char* t
 }
 static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,bool force) {
   (void)state;(void)force;
-  canvas.fillRect(b.x,b.y,b.w,b.h,COLOR_BG);canvas.setTextPadding(0);
+  canvas.fillRect(b.x,b.y,b.w,b.h,tok(uitheme::TOK_BG));canvas.setTextPadding(0);
   const bool pairing=isCameraPairing()||cameraControlIsPairing(),waking=isCameraWaking();
   const bool connected=isCameraSubscribed()||cameraControlIsConnected();
   canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(pairing||waking?COLOR_AMBER:connected?COLOR_GREEN:COLOR_LABEL,COLOR_BG);
+  canvas.setTextColor(pairing||waking?tok(uitheme::TOK_WARNING):connected?tok(uitheme::TOK_SUCCESS):tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
   canvas.drawString(pairing?(cameraControlIsPairing()?"Camera pairing":"Pairing (30s)"):waking?"Waking (10s)":
     connected?"Connected":"Not connected",b.x+8,b.y+8);
   if(cameraPage==0) {
-    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Search,pairing?"Pairing...":"Pair",ui::panel);
-    cameraButton(b,ui::captureRect(1,b.w),ui::Icon::Camera,"Shutter",COLOR_CYAN,TFT_BLACK);
-    cameraButton(b,ui::captureRect(2,b.w),ui::Icon::List,"Options",ui::panel);
+    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Search,pairing?"Pairing...":"Pair",tok(uitheme::TOK_PANEL));
+    cameraButton(b,ui::captureRect(1,b.w),ui::Icon::Camera,"Shutter",tok(uitheme::TOK_ACCENT),TFT_BLACK);
+    cameraButton(b,ui::captureRect(2,b.w),ui::Icon::List,"Options",tok(uitheme::TOK_PANEL));
   } else if(cameraPage==1) {
-    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Back,"Back",ui::panel);
+    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Back,"Back",tok(uitheme::TOK_PANEL));
     const char* labels[]={"Modes","Screen","Wake","Off"};
     const ui::Icon icons[]={ui::Icon::Mode,ui::Icon::Screen,ui::Icon::Wake,ui::Icon::Power};
     for(int i=0;i<4;i++){
       auto r=ui::optionRect(i,b.w);
-      const uint16_t fg=i==3?COLOR_AMBER:i==2&&!hasCameraWakeBytes()?COLOR_LABEL:TFT_WHITE;
-      cameraButton(b,r,icons[i],labels[i],ui::panel,fg);
+      const uint16_t fg=i==3?tok(uitheme::TOK_WARNING):i==2&&!hasCameraWakeBytes()?tok(uitheme::TOK_LABEL):TFT_WHITE;
+      cameraButton(b,r,icons[i],labels[i],tok(uitheme::TOK_PANEL),fg);
     }
   } else {
-    cameraButton(b,ui::modeNav(0,b.w),ui::Icon::Back,"Back",ui::panel);
-    cameraButton(b,ui::modeNav(1,b.w),ui::Icon::List,"Next",ui::panel);
+    cameraButton(b,ui::modeNav(0,b.w),ui::Icon::Back,"Back",tok(uitheme::TOK_PANEL));
+    cameraButton(b,ui::modeNav(1,b.w),ui::Icon::List,"Next",tok(uitheme::TOK_PANEL));
     for(int i=0;i<4;i++){
       const int index=cameraModePage*4+i;
       if(index>=(int)camera_proto::CAMERA_MODE_COUNT)break;
       const bool sel=index==cameraSelected;
       cameraButton(b,ui::optionRect(i,b.w),ui::Icon::Mode,camera_proto::CAMERA_MODES[index].label,
-                   sel?COLOR_CYAN:ui::panel,sel?TFT_BLACK:TFT_WHITE);
+                   sel?tok(uitheme::TOK_ACCENT):tok(uitheme::TOK_PANEL),sel?TFT_BLACK:TFT_WHITE);
     }
   }
   char hint[40];
@@ -615,7 +517,7 @@ static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,b
     int last=cameraModePage*4+4;if(last>(int)camera_proto::CAMERA_MODE_COUNT)last=(int)camera_proto::CAMERA_MODE_COUNT;
     snprintf(hint,sizeof(hint),"Modes %d-%d of %d",cameraModePage*4+1,last,(int)camera_proto::CAMERA_MODE_COUNT);
   } else snprintf(hint,sizeof(hint),cameraPage==0?"Shutter follows mode":"Camera controls");
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
   canvas.drawString(hint,b.x+8,b.y+226);
 }
 static bool touchWidgetCameraRemote(const Rect& b,int16_t x,int16_t y) {
@@ -687,7 +589,7 @@ void renderWidget(WidgetType type, const TemplateSlot& slot, const TelemetryStat
   // was previously in this slot can never be left behind.
   if (type >= WIDGET_TYPE_COUNT || !widgetSupportsSize(type, slot.size_class)) {
     if (forceFullRedraw) {
-      canvas.fillRect(slot.rect.x, slot.rect.y, slot.rect.w, slot.rect.h, COLOR_BG);
+      canvas.fillRect(slot.rect.x, slot.rect.y, slot.rect.w, slot.rect.h, tok(uitheme::TOK_BG));
     }
     return;
   }

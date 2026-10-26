@@ -56,22 +56,55 @@ void modelCadence(int16_t rpm, TileModel& out) {
 
 void modelHeartRate(int16_t bpm, TileModel& out) {
   char buf[8];
-  if (bpm >= 0) {
-    snprintf(buf, sizeof(buf), "%d", bpm);
-  } else {
-    snprintf(buf, sizeof(buf), "--");
-  }
-  copyLabel(out, "hr", buf, TONE_DANGER);
+  snprintf(buf, sizeof(buf), "%d", bpm >= 0 ? bpm : 0);
+  copyLabel(out, "heart", buf, TONE_DANGER);
 }
 
 void modelPower(int16_t watts, TileModel& out) {
   char buf[8];
-  if (watts >= 0) {
-    snprintf(buf, sizeof(buf), "%d", watts);
+  snprintf(buf, sizeof(buf), "%d", watts >= 0 ? watts : 0);
+  copyLabel(out, "power", buf, TONE_SUCCESS);
+}
+
+// "avg"/"max" not "avg spd": the bold label must fit a SMALL tile's 66px budget.
+void modelAvgSpeed(float kmh, bool imperial, TileModel& out) {
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%.1f", imperial ? kmh * 0.621371f : kmh);
+  copyLabel(out, "avg", buf, TONE_TEXT);
+}
+
+void modelMaxSpeed(float kmh, bool imperial, TileModel& out) {
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%.1f", imperial ? kmh * 0.621371f : kmh);
+  copyLabel(out, "max", buf, TONE_TEXT);
+}
+
+void modelAltitude(float meters, bool valid, bool imperial, TileModel& out) {
+  char buf[16];
+  if (valid) {
+    snprintf(buf, sizeof(buf), "%.0f", imperial ? meters * 3.28084f : meters);
   } else {
     snprintf(buf, sizeof(buf), "--");
   }
-  copyLabel(out, "power", buf, TONE_WARNING);
+  copyLabel(out, imperial ? "alt (ft)" : "alt (m)", buf, TONE_TEXT);
+}
+
+void modelGrade(float pct, TileModel& out) {
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%+.1f%%", pct);
+  copyLabel(out, "grade", buf, pct > 3.0f ? TONE_WARNING : pct < -2.0f ? TONE_ACCENT : TONE_SUCCESS);
+}
+
+void modelTotalAscent(float meters, bool imperial, TileModel& out) {
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%.0f", imperial ? meters * 3.28084f : meters);
+  copyLabel(out, imperial ? "asc (ft)" : "asc (m)", buf, TONE_SUCCESS);
+}
+
+void modelBattery(uint8_t pct, TileModel& out) {
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%u%%", unsigned(pct));
+  copyLabel(out, "battery", buf, pct < 20 ? TONE_WARNING : TONE_SUCCESS);
 }
 
 void modelStatus(bool fix, uint8_t fixQuality, uint8_t sats, RideStateHint ride,

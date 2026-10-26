@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include "navigation/navigation.h"
 #include "ui/frame_present.h"
+#include "ui/engine/resolved_theme.h"
+#include "storage/theme_config.h"
 
 static uint8_t currentPageIdx = 0;
 static uint8_t activePageDrawn = 255;
@@ -146,9 +148,13 @@ void uiTaskLoop(void* pvParameters) {
 
     // Render active dynamic page from UiConfig -- every widget/layout draw
     // call targets the off-screen canvas sprite, not the panel directly.
-    // Re-resolving the theme each frame is what makes browser-pushed themes
-    // apply live (8 RGB565 conversions, negligible next to a full-frame blit).
-    applyActiveTheme();
+    // A browser-pushed theme applies live: copy it between two reads of its
+    // version counter and re-resolve only when they agree (no torn reads).
+    {
+      const uint32_t version = g_theme_version.load();
+      const uitheme::UiTheme copy = g_theme;
+      ui::refreshActiveTheme(copy, version, g_theme_version.load());
+    }
     if (g_ui_config.active_page_count > 0) {
       renderPage(g_ui_config.pages[currentPageIdx], currentPageIdx, g_ui_config.active_page_count, state, forceRedraw);
     }
