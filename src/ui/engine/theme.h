@@ -110,6 +110,9 @@ enum StyleId : uint8_t {
   STYLE_BUTTON_POWER,
   STYLE_BUTTON_MAP,
   STYLE_BUTTON_MAP_ACTIVE,
+  STYLE_BUTTON_DANGER,  // record / stop (compact, like the two below)
+  STYLE_BUTTON_COMPACT_PRIMARY,    // icon + label in half-width camera buttons
+  STYLE_BUTTON_COMPACT_SECONDARY,
   STYLE_COUNT
 };
 

@@ -41,23 +41,40 @@ inline void openPowerMenu(){}
 struct FakeSerial {void println(const char*){}};
 extern FakeSerial Serial;
 extern bool pairing,subscribed;
-// Direct camera-control channel (hardware/camera_control.h), faked here.
-// Accessor statics (not externs) so every UI test TU can include this header
-// without needing to define the counters itself.
+// Camera control (hardware/camera_control.h), faked here. `pairing` doubles
+// as "scanning". Accessor statics (not externs) so every UI test TU can
+// include this header without defining the counters itself.
 inline int& cameraModeCalls(){static int calls=0;return calls;}
-inline int& cameraPairCalls(){static int calls=0;return calls;}
-inline int& cameraShutterCalls(){static int calls=0;return calls;}
-inline int& cameraPowerOffCalls(){static int calls=0;return calls;}
 inline int& lastCameraScope(){static int scope=-1;return scope;}
 inline int& lastCameraSubMode(){static int sub=-1;return sub;}
+inline int& cameraScanCalls(){static int calls=0;return calls;}
+inline int& cameraForgetCalls(){static int calls=0;return calls;}
+inline int& cameraConnectCalls(){static int calls=0;return calls;}
+inline camera_proto::CameraCandidate& lastCameraConnect(){static camera_proto::CameraCandidate c{};return c;}
+inline bool& fakeCameraSaved(){static bool saved=false;return saved;}
+inline bool& fakeCameraConnecting(){static bool connecting=false;return connecting;}
+inline camera_proto::CameraCandidate* fakeCandidates(){static camera_proto::CameraCandidate c[camera_proto::CAMERA_MAX_CANDIDATES];return c;}
+inline size_t& fakeCandidateCount(){static size_t n=0;return n;}
+// Capture commands, indexed 0 start, 1 stop, 2 pause, 3 photo, 4 power off.
+inline int* cameraCommandCalls(){static int calls[5]{};return calls;}
 inline bool setCameraMode(int scope,int subMode){++cameraModeCalls();lastCameraScope()=scope;lastCameraSubMode()=subMode;return true;}
 inline bool cameraControlIsConnected(){return subscribed;}
-inline bool cameraControlIsPairing(){return pairing;}
-inline void cameraControlPair(){++cameraPairCalls();}
+inline bool cameraControlIsScanning(){return pairing;}
+inline void cameraControlScan(){++cameraScanCalls();}
+inline size_t cameraControlCandidates(camera_proto::CameraCandidate* out,size_t max){
+  size_t n=fakeCandidateCount()<max?fakeCandidateCount():max;
+  for(size_t i=0;i<n;i++)out[i]=fakeCandidates()[i];
+  return n;}
+inline bool cameraControlConnect(const camera_proto::CameraCandidate& c){++cameraConnectCalls();lastCameraConnect()=c;return true;}
+inline bool cameraControlIsConnecting(){return fakeCameraConnecting();}
+inline bool cameraControlHasSaved(){return fakeCameraSaved();}
+inline void cameraControlForget(){++cameraForgetCalls();fakeCameraSaved()=false;}
+inline bool cameraControlStartRecording(){++cameraCommandCalls()[0];return subscribed;}
+inline bool cameraControlStopRecording(){++cameraCommandCalls()[1];return subscribed;}
+inline bool cameraControlTakePhoto(){++cameraCommandCalls()[3];return subscribed;}
+inline bool cameraControlPowerOff(){++cameraCommandCalls()[4];return subscribed;}
 inline int cameraControlCurrentMode(){return lastCameraSubMode();}
 inline const char* cameraControlStatusText(){return "Not connected";}
-inline bool cameraControlShutter(){++cameraShutterCalls();return subscribed;}
-inline bool cameraControlPowerOff(){++cameraPowerOffCalls();return subscribed;}
 inline camera_proto::CameraStatus& fakeCameraStatus(){static camera_proto::CameraStatus status;return status;}
 inline bool cameraControlStatus(camera_proto::CameraStatus& out){
   out=subscribed?fakeCameraStatus():camera_proto::CameraStatus();return subscribed;}

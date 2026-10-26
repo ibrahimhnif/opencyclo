@@ -4,22 +4,22 @@
 namespace camera_proto {
 
 const CameraModeEntry CAMERA_MODES[] = {
-    {"Video", SCOPE_VIDEO, 0},                                    // VIDEO_NORMAL
-    {"Freeframe", SCOPE_VIDEO, VIDEO_SUB_FREEFRAME},
-    {"HDR", SCOPE_VIDEO, 3},                                      // VIDEO_HDR
-    {"Timeshift", SCOPE_VIDEO, 4},                                // VIDEO_TIMESHIFT
-    {"Loop", SCOPE_VIDEO, 6},                                     // VIDEO_LOOP_RECORDING
-    {"Fpv", SCOPE_VIDEO, 7},                                      // VIDEO_FPV
-    {"Movie", SCOPE_VIDEO, 8},                                    // VIDEO_MOVIE
-    {"Slowmo", SCOPE_VIDEO, 9},                                   // VIDEO_SLOW_MOTION
-    {"Pure", SCOPE_VIDEO, 11},                                    // VIDEO_PURE
-    {"Timelapse", SCOPE_VIDEO, 2},                                // VIDEO_TIMELAPSE
-    {"Dashcam", SCOPE_VIDEO, 14},                                 // VIDEO_DASHCAM
-    {"Photo", SCOPE_PHOTO, 0},                                    // PHOTO_SINGLE
-    {"HDR Photo", SCOPE_PHOTO, 1},                                // PHOTO_HDR
-    {"Interval", SCOPE_PHOTO, 2},                                 // PHOTO_INTERVAL
-    {"Burst", SCOPE_PHOTO, 3},                                    // PHOTO_BURST
-    {"Starlapse", SCOPE_PHOTO, 7},                                // PHOTO_STAR_LAPSE
+    {"Video", "Video", SCOPE_VIDEO, 0},                         // VIDEO_NORMAL
+    {"Freeframe", "Free", SCOPE_VIDEO, VIDEO_SUB_FREEFRAME},
+    {"HDR", "HDR", SCOPE_VIDEO, 3},                             // VIDEO_HDR
+    {"Timeshift", "TShift", SCOPE_VIDEO, 4},                    // VIDEO_TIMESHIFT
+    {"Loop", "Loop", SCOPE_VIDEO, 6},                           // VIDEO_LOOP_RECORDING
+    {"Fpv", "FPV", SCOPE_VIDEO, 7},                             // VIDEO_FPV
+    {"Movie", "Movie", SCOPE_VIDEO, 8},                         // VIDEO_MOVIE
+    {"Slowmo", "Slow", SCOPE_VIDEO, 9},                         // VIDEO_SLOW_MOTION
+    {"Pure", "Pure", SCOPE_VIDEO, 11},                          // VIDEO_PURE
+    {"Timelapse", "Lapse", SCOPE_VIDEO, 2},                     // VIDEO_TIMELAPSE
+    {"Dashcam", "Dash", SCOPE_VIDEO, 14},                       // VIDEO_DASHCAM
+    {"Photo", "Photo", SCOPE_PHOTO, 0},                         // PHOTO_SINGLE
+    {"HDR Photo", "P-HDR", SCOPE_PHOTO, 1},                     // PHOTO_HDR
+    {"Interval", "Intvl", SCOPE_PHOTO, 2},                      // PHOTO_INTERVAL
+    {"Burst", "Burst", SCOPE_PHOTO, 3},                         // PHOTO_BURST
+    {"Starlapse", "Stars", SCOPE_PHOTO, 7},                     // PHOTO_STAR_LAPSE
 };
 const size_t CAMERA_MODE_COUNT = sizeof(CAMERA_MODES) / sizeof(CAMERA_MODES[0]);
 
@@ -311,20 +311,63 @@ const char* cameraModeName(const CameraStatus& status) {
   return nullptr;
 }
 
-uint16_t shutterCommand(const CameraStatus& status) {
-  if (status.capture_state > 0) return CMD_STOP_CAPTURE;
-  if (status.photo_sub >= 0 && status.photo_sub != SUB_MODE_NONE) return CMD_TAKE_PICTURE;
-  return CMD_START_CAPTURE;
+// TakePictureResponse{image=1: Photo{uri=1}} and StopCaptureResp{video=1:
+// Video{uri=1}} share a shape: field 1 message holding a field 1 string.
+static bool readSavedFile(const uint8_t* body, size_t len, char* out, size_t cap) {
+  const uint8_t* media = nullptr;
+  size_t mediaLen = 0;
+  if (!body || !findMessage(body, len, 1, media, mediaLen)) return false;
+  const uint8_t* uri = nullptr;
+  size_t uriLen = 0;
+  if (!findMessage(media, mediaLen, 1, uri, uriLen) || uriLen == 0) return false;
+  size_t start = 0;
+  for (size_t i = 0; i < uriLen; ++i)
+    if (uri[i] == '/') start = i + 1;
+  size_t n = uriLen - start;
+  if (n == 0) return false;
+  if (n > cap - 1) n = cap - 1;
+  memcpy(out, uri + start, n);
+  out[n] = '\0';
+  return true;
 }
 
-void applyCommandOk(uint16_t cmd, CameraStatus& status) {
-  if (cmd == CMD_START_CAPTURE) {
-    status.capture_state = 1;
-    status.capture_secs = 0;
-  } else if (cmd == CMD_STOP_CAPTURE) {
-    status.capture_state = 0;
-    status.capture_secs = 0;
+void applyCommandSent(uint16_t cmd, CameraStatus& status) {
+  if (cmd == CMD_TAKE_PICTURE) status.photo_state = PHOTO_PENDING;
+  if (cmd == CMD_START_CAPTURE) status.capture_request = CAPTURE_STARTING;
+  if (cmd == CMD_STOP_CAPTURE) status.capture_request = CAPTURE_STOPPING;
+}
+
+void applyCommandOk(uint16_t cmd, const uint8_t* body, size_t len, CameraStatus& status) {
+  switch (cmd) {
+    case CMD_START_CAPTURE:
+      status.capture_state = 1;
+      status.capture_secs = 0;
+      status.capture_request = CAPTURE_NONE;
+      status.last_file[0] = '\0';
+      break;
+    case CMD_STOP_CAPTURE:
+      status.capture_state = 0;
+      status.capture_secs = 0;
+      status.capture_request = CAPTURE_NONE;
+      readSavedFile(body, len, status.last_file, sizeof(status.last_file));
+      break;
+    case CMD_TAKE_PICTURE:
+      status.photo_state = PHOTO_SAVED;
+      if (!readSavedFile(body, len, status.last_file, sizeof(status.last_file))) status.last_file[0] = '\0';
+      break;
+    default:
+      break;
   }
+}
+
+void applyCommandFailed(uint16_t cmd, CameraStatus& status) {
+  if (cmd == CMD_TAKE_PICTURE) status.photo_state = PHOTO_FAILED;
+  if (cmd == CMD_START_CAPTURE || cmd == CMD_STOP_CAPTURE) status.capture_request = CAPTURE_NONE;
+}
+
+uint32_t liveCaptureSecs(const CameraStatus& status, uint32_t reportMs, uint32_t nowMs) {
+  if (status.capture_state <= 0) return status.capture_secs;
+  return status.capture_secs + (nowMs - reportMs) / 1000;
 }
 
 bool parseFrameLength(const uint8_t* data, size_t len, uint32_t& total) {

@@ -107,6 +107,12 @@ void modelBattery(uint8_t pct, TileModel& out) {
   copyLabel(out, "battery", buf, pct < 20 ? TONE_WARNING : TONE_SUCCESS);
 }
 
+void formatDuration(uint32_t secs, char* out, size_t n) {
+  const unsigned h = secs / 3600, m = (secs / 60) % 60, s = secs % 60;
+  if (h) snprintf(out, n, "%u:%02u:%02u", h, m, s);
+  else snprintf(out, n, "%u:%02u", m, s);
+}
+
 void modelCameraIndicator(int8_t batteryPct, bool charging, int8_t cardState, uint64_t freeBytes,
                           int8_t captureState, uint32_t captureSecs, const char* modeName,
                           CameraIndicatorModel& out) {
@@ -125,11 +131,11 @@ void modelCameraIndicator(int8_t batteryPct, bool charging, int8_t cardState, ui
   } else if (cardState == 0) {
     const uint64_t gib = 1024ULL * 1024 * 1024;
     if (freeBytes < gib) {
-      snprintf(out.storage, sizeof(out.storage), "SD %uM", unsigned(freeBytes / (1024 * 1024)));
+      snprintf(out.storage, sizeof(out.storage), "%uM free", unsigned(freeBytes / (1024 * 1024)));
       out.storage_tone = TONE_WARNING;
     } else {
       const double g = double(freeBytes) / double(gib);
-      snprintf(out.storage, sizeof(out.storage), g < 100.0 ? "SD %.1fG" : "SD %.0fG", g);
+      snprintf(out.storage, sizeof(out.storage), g < 100.0 ? "%.1fG free" : "%.0fG free", g);
       out.storage_tone = TONE_MUTED;
     }
   } else {
@@ -138,9 +144,9 @@ void modelCameraIndicator(int8_t batteryPct, bool charging, int8_t cardState, ui
   }
 
   if (captureState > 0) {
-    const unsigned h = captureSecs / 3600, m = (captureSecs / 60) % 60, s = captureSecs % 60;
-    if (h) snprintf(out.capture, sizeof(out.capture), "REC %u:%02u:%02u", h, m, s);
-    else snprintf(out.capture, sizeof(out.capture), "REC %u:%02u", m, s);
+    char t[12];
+    formatDuration(captureSecs, t, sizeof(t));
+    snprintf(out.capture, sizeof(out.capture), "REC %s", t);
     out.capture_tone = TONE_DANGER;
   } else {
     snprintf(out.capture, sizeof(out.capture), "%s", modeName ? modeName : "");

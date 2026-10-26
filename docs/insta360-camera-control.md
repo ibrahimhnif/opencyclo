@@ -131,36 +131,49 @@ host-tested in `tests/test_camera_protocol.cpp`.
 - `src/hardware/camera_protocol.{h,cpp}` — pure framing, the `SetOptions` /
   `GetOptions` protobuf encoders and the mode table. No Arduino/NimBLE, unit
   tested on the host.
-- `src/hardware/camera_control.{h,cpp}` — the BLE central: pair (scan for
-  `be80` or a camera name), connect, subscribe `be82`, SYNC after the first
-  heartbeat, 1 s keepalive, reconnect to the saved camera every 12 s,
-  `setCameraMode()`, `cameraControlShutter()` and `cameraControlPowerOff()`. Runs inside `bleTaskLoop()`; the
-  blocking connect happens in `tickCameraControl()`, never in a scan callback.
+- `src/hardware/camera_control.{h,cpp}` — the BLE central: a 10 s scan
+  collects candidates (`be80` service or a camera name) with their RSSI,
+  `cameraControlConnect()` connects to the one the user picked, then it
+  subscribes `be82`, sends SYNC after the first heartbeat, keeps a 1 s
+  keepalive and reconnects to the saved camera every 12 s. Commands
+  (`setCameraMode()`, start/stop recording, take photo, power off) are queued
+  by the UI and sent from the BLE task, so a blocking GATT write never stalls
+  the screen. `cameraControlStatus()` ticks the recording timer locally from
+  the camera's last report, so the REC time advances every second.
 - `src/hardware/ble_task.cpp` — calls `initCameraControl()` at setup,
   `tickCameraControl()` each loop, and feeds scan results to
-  `cameraControlOnAdvertised()` (service UUID or camera name match).
-- `src/ui/engine/widget_registry.cpp` — the Camera widget's Options → Modes
-  page is the paged picker; Pair opens the scan; Shutter sends
-  `TAKE_PICTURE` (3) in a photo mode, otherwise `START_CAPTURE` (4) /
-  `STOP_CAPTURE` (5); Off sends `0x37` (experimental, unverified on the Ace
-  Pro 2).
+  `cameraControlOnAdvertised()`.
+- `src/ui/camera_view.h` (pure, host-tested) and `src/ui/camera_widget.cpp` —
+  the Camera widget's pages:
+  - **Scan**: Scan (+ Forget when a camera is saved) and the found cameras,
+    strongest signal first; tap one to connect.
+  - **Modes**: every capture mode as an icon + short label (Video, Free, HDR,
+    TShift, Loop, FPV, Movie, Slow, Pure, Lapse, Dash, Photo, P-HDR, Intvl,
+    Burst, Stars), four per page; tapping one sets it and opens Capture.
+  - **Capture**: video shows Ready → Starting... → `REC m:ss` (red dot, live
+    seconds) → Saving... → Ready with the saved file name; only Record and
+    Stop (no pause). Photo shows Ready → Saving... → Saved + file name (or
+    Photo failed). Free storage is in the footer.
+  - **More**: Off (`0x37`, experimental, unverified on the Ace Pro 2) and
+    Forget.
 - `src/storage/settings.*` — `camera_mac` / `camera_addr_type` persist the
-  paired camera.
+  chosen camera.
 
-On the device: open the Camera widget → **Pair** (camera on and advertising),
-then **Options → Modes** and pick a mode. The serial log prints `[CAM] …` lines.
+On the device: open the Camera widget → **Scan** (camera on), tap the camera
+in the list, pick a mode, then Record/Stop or Take photo. The serial log prints
+`[CAM] …` lines.
 
 ## Verification
 
 ```bash
-python3 tests/run_native_tests.py   # byte-exact frames, SetOptions and mode table
-python3 tests/run_ride_tests.py     # camera widget: dispatches + mode picker
+python3 tests/run_native_tests.py   # frames, status parsing, camera view logic
+python3 tests/run_ride_tests.py     # camera widget screens (golden camera.txt)
 ~/.platformio/penv/bin/pio run      # firmware build
 ```
 
-On hardware: the ESP32 connects to the camera as central (header reads "Camera
-connected"), selecting a mode changes the camera's on-screen mode, and Shutter
-takes a photo or starts/stops recording.
+On hardware: Scan lists the camera, tapping it connects (header reads
+"Connected" with the battery), selecting a mode changes the camera's on-screen
+mode, Record shows a ticking REC timer and Stop shows the saved file name.
 
 ## References
 

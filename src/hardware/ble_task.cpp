@@ -280,10 +280,10 @@ static void processSensorAction(){
 }
 class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* device) override {
-    // Insta360 camera control service (see camera_control.cpp). Latched only
-    // while a pairing window is open, so a camera merely passing by isn't
-    // hijacked. Some cameras hide the service UUID in the scan response, so
-    // fall back to a name match.
+    // Insta360 camera control service (see camera_control.cpp). Listed only
+    // while the camera scan is open; nothing connects until the user picks
+    // one. Some cameras hide the service UUID in the scan response, so fall
+    // back to a name match.
     static const NimBLEUUID cameraService("0000be80-0000-1000-8000-00805f9b34fb");
     const char* cameraName = device->getName().c_str();
     const bool cameraByName = strncmp(cameraName, "Ace", 3) == 0 || strncmp(cameraName, "Insta360", 8) == 0 ||
@@ -291,7 +291,7 @@ class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
                               strncmp(cameraName, "X5", 2) == 0 || strncmp(cameraName, "GO ", 3) == 0;
     if (device->isAdvertisingService(cameraService) || cameraByName) {
       cameraControlOnAdvertised(cameraName, device->getAddress().toString().c_str(),
-                                device->getAddress().getType(), true);
+                                device->getAddress().getType(), int8_t(device->getRSSI()));
     }
     const uint16_t services[]={0x1816,0x180d,0x1818};
     const SensorKind kinds[]={SensorKind::Csc,SensorKind::Heart,SensorKind::Power};

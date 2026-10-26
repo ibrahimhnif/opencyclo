@@ -34,6 +34,9 @@ constexpr ComponentStyle kButtonPageSecondary{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK
 constexpr ComponentStyle kButtonPower{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_GLCD, 2, 0, 12, 10, 48, 14};
 constexpr ComponentStyle kButtonMap{TOK_PANEL, TOK_TEXT, TOK_ACCENT, TOK_PANEL, 0, 8, FONT_GLCD, 1, 2, 5, 10, 34, 18};
 constexpr ComponentStyle kButtonMapActive{TOK_ACTIVE, TOK_TEXT, TOK_ACCENT, TOK_ACTIVE, 0, 8, FONT_GLCD, 1, 2, 5, 10, 34, 18};
+constexpr ComponentStyle kButtonDanger{TOK_DANGER, TOK_BG, TOK_BG, TOK_DANGER, 0, 8, FONT_SANS_BOLD_9, 1, 0, 6, 12, 34, 16};
+constexpr ComponentStyle kButtonCompactPrimary{TOK_ACCENT, TOK_BG, TOK_BG, TOK_ACCENT, 0, 8, FONT_SANS_BOLD_9, 1, 0, 6, 12, 34, 16};
+constexpr ComponentStyle kButtonCompactSecondary{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_SANS_BOLD_9, 1, 0, 6, 12, 34, 16};
 
 // Order must match StyleId.
 constexpr StyleSheet kDefaultStyleSheet{
@@ -42,7 +45,8 @@ constexpr StyleSheet kDefaultStyleSheet{
     Rgb888{0, 68, 128},     // == RGB565 0x0230, the legacy map-follow fill
     {kText, kTextMuted, kCaption, kValueXl, kTileLabel, kTileValue, kHeroLabel, kHeroValue, kHeader,
      kPanelTitle, kPanelText, kScreenTitle, kScreenText, kButtonPrimary, kButtonSecondary,
-     kButtonPagePrimary, kButtonPageSecondary, kButtonPower, kButtonMap, kButtonMapActive}};
+     kButtonPagePrimary, kButtonPageSecondary, kButtonPower, kButtonMap, kButtonMapActive,
+     kButtonDanger, kButtonCompactPrimary, kButtonCompactSecondary}};
 
 }  // namespace
 

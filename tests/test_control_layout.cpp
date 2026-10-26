@@ -9,7 +9,7 @@ struct Surface {
   }
 };
 int main(){
-  for(int i=0;i<=int(ui::Icon::Next);i++){
+  for(int i=0;i<=int(ui::Icon::Starlapse);i++){
     Surface s;ui::drawIcon(s,ui::Icon(i),0,0,0xffff);assert(s.lines>0);
   }
   for(int w:{232,240}) {

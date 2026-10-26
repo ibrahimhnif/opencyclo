@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     subprocess.run([
         "c++","-std=c++11","-Wall","-Wextra","-Werror",
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
-        str(root/"src/ui/engine/widget_registry.cpp"),
+        str(root/"src/ui/engine/widget_registry.cpp"),str(root/"src/ui/camera_widget.cpp"),
         str(root/"src/ui/engine/widget_catalog.cpp"),
         str(root/"src/ui/engine/widget_model.cpp"),
         str(root/"src/ui/engine/theme.cpp"),
@@ -127,7 +127,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     subprocess.run([
         "c++","-std=c++11","-Wall","-Wextra","-Werror",
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
-        str(root/"src/ui/engine/widget_registry.cpp"),
+        str(root/"src/ui/engine/widget_registry.cpp"),str(root/"src/ui/camera_widget.cpp"),
         str(root/"src/ui/engine/widget_catalog.cpp"),
         str(root/"src/ui/engine/widget_model.cpp"),
         str(root/"src/ui/engine/theme.cpp"),
@@ -150,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     pages=work/"page_ui"
     subprocess.run(["c++","-std=c++11","-Wall","-Wextra","-Werror",
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
-        str(root/"src/ui/engine/widget_registry.cpp"),str(root/"src/ui/engine/widget_catalog.cpp"),
+        str(root/"src/ui/engine/widget_registry.cpp"),str(root/"src/ui/camera_widget.cpp"),str(root/"src/ui/engine/widget_catalog.cpp"),
         str(root/"src/ui/engine/widget_model.cpp"),str(root/"src/ui/engine/theme.cpp"),
         str(root/"src/ui/engine/template_engine.cpp"),str(root/"src/ui/engine/layout_manager.cpp"),
         str(root/"src/ui/actions.cpp"),str(root/"tests/power_off_stub.cpp"),str(root/"src/core/telemetry_state.cpp"),

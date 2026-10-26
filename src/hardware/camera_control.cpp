@@ -2,6 +2,7 @@
 #include "camera_protocol.h"
 #include "storage/settings.h"
 #include <NimBLEDevice.h>
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <string.h>
@@ -26,7 +27,6 @@ constexpr uint32_t REFRESH_MIN_GAP_MS = 1000;  // coalesce storage-update bursts
 constexpr uint32_t REQUEST_TIMEOUT_MS = 15000; // photos take 4-8 s to answer
 constexpr uint32_t CONNECT_RETRY_MS = 12000;
 constexpr uint32_t SCAN_SECONDS = 10;
-constexpr uint32_t PAIR_TIMEOUT_MS = 30000;
 constexpr size_t RX_CAPACITY = 512;
 constexpr size_t MAX_PENDING = 8;
 
@@ -34,12 +34,25 @@ NimBLEClient* camClient = nullptr;
 NimBLERemoteCharacteristic* writeChar = nullptr;
 bool subscribed = false;
 
-bool pairRequested = false;
-bool pairPrepared = false;
-uint32_t pairStartMs = 0;
+// Scan list + connect request, guarded by mtx (written from the NimBLE scan
+// callback and the UI task, consumed by tickCameraControl()).
+bool scanRequested = false;
+bool scanStarted = false;
+uint32_t scanStartMs = 0;
+camera_proto::CameraCandidate candidates[camera_proto::CAMERA_MAX_CANDIDATES];
+size_t candidateCount = 0;
 bool pendingConnect = false;
 char pendingMac[18] = {};
 uint8_t pendingType = 0;
+std::atomic<bool> connecting{false};
+
+// One queued capture command from the UI, sent by the BLE task so a blocking
+// GATT write never stalls the UI task. Guarded by mtx.
+enum QueuedOp : uint8_t { OP_NONE = 0, OP_MODE, OP_COMMAND };
+QueuedOp queuedOp = OP_NONE;
+uint16_t queuedCmd = 0;
+int queuedScope = 0;
+int queuedSubMode = 0;
 
 uint32_t seqCounter = 1;
 uint32_t lastKeepaliveMs = 0;
@@ -168,6 +181,7 @@ void handleResponse(const camera_proto::ResponseHeader& header, const uint8_t* b
   match->used = false;
   if (header.code != camera_proto::RESP_OK) {
     Serial.printf("[CAM] cmd %u -> %u\n", unsigned(match->cmd), unsigned(header.code));
+    camera_proto::applyCommandFailed(match->cmd, camStatus);
     return;
   }
   switch (match->cmd) {
@@ -181,7 +195,7 @@ void handleResponse(const camera_proto::ResponseHeader& header, const uint8_t* b
       camera_proto::parseCaptureStatusResponse(body, len, camStatus);
       break;
     default:
-      camera_proto::applyCommandOk(match->cmd, camStatus);
+      camera_proto::applyCommandOk(match->cmd, body, len, camStatus);
       break;
   }
 }
@@ -291,8 +305,11 @@ void tickSession() {
     std::lock_guard<std::mutex> lock(stateMtx);
     heard = sawFirstFrame;
     refresh = refreshRequested;
-    for (PendingRequest& p : pending)
-      if (p.used && now - p.sentMs > REQUEST_TIMEOUT_MS) p.used = false;
+    for (PendingRequest& p : pending) {
+      if (!p.used || now - p.sentMs <= REQUEST_TIMEOUT_MS) continue;
+      p.used = false;
+      camera_proto::applyCommandFailed(p.cmd, camStatus);
+    }
   }
   if (!synced) {
     if (!heard && now - connectedAtMs < SYNC_WAIT_MS) return;
@@ -316,29 +333,103 @@ void tickSession() {
     requestStatus();
     nextStatusMs = now + STATUS_POLL_MS;
   }
+  QueuedOp op;
+  uint16_t cmd;
+  int scope, subMode;
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    op = queuedOp;
+    cmd = queuedCmd;
+    scope = queuedScope;
+    subMode = queuedSubMode;
+    queuedOp = OP_NONE;
+  }
+  if (op == OP_MODE) {
+    const int mainMode = scope == camera_proto::SCOPE_PHOTO ? camera_proto::MAIN_MODE_PHOTO
+                                                            : camera_proto::MAIN_MODE_VIDEO;
+    const uint16_t subOption = scope == camera_proto::SCOPE_PHOTO ? camera_proto::OPT_PHOTO_SUB_MODE
+                                                                  : camera_proto::OPT_VIDEO_SUB_MODE;
+    // main_mode first, then the sub-mode -- matches observed camera behaviour.
+    // The camera confirms with a 0x2053 notification.
+    sendSetOption(camera_proto::OPT_MAIN_MODE, mainMode, -1);
+    sendSetOption(subOption, subMode, subMode);
+  } else if (op == OP_COMMAND) {
+    Serial.printf("[CAM] cmd %u\n", unsigned(cmd));
+    if (!sendRequest(cmd, nullptr, 0)) {
+      std::lock_guard<std::mutex> lock(stateMtx);
+      camera_proto::applyCommandFailed(cmd, camStatus);
+    }
+  }
+}
+
+// Queues `cmd` for the BLE task. A photo shows "saving" from the tap on.
+bool queueCommand(uint16_t cmd) {
+  if (!cameraControlIsConnected()) return false;
+  {
+    std::lock_guard<std::mutex> lock(mtx);
+    queuedOp = OP_COMMAND;
+    queuedCmd = cmd;
+  }
+  std::lock_guard<std::mutex> lock(stateMtx);
+  camera_proto::applyCommandSent(cmd, camStatus);
+  return true;
 }
 
 }  // namespace
 
 void initCameraControl() { setStatus("Not connected"); }
 
-void cameraControlOnAdvertised(const char* name, const char* mac, uint8_t addrType,
-                               bool advertisesControlService) {
-  if (!advertisesControlService) return;
+void cameraControlOnAdvertised(const char* name, const char* mac, uint8_t addrType, int8_t rssi) {
   std::lock_guard<std::mutex> lock(mtx);
-  if (!pairRequested) return;
-  snprintf(pendingMac, sizeof(pendingMac), "%s", mac);
-  pendingType = addrType;
-  pendingConnect = true;
-  pairRequested = false;
-  Serial.printf("[CAM] Found camera %s (%s)\n", name ? name : "?", mac);
+  if (!scanRequested || !mac) return;
+  camera_proto::CameraCandidate* slot = nullptr;
+  for (size_t i = 0; i < candidateCount; ++i)
+    if (!strcmp(candidates[i].mac, mac)) slot = &candidates[i];
+  if (!slot) {
+    if (candidateCount >= camera_proto::CAMERA_MAX_CANDIDATES) return;
+    slot = &candidates[candidateCount++];
+    Serial.printf("[CAM] Found camera %s (%s)\n", name && name[0] ? name : "?", mac);
+  }
+  snprintf(slot->name, sizeof(slot->name), "%s", name && name[0] ? name : "Insta360 camera");
+  snprintf(slot->mac, sizeof(slot->mac), "%s", mac);
+  slot->addr_type = addrType;
+  slot->rssi = rssi;
 }
 
-void cameraControlPair() {
+void cameraControlScan() {
   std::lock_guard<std::mutex> lock(mtx);
-  pairRequested = true;
-  Serial.println("[CAM] Pairing requested -- scanning for camera.");
+  scanRequested = true;
+  scanStarted = false;
+  candidateCount = 0;
+  Serial.println("[CAM] Scanning for cameras.");
 }
+
+bool cameraControlIsScanning() {
+  std::lock_guard<std::mutex> lock(mtx);
+  return scanRequested;
+}
+
+size_t cameraControlCandidates(camera_proto::CameraCandidate* out, size_t max) {
+  std::lock_guard<std::mutex> lock(mtx);
+  const size_t n = candidateCount < max ? candidateCount : max;
+  for (size_t i = 0; i < n; ++i) out[i] = candidates[i];
+  return n;
+}
+
+bool cameraControlConnect(const camera_proto::CameraCandidate& camera) {
+  if (!camera.mac[0]) return false;
+  std::lock_guard<std::mutex> lock(mtx);
+  snprintf(pendingMac, sizeof(pendingMac), "%s", camera.mac);
+  pendingType = camera.addr_type;
+  pendingConnect = true;
+  scanRequested = false;
+  connecting = true;
+  return true;
+}
+
+bool cameraControlIsConnecting() { return connecting.load(); }
+
+bool cameraControlHasSaved() { return g_settings.camera_mac[0] != '\0'; }
 
 void cameraControlForget() {
   g_settings.camera_mac[0] = '\0';
@@ -347,7 +438,7 @@ void cameraControlForget() {
   {
     std::lock_guard<std::mutex> lock(mtx);
     pendingConnect = false;
-    pairRequested = false;
+    queuedOp = OP_NONE;
   }
   if (camClient && camClient->isConnected()) camClient->disconnect();
   setStatus("Not connected");
@@ -355,32 +446,15 @@ void cameraControlForget() {
 
 bool cameraControlIsConnected() { return camClient && camClient->isConnected() && subscribed; }
 
-bool cameraControlIsPairing() {
-  std::lock_guard<std::mutex> lock(mtx);
-  return pairRequested;
-}
-
 int cameraControlCurrentMode() {
   std::lock_guard<std::mutex> lock(stateMtx);
   return currentMode;
 }
 
-bool cameraControlShutter() {
-  if (!cameraControlIsConnected() || !synced) return false;
-  uint16_t cmd;
-  {
-    std::lock_guard<std::mutex> lock(stateMtx);
-    cmd = camera_proto::shutterCommand(camStatus);
-  }
-  Serial.printf("[CAM] Shutter -> cmd %u\n", unsigned(cmd));
-  return sendRequest(cmd, nullptr, 0);
-}
-
-bool cameraControlPowerOff() {
-  if (!cameraControlIsConnected() || !synced) return false;
-  Serial.println("[CAM] Power off (experimental 0x37)");
-  return sendRequest(camera_proto::CMD_POWER_OFF, nullptr, 0);
-}
+bool cameraControlStartRecording() { return queueCommand(camera_proto::CMD_START_CAPTURE); }
+bool cameraControlStopRecording() { return queueCommand(camera_proto::CMD_STOP_CAPTURE); }
+bool cameraControlTakePhoto() { return queueCommand(camera_proto::CMD_TAKE_PICTURE); }
+bool cameraControlPowerOff() { return queueCommand(camera_proto::CMD_POWER_OFF); }
 
 bool cameraControlStatus(camera_proto::CameraStatus& out) {
   if (!cameraControlIsConnected()) {
@@ -388,72 +462,78 @@ bool cameraControlStatus(camera_proto::CameraStatus& out) {
     return false;
   }
   std::lock_guard<std::mutex> lock(stateMtx);
+  // Re-stamp the timer base whenever the camera's report (or our own
+  // start/stop) changes it, then tick it locally so the REC timer counts
+  // every second between the camera's sparse 0x2010 reports.
+  static uint32_t reportMs = 0, reportedSecs = 0;
+  static int8_t reportedState = -1;
+  const uint32_t now = millis();
+  if (camStatus.capture_secs != reportedSecs || camStatus.capture_state != reportedState) {
+    reportMs = now;
+    reportedSecs = camStatus.capture_secs;
+    reportedState = camStatus.capture_state;
+  }
   out = camStatus;
+  out.capture_secs = camera_proto::liveCaptureSecs(camStatus, reportMs, now);
   return true;
 }
 
 const char* cameraControlStatusText() { return statusText; }
 
 bool setCameraMode(int scope, int subMode) {
-  if (!cameraControlIsConnected() || !writeChar) return false;
-  const int mainMode = scope == camera_proto::SCOPE_PHOTO ? camera_proto::MAIN_MODE_PHOTO
-                                                          : camera_proto::MAIN_MODE_VIDEO;
-  const uint16_t subOption = scope == camera_proto::SCOPE_PHOTO ? camera_proto::OPT_PHOTO_SUB_MODE
-                                                                : camera_proto::OPT_VIDEO_SUB_MODE;
-  // main_mode first, then the sub-mode -- matches observed camera behaviour.
-  // The camera confirms the switch with a 0x2053 notification, which updates
-  // cameraControlStatus().
-  bool ok = sendSetOption(camera_proto::OPT_MAIN_MODE, mainMode, -1);
-  ok = sendSetOption(subOption, subMode, subMode) && ok;
-  return ok;
+  if (!cameraControlIsConnected()) return false;
+  std::lock_guard<std::mutex> lock(mtx);
+  queuedOp = OP_MODE;
+  queuedScope = scope;
+  queuedSubMode = subMode;
+  return true;
 }
 
 void tickCameraControl() {
-  bool wantPair;
-  bool havePending;
+  bool wantScan, startScan, havePending;
+  uint32_t scanAge = 0;
   char mac[18];
   uint8_t type;
   {
     std::lock_guard<std::mutex> lock(mtx);
-    wantPair = pairRequested;
+    wantScan = scanRequested;
+    startScan = scanRequested && !scanStarted;
+    if (startScan) {
+      scanStarted = true;
+      scanStartMs = millis();
+    }
+    scanAge = millis() - scanStartMs;
     havePending = pendingConnect;
     memcpy(mac, pendingMac, sizeof(mac));
     type = pendingType;
     pendingConnect = false;
   }
 
-  if (wantPair) {
-    if (!pairPrepared) {
-      pairPrepared = true;
-      pairStartMs = millis();
-      if (camClient && camClient->isConnected()) camClient->disconnect();
-    }
+  if (wantScan) {
     NimBLEScan* scan = NimBLEDevice::getScan();
-    if (scan && !scan->isScanning()) {
-      setStatus("Pairing (10s)");
-      scan->start(SCAN_SECONDS, nullptr, false);
-    }
-    if (millis() - pairStartMs > PAIR_TIMEOUT_MS) {
-      pairPrepared = false;
-      {
-        std::lock_guard<std::mutex> lock(mtx);
-        pairRequested = false;
-      }
+    if (startScan) {
+      if (camClient && camClient->isConnected()) camClient->disconnect();
+      if (scan && !scan->isScanning()) scan->start(SCAN_SECONDS, nullptr, false);
+      setStatus("Scanning");
+    } else if (scanAge > SCAN_SECONDS * 1000 + 500 || (scan && !scan->isScanning() && scanAge > 1000)) {
+      std::lock_guard<std::mutex> lock(mtx);
+      scanRequested = false;
       setStatus("Not connected");
-      Serial.println("[CAM] Pairing timed out.");
     }
     return;
   }
 
   if (havePending) {
+    NimBLEScan* scan = NimBLEDevice::getScan();
+    if (scan && scan->isScanning()) scan->stop();
     lastConnectAttemptMs = millis();
-    pairPrepared = false;
     const bool ok = attemptConnect(mac, type);
     if (ok) {
       snprintf(g_settings.camera_mac, sizeof(g_settings.camera_mac), "%s", mac);
       g_settings.camera_addr_type = type;
       saveSettings();
     }
+    connecting = false;
     return;
   }
 
@@ -465,6 +545,8 @@ void tickCameraControl() {
   if (g_settings.camera_mac[0] != '\0' && millis() - lastConnectAttemptMs >= CONNECT_RETRY_MS) {
     if (NimBLEDevice::getScan()->isScanning()) return;
     lastConnectAttemptMs = millis();
+    connecting = true;
     attemptConnect(g_settings.camera_mac, g_settings.camera_addr_type);
+    connecting = false;
   }
 }
