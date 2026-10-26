@@ -3,6 +3,28 @@ from pathlib import Path
 import subprocess
 import tempfile
 import sys
+import os
+import difflib
+
+GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
+UPDATE_GOLDEN = os.environ.get("UPDATE_GOLDEN") == "1"
+golden_checked = []
+
+
+def check_golden(name, binary, args):
+    """Byte-compare a preview binary's draw stream against tests/golden/<name>.txt."""
+    actual = subprocess.check_output([str(binary), *args], text=True)
+    path = GOLDEN_DIR / f"{name}.txt"
+    if UPDATE_GOLDEN:
+        GOLDEN_DIR.mkdir(exist_ok=True)
+        path.write_text(actual)
+    expected = path.read_text() if path.exists() else ""
+    if actual != expected:
+        diff = list(difflib.unified_diff(expected.splitlines(), actual.splitlines(),
+                                         f"golden/{name}.txt", "actual", lineterm=""))
+        print("\n".join(diff[:40]))
+        sys.exit(f"golden mismatch: {name}")
+    golden_checked.append(name)
 
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
@@ -21,13 +43,14 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root / "tests/test_ride_session.cpp"), "-o", str(binary),
     ], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
+    preview=work/"preview"
+    subprocess.run([
+        "c++", "-std=c++11", f"-I{work}", f"-I{root}/tests", f"-I{root}/src",
+        str(root/"src/core/telemetry_state.cpp"),str(root/"src/ui/ride_menu.cpp"),
+        str(root/"tests/test_ride_preview.cpp"),"-o",str(preview),
+    ],check=True)
+    check_golden("ride", preview, [])
     if len(sys.argv)>1:
-        preview=work/"preview"
-        subprocess.run([
-            "c++", "-std=c++11", f"-I{work}", f"-I{root}/tests", f"-I{root}/src",
-            str(root/"src/core/telemetry_state.cpp"),str(root/"src/ui/ride_menu.cpp"),
-            str(root/"tests/test_ride_preview.cpp"),"-o",str(preview),
-        ],check=True)
         commands=subprocess.check_output([str(preview)],text=True)
         subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),sys.argv[1]],
                        input=commands,text=True,check=True)
@@ -62,6 +85,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"tests/test_sensor_ui.cpp"),"-o",str(sensor_ui),
     ],check=True)
     subprocess.run([str(sensor_ui)],check=True)
+    check_golden("sensors", sensor_ui, ["preview"])
+    check_golden("camera", camera, ["preview"])
     if len(sys.argv)>1:
         commands=subprocess.check_output([str(sensor_ui),"preview"],text=True)
         subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),str(Path(sys.argv[1])/"sensors")],input=commands,text=True,check=True)
@@ -80,6 +105,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"src/hardware/camera_protocol.cpp"),
         str(root/"tests/test_page_ui.cpp"),"-o",str(pages)],check=True)
     subprocess.run([str(pages)],check=True)
+    check_golden("pages", pages, ["preview"])
     if len(sys.argv)>1:
         commands=subprocess.check_output([str(pages),"preview"],text=True)
         subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),str(Path(sys.argv[1])/"pages")],input=commands,text=True,check=True)
+    print("golden: " + ", ".join(golden_checked) + " match")
