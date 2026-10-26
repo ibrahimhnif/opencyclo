@@ -131,6 +131,138 @@ int main() {
     assert(CAMERA_MODES[0].scope == SCOPE_VIDEO && CAMERA_MODES[0].subMode == 0);
   }
 
-  puts("Insta360 control protocol: frames, SetOptions and mode table byte-exact");
+  // FreeFrame is video_sub_mode 5 on the Ace Pro 2 (verified by
+  // insta360-ace-control); 5 is not also offered as "Super".
+  {
+    int freeframes = 0;
+    for (size_t i = 0; i < CAMERA_MODE_COUNT; ++i) {
+      if (CAMERA_MODES[i].scope == SCOPE_VIDEO && CAMERA_MODES[i].subMode == VIDEO_SUB_FREEFRAME) {
+        assert(!strcmp(CAMERA_MODES[i].label, "Freeframe"));
+        ++freeframes;
+      }
+    }
+    assert(VIDEO_SUB_FREEFRAME == 5 && freeframes == 1);
+  }
+
+  // GetOptions for the status indicator: packed [11,20,40,41] -> 0a 04 0b 14 28 29.
+  {
+    static const uint8_t want[] = {0x0a, 0x04, 0x0b, 0x14, 0x28, 0x29};
+    size_t n = pbGetOptions(buf, sizeof(buf), STATUS_OPTIONS, STATUS_OPTION_COUNT);
+    expect(buf, n, want, sizeof(want));
+  }
+
+  // A fresh status knows nothing.
+  {
+    CameraStatus s;
+    assert(s.battery_pct == -1 && s.card_state == -1 && s.capture_state == -1);
+    assert(s.photo_sub == -1 && s.video_sub == -1 && !s.charging);
+  }
+
+  // Real Ace Pro 2 GetOptions response body (docs/ble-protocol.md 6.1 in
+  // insta360-ace-control): charging at 54%, card normal, ~12.4 GiB free of
+  // ~119 GiB, video normal.
+  {
+    static const uint8_t body[] = {
+        0x08, 0x0b, 0x08, 0x14, 0x08, 0x0f, 0x08, 0x1e, 0x08, 0x28, 0x08, 0x29, 0x08, 0x30,
+        0x12, 0x51,
+        0x5a, 0x06, 0x08, 0x01, 0x10, 0x36, 0x20, 0x00,
+        0x7a, 0x0e, 'I', 'B', 'G', 'L', 'A', '2', '5', '0', '1', 'Y', 'E', 'Y', 'D', '9',
+        0xa2, 0x01, 0x11, 0x08, 0x00, 0x10, 0x80, 0x80, 0xd0, 0xd6, 0x31,
+        0x18, 0x80, 0x80, 0x80, 0x9b, 0xdc, 0x03, 0x20, 0x00,
+        0xf2, 0x01, 0x07, 'v', '2', '.', '0', '.', '5', '1',
+        0xc0, 0x02, 0x64,
+        0xc8, 0x02, 0x00,
+        0x82, 0x03, 0x12, 'I', 'n', 's', 't', 'a', '3', '6', '0', ' ', 'A', 'c', 'e', ' ',
+        'P', 'r', 'o', ' ', '2'};
+    CameraStatus s;
+    assert(parseOptionsResponse(body, sizeof(body), s));
+    assert(s.battery_pct == 54 && s.charging);
+    assert(s.card_state == 0 && s.free_bytes == 13335003136ULL && s.total_bytes == 127831900160ULL);
+    assert(s.photo_sub == 100 && s.video_sub == 0);
+    assert(s.capture_state == -1);  // not part of GetOptions
+  }
+
+  // A response without the Options field, or a truncated one, changes nothing.
+  {
+    CameraStatus s;
+    static const uint8_t noOptions[] = {0x08, 0x0b};
+    assert(!parseOptionsResponse(noOptions, sizeof(noOptions), s));
+    static const uint8_t truncated[] = {0x12, 0x10, 0x5a, 0x06, 0x08};
+    assert(!parseOptionsResponse(truncated, sizeof(truncated), s));
+    assert(s.battery_pct == -1 && s.card_state == -1);
+  }
+
+  // Battery on battery power: proto3 omits power_type=0.
+  {
+    static const uint8_t body[] = {0x12, 0x04, 0x5a, 0x02, 0x10, 0x07};
+    CameraStatus s;
+    s.charging = true;
+    assert(parseOptionsResponse(body, sizeof(body), s));
+    assert(s.battery_pct == 7 && !s.charging && s.card_state == -1);
+  }
+
+  // 0x2010 CURRENT_CAPTURE_STATUS: recording, 15 s.
+  {
+    static const uint8_t body[] = {0x08, 0x01, 0x10, 0x0f, 0x38, 0x02};
+    CameraStatus s;
+    assert(applyNotification(NOTIFY_CAPTURE_STATUS, body, sizeof(body), s) == NOTIFY_UPDATED);
+    assert(s.capture_state == 1 && s.capture_secs == 15);
+  }
+
+  // GetCurrentCaptureStatus (cmd 0x0F) response wraps the status in field 1.
+  {
+    static const uint8_t body[] = {0x0a, 0x06, 0x08, 0x00, 0x10, 0x0f, 0x50, 0x00};
+    CameraStatus s;
+    s.capture_state = 1;
+    assert(parseCaptureStatusResponse(body, sizeof(body), s));
+    assert(s.capture_state == 0 && s.capture_secs == 15);
+  }
+
+  // 0x2009 CAPTURE_STOPPED clears recording.
+  {
+    CameraStatus s;
+    s.capture_state = 1;
+    s.capture_secs = 40;
+    assert(applyNotification(NOTIFY_CAPTURE_STOPPED, nullptr, 0, s) == NOTIFY_UPDATED);
+    assert(s.capture_state == 0 && s.capture_secs == 0);
+  }
+
+  // 0x2053 CAM_SUBMODE_CHANGE: field 1 photo, field 2 video; absent = 0.
+  {
+    CameraStatus s;
+    static const uint8_t freeframe[] = {0x08, 0x64, 0x10, 0x05};
+    assert(applyNotification(NOTIFY_SUBMODE_CHANGE, freeframe, sizeof(freeframe), s) == NOTIFY_UPDATED);
+    assert(s.photo_sub == 100 && s.video_sub == 5);
+    static const uint8_t photo[] = {0x08, 0x00};
+    assert(applyNotification(NOTIFY_SUBMODE_CHANGE, photo, sizeof(photo), s) == NOTIFY_UPDATED);
+    assert(s.photo_sub == 0 && s.video_sub == 0);
+  }
+
+  // Storage and battery updates ask for a fresh GetOptions; noise is ignored.
+  {
+    CameraStatus s;
+    static const uint8_t storage[] = {0x08, 0x00, 0x10, 0x00};
+    assert(applyNotification(NOTIFY_STORAGE_UPDATE, storage, sizeof(storage), s) == NOTIFY_REFRESH_OPTIONS);
+    assert(applyNotification(NOTIFY_BATTERY_UPDATE, nullptr, 0, s) == NOTIFY_REFRESH_OPTIONS);
+    static const uint8_t face[] = {0x08, 0x00};
+    assert(applyNotification(0x203a, face, sizeof(face), s) == NOTIFY_IGNORED);
+    assert(s.battery_pct == -1 && s.capture_state == -1);
+  }
+
+  // Mode names follow the active sub-mode (photo wins unless it is NONE=100).
+  {
+    CameraStatus s;
+    assert(cameraModeName(s) == nullptr);
+    s.photo_sub = 100;
+    s.video_sub = 5;
+    assert(!strcmp(cameraModeName(s), "Freeframe"));
+    s.photo_sub = 0;
+    assert(!strcmp(cameraModeName(s), "Photo"));
+    s.photo_sub = 100;
+    s.video_sub = 42;
+    assert(cameraModeName(s) == nullptr);
+  }
+
+  puts("Insta360 control protocol: frames, SetOptions, status parsers and notifications byte-exact");
   return 0;
 }

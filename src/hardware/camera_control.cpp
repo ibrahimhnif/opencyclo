@@ -18,11 +18,20 @@ const NimBLEUUID CAM_SERVICE_UUID("0000be80-0000-1000-8000-00805f9b34fb");
 const NimBLEUUID CAM_WRITE_UUID("0000be81-0000-1000-8000-00805f9b34fb");
 const NimBLEUUID CAM_NOTIFY_UUID("0000be82-0000-1000-8000-00805f9b34fb");
 
-constexpr uint32_t KEEPALIVE_MS = 2000;
+// Session timing follows insta360-ace-control (docs/ble-protocol.md there):
+// wait for the camera's first heartbeat (or 1.5 s) before SYNC, then
+// heartbeat every 0.5-1 s -- the camera drops an idle link after ~30 s.
+constexpr uint32_t KEEPALIVE_MS = 1000;
+constexpr uint32_t SYNC_WAIT_MS = 1500;
+constexpr uint32_t STATUS_DELAY_MS = 300;      // after SYNC, before the first GetOptions
+constexpr uint32_t STATUS_POLL_MS = 30000;     // battery has no reliable notification
+constexpr uint32_t REFRESH_MIN_GAP_MS = 1000;  // coalesce storage-update bursts
+constexpr uint32_t REQUEST_TIMEOUT_MS = 15000; // photos take 4-8 s to answer
 constexpr uint32_t CONNECT_RETRY_MS = 12000;
 constexpr uint32_t SCAN_SECONDS = 10;
 constexpr uint32_t PAIR_TIMEOUT_MS = 30000;
 constexpr size_t RX_CAPACITY = 512;
+constexpr size_t MAX_PENDING = 8;
 
 NimBLEClient* camClient = nullptr;
 NimBLERemoteCharacteristic* writeChar = nullptr;
@@ -35,19 +44,37 @@ bool pendingConnect = false;
 char pendingMac[18] = {};
 uint8_t pendingType = 0;
 
-uint32_t seqCounter = 0;
+uint32_t seqCounter = 1;
 uint32_t lastKeepaliveMs = 0;
 uint32_t lastConnectAttemptMs = 0;
-uint32_t awaitingSeq = 0;
-int awaitingValue = -1;
-bool awaitingAck = false;
-int currentMode = -1;
+uint32_t connectedAtMs = 0;
+bool synced = false;
+uint32_t nextStatusMs = 0;
+uint32_t lastRefreshMs = 0;
 char statusText[32] = "Not connected";
 
 uint8_t rxBuffer[RX_CAPACITY];
 size_t rxLen = 0;
 
 std::mutex mtx;
+
+// Shared between the NimBLE host task (notifyCallback) and the BLE task
+// (tick / setCameraMode) and read by the UI task -- guarded by stateMtx.
+// SetOptions of the sub-mode carries `value` (the requested sub-mode); every
+// other request stores -1.
+struct PendingRequest {
+  bool used;
+  uint32_t seq;
+  uint16_t cmd;
+  int value;
+  uint32_t sentMs;
+};
+PendingRequest pending[MAX_PENDING] = {};
+camera_proto::CameraStatus camStatus;
+bool sawFirstFrame = false;
+bool refreshRequested = false;
+int currentMode = -1;
+std::mutex stateMtx;
 
 void setStatus(const char* text) { snprintf(statusText, sizeof(statusText), "%s", text); }
 
@@ -75,19 +102,90 @@ void sendKeepalive() {
   if (n) writeFrame(buf, n);
 }
 
-// SetOptions{option_types=[optionType], value{optionType=value}}.
-bool sendSetOption(uint16_t optionType, int value) {
+void clearSessionState() {
+  std::lock_guard<std::mutex> lock(stateMtx);
+  for (PendingRequest& p : pending) p.used = false;
+  camStatus = camera_proto::CameraStatus();
+  sawFirstFrame = false;
+  refreshRequested = false;
+  currentMode = -1;
+}
+
+// Frames one command, records it as pending, and writes it. Sequences stay in
+// 1..254 like insta360-ace-control; a full table drops the oldest request.
+bool sendRequest(uint16_t cmd, const uint8_t* pb, size_t pbLen, int value = -1) {
   if (!writeChar) return false;
-  uint8_t pb[32];
-  size_t pbLen = camera_proto::pbSetOption(pb, sizeof(pb), optionType, value);
   uint8_t frame[64];
-  const uint32_t seq = seqCounter++;
-  size_t n = camera_proto::buildCommand(frame, sizeof(frame), camera_proto::CMD_SET_OPTIONS, seq, pb, pbLen);
-  if (!n || !writeFrame(frame, n)) return false;
-  awaitingSeq = seq;
-  awaitingValue = value;
-  awaitingAck = true;
-  return true;
+  uint32_t seq;
+  {
+    std::lock_guard<std::mutex> lock(stateMtx);
+    seq = seqCounter;
+    seqCounter = seqCounter >= 254 ? 1 : seqCounter + 1;
+    PendingRequest* slot = &pending[0];
+    for (PendingRequest& p : pending) {
+      if (!p.used) { slot = &p; break; }
+      if (p.sentMs - slot->sentMs > 0x7fffffffu) slot = &p;  // older
+    }
+    *slot = PendingRequest{true, seq, cmd, value, millis()};
+  }
+  const size_t n = camera_proto::buildCommand(frame, sizeof(frame), cmd, seq, pb, pbLen);
+  if (n && writeFrame(frame, n)) return true;
+  std::lock_guard<std::mutex> lock(stateMtx);
+  for (PendingRequest& p : pending)
+    if (p.used && p.seq == seq) p.used = false;
+  return false;
+}
+
+// SetOptions{option_types=[optionType], value{optionType=value}}. `ackValue`
+// becomes currentMode when the camera answers 200.
+bool sendSetOption(uint16_t optionType, int value, int ackValue) {
+  uint8_t pb[32];
+  const size_t pbLen = camera_proto::pbSetOption(pb, sizeof(pb), optionType, value);
+  return pbLen && sendRequest(camera_proto::CMD_SET_OPTIONS, pb, pbLen, ackValue);
+}
+
+void requestStatus() {
+  uint8_t pb[16];
+  const size_t pbLen = camera_proto::pbGetOptions(pb, sizeof(pb), camera_proto::STATUS_OPTIONS,
+                                                   camera_proto::STATUS_OPTION_COUNT);
+  if (pbLen) sendRequest(camera_proto::CMD_GET_OPTIONS, pb, pbLen);
+  sendRequest(camera_proto::CMD_GET_CAPTURE_STATUS, nullptr, 0);
+  lastRefreshMs = millis();
+}
+
+// Caller holds stateMtx. Responses match by sequence; if the camera answers
+// with an unknown sequence while exactly one request is pending, that one is
+// taken (some firmware replies with seq 0).
+void handleResponse(const camera_proto::ResponseHeader& header, const uint8_t* body, size_t len) {
+  PendingRequest* match = nullptr;
+  PendingRequest* only = nullptr;
+  int used = 0;
+  for (PendingRequest& p : pending) {
+    if (!p.used) continue;
+    ++used;
+    only = &p;
+    if (p.seq == header.seq) match = &p;
+  }
+  if (!match && used == 1) match = only;
+  if (!match) return;
+  match->used = false;
+  if (header.code != camera_proto::RESP_OK) {
+    Serial.printf("[CAM] cmd %u -> %u\n", unsigned(match->cmd), unsigned(header.code));
+    return;
+  }
+  switch (match->cmd) {
+    case camera_proto::CMD_SET_OPTIONS:
+      if (match->value >= 0) currentMode = match->value;
+      break;
+    case camera_proto::CMD_GET_OPTIONS:
+      camera_proto::parseOptionsResponse(body, len, camStatus);
+      break;
+    case camera_proto::CMD_GET_CAPTURE_STATUS:
+      camera_proto::parseCaptureStatusResponse(body, len, camStatus);
+      break;
+    default:
+      break;
+  }
 }
 
 // Accumulates notifications and consumes whole [u32 len][payload] frames.
@@ -99,11 +197,23 @@ void processRx() {
       return;
     }
     if (rxLen < total) return;
-    camera_proto::ResponseHeader header{};
-    if (camera_proto::parseResponseHeader(rxBuffer + 4, total - 4, header) &&
-        header.code == camera_proto::RESP_OK && awaitingAck && header.seq == awaitingSeq) {
-      currentMode = awaitingValue;
-      awaitingAck = false;
+    const uint8_t* payload = rxBuffer + 4;
+    const size_t payloadLen = total - 4;
+    {
+      std::lock_guard<std::mutex> lock(stateMtx);
+      sawFirstFrame = true;  // heartbeat / sync echo / message: the camera is talking
+      camera_proto::ResponseHeader header{};
+      if (camera_proto::parseResponseHeader(payload, payloadLen, header) &&
+          header.type == camera_proto::CMD_HEADER_TYPE_MESSAGE) {
+        const uint8_t* body = payload + 12;
+        const size_t bodyLen = payloadLen - 12;
+        if (header.code < camera_proto::NOTIFY_FIRST) {
+          handleResponse(header, body, bodyLen);
+        } else if (camera_proto::applyNotification(header.code, body, bodyLen, camStatus) ==
+                   camera_proto::NOTIFY_REFRESH_OPTIONS) {
+          refreshRequested = true;
+        }
+      }
     }
     memmove(rxBuffer, rxBuffer + total, rxLen - total);
     rxLen -= total;
@@ -121,9 +231,9 @@ class CameraClientCallbacks : public NimBLEClientCallbacks {
   void onDisconnect(NimBLEClient*) override {
     writeChar = nullptr;
     subscribed = false;
+    synced = false;
     rxLen = 0;
-    awaitingAck = false;
-    currentMode = -1;
+    clearSessionState();
     setStatus("Not connected");
   }
 };
@@ -142,7 +252,9 @@ bool attemptConnect(const char* mac, uint8_t addrType) {
   }
   writeChar = nullptr;
   subscribed = false;
+  synced = false;
   rxLen = 0;
+  clearSessionState();
   if (camClient->isConnected()) camClient->disconnect();
   if (!camClient->connect(NimBLEAddress(std::string(mac), addrType))) {
     setStatus("Not connected");
@@ -164,12 +276,48 @@ bool attemptConnect(const char* mac, uint8_t addrType) {
     setStatus("Not connected");
     return false;
   }
-  sendSync();
-  sendKeepalive();
-  lastKeepaliveMs = millis();
+  // SYNC waits for the camera's first heartbeat -- see tickSession().
+  connectedAtMs = millis();
   setStatus("Camera connected");
   Serial.printf("[CAM] Connected to %s\n", mac);
   return true;
+}
+
+// Connected-session upkeep: SYNC once the camera has spoken (or after
+// SYNC_WAIT_MS), then heartbeat, status polling, refreshes requested by
+// storage/battery notifications, and expiry of unanswered requests.
+void tickSession() {
+  const uint32_t now = millis();
+  bool heard, refresh;
+  {
+    std::lock_guard<std::mutex> lock(stateMtx);
+    heard = sawFirstFrame;
+    refresh = refreshRequested;
+    for (PendingRequest& p : pending)
+      if (p.used && now - p.sentMs > REQUEST_TIMEOUT_MS) p.used = false;
+  }
+  if (!synced) {
+    if (!heard && now - connectedAtMs < SYNC_WAIT_MS) return;
+    sendSync();
+    sendKeepalive();
+    lastKeepaliveMs = now;
+    synced = true;
+    nextStatusMs = now + STATUS_DELAY_MS;
+    return;
+  }
+  if (now - lastKeepaliveMs >= KEEPALIVE_MS) {
+    sendKeepalive();
+    lastKeepaliveMs = now;
+  }
+  const bool poll = int32_t(now - nextStatusMs) >= 0;
+  if (poll || (refresh && now - lastRefreshMs >= REFRESH_MIN_GAP_MS)) {
+    {
+      std::lock_guard<std::mutex> lock(stateMtx);
+      refreshRequested = false;
+    }
+    requestStatus();
+    nextStatusMs = now + STATUS_POLL_MS;
+  }
 }
 
 }  // namespace
@@ -214,7 +362,20 @@ bool cameraControlIsPairing() {
   return pairRequested;
 }
 
-int cameraControlCurrentMode() { return currentMode; }
+int cameraControlCurrentMode() {
+  std::lock_guard<std::mutex> lock(stateMtx);
+  return currentMode;
+}
+
+bool cameraControlStatus(camera_proto::CameraStatus& out) {
+  if (!cameraControlIsConnected()) {
+    out = camera_proto::CameraStatus();
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(stateMtx);
+  out = camStatus;
+  return true;
+}
 
 const char* cameraControlStatusText() { return statusText; }
 
@@ -225,8 +386,10 @@ bool setCameraMode(int scope, int subMode) {
   const uint16_t subOption = scope == camera_proto::SCOPE_PHOTO ? camera_proto::OPT_PHOTO_SUB_MODE
                                                                 : camera_proto::OPT_VIDEO_SUB_MODE;
   // main_mode first, then the sub-mode -- matches observed camera behaviour.
-  bool ok = sendSetOption(camera_proto::OPT_MAIN_MODE, mainMode);
-  ok = sendSetOption(subOption, subMode) && ok;
+  // The camera confirms the switch with a 0x2053 notification, which updates
+  // cameraControlStatus().
+  bool ok = sendSetOption(camera_proto::OPT_MAIN_MODE, mainMode, -1);
+  ok = sendSetOption(subOption, subMode, subMode) && ok;
   return ok;
 }
 
@@ -287,10 +450,7 @@ void tickCameraControl() {
   }
 
   if (cameraControlIsConnected()) {
-    if (millis() - lastKeepaliveMs >= KEEPALIVE_MS) {
-      sendKeepalive();
-      lastKeepaliveMs = millis();
-    }
+    tickSession();
     return;
   }
 
