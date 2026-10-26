@@ -62,7 +62,8 @@ void resolveTheme(const uitheme::UiTheme& t, const uitheme::StyleSheet& s, Resol
 }
 
 bool refreshActiveTheme(const uitheme::UiTheme& t, uint32_t version, uint32_t versionAfter) {
-  if (version != versionAfter || version == s_activeVersion) return false;
+  // Odd = a writer is mid-copy; different = a write landed during our copy.
+  if ((version & 1u) || version != versionAfter || version == s_activeVersion) return false;
   resolveTheme(t, uitheme::defaultStyleSheet(), s_active);
   s_activeVersion = version;
   return true;

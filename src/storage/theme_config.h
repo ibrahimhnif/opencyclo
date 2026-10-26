@@ -11,9 +11,9 @@
 // Active theme. Init before the UI task starts; the renderer reads it every
 // frame, the web serial task writes it. Same lifecycle as g_ui_config.
 extern uitheme::UiTheme g_theme;
-// Bumped after every write to g_theme. The UI task copies g_theme between two
-// reads of this counter and only re-resolves when both reads agree, so it
-// never draws from a half-written theme.
+// Seqlock over g_theme: writers bump it to odd before writing and to even
+// after. The UI task copies g_theme between two reads and only re-resolves
+// when both reads agree and are even, so it never draws a half-written theme.
 extern std::atomic<uint32_t> g_theme_version;
 
 void initThemeConfig();

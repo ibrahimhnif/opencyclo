@@ -37,9 +37,9 @@ struct ResolvedTheme {
 GfxFont fontFor(uitheme::FontId id);
 void resolveTheme(const uitheme::UiTheme& t, const uitheme::StyleSheet& s, ResolvedTheme& out);
 
-// Re-resolves only when `version` differs from the last resolved one and
-// equals `versionAfter` (the counter read again after copying `t`). Returns
-// true when it re-resolved.
+// Seqlock reader. Re-resolves only when `version` is even (no write in
+// progress), equals `versionAfter` (the counter read again after copying `t`)
+// and differs from the last resolved one. Returns true when it re-resolved.
 bool refreshActiveTheme(const uitheme::UiTheme& t, uint32_t version, uint32_t versionAfter);
 // Resolved from the compiled defaults until the first refresh.
 const ResolvedTheme& activeTheme();

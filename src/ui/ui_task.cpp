@@ -57,6 +57,18 @@ void uiTaskLoop(void* pvParameters) {
   for (;;) {
     uint32_t now = millis();
 
+    // A browser-pushed theme applies live on every screen: copy it between two
+    // reads of its seqlock counter, re-resolve only on a stable even version,
+    // and repaint everything so backgrounds and hairlines change too.
+    {
+      const uint32_t version = g_theme_version.load();
+      const uitheme::UiTheme copy = g_theme;
+      if (ui::refreshActiveTheme(copy, version, g_theme_version.load())) {
+        forceRedraw = true;
+        cancelRideMenuTouch();  // also marks the ride menu dirty
+      }
+    }
+
     // Read touch input from FT6336G
     int16_t x = 0, y = 0;
     bool isTouched = false;
@@ -163,13 +175,6 @@ void uiTaskLoop(void* pvParameters) {
 
     // Render active dynamic page from UiConfig -- every widget/layout draw
     // call targets the off-screen canvas sprite, not the panel directly.
-    // A browser-pushed theme applies live: copy it between two reads of its
-    // version counter and re-resolve only when they agree (no torn reads).
-    {
-      const uint32_t version = g_theme_version.load();
-      const uitheme::UiTheme copy = g_theme;
-      ui::refreshActiveTheme(copy, version, g_theme_version.load());
-    }
     if (g_ui_config.active_page_count > 0) {
       renderPage(g_ui_config.pages[currentPageIdx], currentPageIdx, g_ui_config.active_page_count, state, forceRedraw);
     }

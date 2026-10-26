@@ -6,6 +6,7 @@
 static Preferences themePrefs;
 
 void resetThemeToDefault() {
+  g_theme_version++;  // odd: write in progress
   g_theme = uitheme::kDefaultDarkTheme;
   g_theme_version++;
 }
@@ -47,6 +48,7 @@ bool importThemeFromString(const char* jsonStr) {
     Serial.println("[THEME CONFIG] Import rejected: invalid theme document.");
     return false;
   }
+  g_theme_version++;  // odd: write in progress
   g_theme = staged;
   g_theme_version++;
   saveThemeConfig();
