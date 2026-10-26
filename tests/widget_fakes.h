@@ -2,6 +2,7 @@
 #include "ride_fakes.h"
 #include "hardware/sensor_catalog.h"
 #include "hardware/baro_calibration.h"
+#include "hardware/camera_protocol.h"
 inline const char* gpsCacheLabel(){return "perlu sync";}
 inline int& fakeCalibrationElevation(){static int value=10000;return value;}
 inline float getBaroReference(){return 1013.25f;}
@@ -64,3 +65,6 @@ inline bool cameraControlIsPairing(){return pairing;}
 inline void cameraControlPair(){++cameraPairCalls();}
 inline int cameraControlCurrentMode(){return lastCameraSubMode();}
 inline const char* cameraControlStatusText(){return "Not connected";}
+inline camera_proto::CameraStatus& fakeCameraStatus(){static camera_proto::CameraStatus status;return status;}
+inline bool cameraControlStatus(camera_proto::CameraStatus& out){
+  out=subscribed?fakeCameraStatus():camera_proto::CameraStatus();return subscribed;}

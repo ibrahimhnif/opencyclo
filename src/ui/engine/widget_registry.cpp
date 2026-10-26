@@ -479,11 +479,47 @@ static void cameraButton(const Rect& b,ui::HitRect r,ui::Icon icon,const char* t
   canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(fg,bg);
   canvas.drawString(text,r.x+38,r.y+15);
 }
+// What the camera reported over the direct link: a battery glyph + percent
+// (top right) and free storage + recording timer / mode (bottom row, capture
+// page). Hidden until the camera has answered, so nothing stale is shown.
+static uint16_t cameraTone(wmodel::Tone tone) {
+  return ui::activeTheme().toneColor(tone,uitheme::STYLE_TEXT_MUTED);
+}
+static void drawCameraBattery(const Rect& b,const wmodel::CameraIndicatorModel& m) {
+  const int x=b.x+b.w-84,y=b.y+10;
+  const uint16_t level=m.charging?tok(uitheme::TOK_ACCENT):cameraTone(m.battery_tone);
+  canvas.fillRoundRect(x,y,24,12,2,tok(uitheme::TOK_LABEL));
+  canvas.fillRect(x+2,y+2,20,8,tok(uitheme::TOK_BG));
+  canvas.fillRect(x+24,y+3,3,6,tok(uitheme::TOK_LABEL));
+  const int fill=(20*m.battery_fill+50)/100;
+  if(fill>0)canvas.fillRect(x+2,y+2,fill,8,level);
+  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(level,tok(uitheme::TOK_BG));
+  canvas.drawString(m.battery,x+32,b.y+8);
+}
+static bool drawCameraStatusRow(const Rect& b,const wmodel::CameraIndicatorModel& m) {
+  if(!m.storage[0]&&!m.capture[0])return false;
+  canvas.setFont(&fonts::FreeSansBold9pt7b);
+  if(m.storage[0]){
+    canvas.setTextColor(cameraTone(m.storage_tone),tok(uitheme::TOK_BG));
+    canvas.drawString(m.storage,b.x+8,b.y+226);
+  }
+  if(m.capture[0]){
+    canvas.setTextColor(cameraTone(m.capture_tone),tok(uitheme::TOK_BG));
+    canvas.drawString(m.capture,b.x+120,b.y+226);
+  }
+  return true;
+}
 static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,bool force) {
   (void)state;(void)force;
   canvas.fillRect(b.x,b.y,b.w,b.h,tok(uitheme::TOK_BG));canvas.setTextPadding(0);
   const bool pairing=isCameraPairing()||cameraControlIsPairing(),waking=isCameraWaking();
   const bool connected=isCameraSubscribed()||cameraControlIsConnected();
+  camera_proto::CameraStatus cam;
+  cameraControlStatus(cam);
+  wmodel::CameraIndicatorModel indicator;
+  wmodel::modelCameraIndicator(cam.battery_pct,cam.charging,cam.card_state,cam.free_bytes,
+                               cam.capture_state,cam.capture_secs,camera_proto::cameraModeName(cam),indicator);
+  if(indicator.has_battery)drawCameraBattery(b,indicator);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setTextColor(pairing||waking?tok(uitheme::TOK_WARNING):connected?tok(uitheme::TOK_SUCCESS):tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
   canvas.drawString(pairing?(cameraControlIsPairing()?"Camera pairing":"Pairing (30s)"):waking?"Waking (10s)":
@@ -517,6 +553,7 @@ static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,b
     int last=cameraModePage*4+4;if(last>(int)camera_proto::CAMERA_MODE_COUNT)last=(int)camera_proto::CAMERA_MODE_COUNT;
     snprintf(hint,sizeof(hint),"Modes %d-%d of %d",cameraModePage*4+1,last,(int)camera_proto::CAMERA_MODE_COUNT);
   } else snprintf(hint,sizeof(hint),cameraPage==0?"Shutter follows mode":"Camera controls");
+  if(cameraPage==0&&drawCameraStatusRow(b,indicator))return;
   canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
   canvas.drawString(hint,b.x+8,b.y+226);
 }

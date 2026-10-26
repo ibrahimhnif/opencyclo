@@ -107,6 +107,47 @@ void modelBattery(uint8_t pct, TileModel& out) {
   copyLabel(out, "battery", buf, pct < 20 ? TONE_WARNING : TONE_SUCCESS);
 }
 
+void modelCameraIndicator(int8_t batteryPct, bool charging, int8_t cardState, uint64_t freeBytes,
+                          int8_t captureState, uint32_t captureSecs, const char* modeName,
+                          CameraIndicatorModel& out) {
+  out.has_battery = batteryPct >= 0;
+  const unsigned pct = batteryPct > 100 ? 100u : batteryPct < 0 ? 0u : unsigned(batteryPct);
+  out.battery[0] = '\0';
+  if (out.has_battery) snprintf(out.battery, sizeof(out.battery), "%u%%", pct);
+  out.battery_fill = uint8_t(pct);
+  out.battery_tone = pct <= 15 ? TONE_DANGER : pct < 30 ? TONE_WARNING : TONE_SUCCESS;
+  out.charging = out.has_battery && charging;
+
+  out.storage_tone = TONE_DANGER;
+  if (cardState < 0) {
+    out.storage[0] = '\0';
+    out.storage_tone = TONE_MUTED;
+  } else if (cardState == 0) {
+    const uint64_t gib = 1024ULL * 1024 * 1024;
+    if (freeBytes < gib) {
+      snprintf(out.storage, sizeof(out.storage), "SD %uM", unsigned(freeBytes / (1024 * 1024)));
+      out.storage_tone = TONE_WARNING;
+    } else {
+      const double g = double(freeBytes) / double(gib);
+      snprintf(out.storage, sizeof(out.storage), g < 100.0 ? "SD %.1fG" : "SD %.0fG", g);
+      out.storage_tone = TONE_MUTED;
+    }
+  } else {
+    snprintf(out.storage, sizeof(out.storage), "%s",
+             cardState == 1 ? "No SD" : cardState == 2 ? "SD full" : "SD error");
+  }
+
+  if (captureState > 0) {
+    const unsigned h = captureSecs / 3600, m = (captureSecs / 60) % 60, s = captureSecs % 60;
+    if (h) snprintf(out.capture, sizeof(out.capture), "REC %u:%02u:%02u", h, m, s);
+    else snprintf(out.capture, sizeof(out.capture), "REC %u:%02u", m, s);
+    out.capture_tone = TONE_DANGER;
+  } else {
+    snprintf(out.capture, sizeof(out.capture), "%s", modeName ? modeName : "");
+    out.capture_tone = TONE_MUTED;
+  }
+}
+
 void modelStatus(bool fix, uint8_t fixQuality, uint8_t sats, RideStateHint ride,
                  uint8_t batteryPct, uint8_t pageIdx, uint8_t totalPages, StatusModel& out) {
   if (fix) {

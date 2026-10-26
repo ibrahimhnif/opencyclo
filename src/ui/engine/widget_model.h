@@ -74,6 +74,24 @@ void modelGrade(float pct, TileModel& out);
 void modelTotalAscent(float meters, bool imperial, TileModel& out);
 void modelBattery(uint8_t pct, TileModel& out);
 
+// Camera widget status indicator. Firmware-only (no browser mirror). Inputs
+// mirror camera_proto::CameraStatus (-1 = not reported) so this header keeps
+// its no-hardware-includes rule.
+struct CameraIndicatorModel {
+  bool has_battery;
+  char battery[8];       // "54%"
+  Tone battery_tone;
+  uint8_t battery_fill;  // 0..100, for the battery glyph
+  bool charging;
+  char storage[12];      // "SD 12.4G" / "No SD" / "" when unknown
+  Tone storage_tone;
+  char capture[16];      // "REC 1:05", else the mode name, else ""
+  Tone capture_tone;
+};
+void modelCameraIndicator(int8_t batteryPct, bool charging, int8_t cardState, uint64_t freeBytes,
+                          int8_t captureState, uint32_t captureSecs, const char* modeName,
+                          CameraIndicatorModel& out);
+
 // fixQuality 1 = weak fix; satellites clamp to 99, battery to 100%.
 void modelStatus(bool fix, uint8_t fixQuality, uint8_t sats, RideStateHint ride,
                  uint8_t batteryPct, uint8_t pageIdx, uint8_t totalPages, StatusModel& out);
