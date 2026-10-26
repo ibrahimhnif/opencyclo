@@ -87,7 +87,7 @@ struct NimBLEService {
   NimBLECharacteristic* createCharacteristic(const char* id,int){chars[id].reset(new NimBLECharacteristic());return chars[id].get();}
 };
 constexpr uint16_t TFT_WHITE=0xffff,TFT_BLACK=0,TFT_CYAN=0x7ff,TFT_GREEN=0x7e0,TFT_ORANGE=0xfd20,TFT_BLUE=31;
-namespace fonts {constexpr int Font0=0,FreeSansBold9pt7b=1;}
+namespace fonts {constexpr int Font0=0,FreeSansBold9pt7b=1,FreeSansBold12pt7b=2,FreeSansBold24pt7b=3;}
 struct FakeCanvas {
   std::vector<std::string> labels;
   int frames=0,lines=0,circles=0,triangles=0;
@@ -108,6 +108,9 @@ struct FakeCanvas {
   void pushSprite(int,int){frames++;}
 };
 extern FakeCanvas canvas;
+// ui/gfx.h: the shared map-control buttons draw into the fake.
+using Gfx=FakeCanvas;
+using GfxFont=const int*;
 extern int rasterLines,rasterFrames,mapBlitX,mapBlitY;
 struct LGFX_Sprite : FakeCanvas {
   void setPsram(bool){}

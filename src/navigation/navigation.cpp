@@ -4,6 +4,7 @@
 #include "map_renderer.h"
 #include "ui/ride_menu.h"
 #include "ui/control_layout.h"
+#include "ui/components/button.h"
 #include "geo.h"
 #include "position_heading.h"
 #include "storage/sd_access.h"
@@ -704,10 +705,9 @@ void renderNavigation(const TelemetryState& state) {
   const char* listLabels[]={"Prev","Map","Next"};
   for(int i=0;i<(list?3:4);i++) {
     const auto& r=list?ui::listControls[i]:ui::mapControls[i];
-    const uint16_t bg=!list&&i==2&&follow?0x0230:ui::panel;
-    canvas.fillRoundRect(r.x+2,r.y,r.w-4,r.h,8,bg);
-    ui::drawIcon(canvas,list?listIcons[i]:mapIcons[i],list?r.x+7:r.x+(r.w-24)/2,r.y+10,ui::accent);
-    if(list){canvas.setTextColor(TFT_WHITE,bg);canvas.drawString(listLabels[i],r.x+36,r.y+18);}
+    // Center (follow) is drawn "on" while the map tracks the position.
+    ui::drawButton(canvas,r,{list?listLabels[i]:"",list?listIcons[i]:mapIcons[i],true,false},
+      !list&&i==2&&follow?uitheme::STYLE_BUTTON_MAP_ACTIVE:uitheme::STYLE_BUTTON_MAP,ui::activeTheme());
   }
   label("(c) OpenStreetMap contributors",4,312,0x8410);
   presentFrame();
