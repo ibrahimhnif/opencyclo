@@ -54,5 +54,23 @@ int main() {
   (void)badScale;
   assert(keep.accent.g == 210 && keep.font_scale_pct == 100);
 
+  // Style sheet: the default is valid; any out-of-range token, font, text
+  // size or schema rejects the whole sheet.
+  assert(isStyleSheetValid(defaultStyleSheet()));
+  StyleSheet bad = defaultStyleSheet();
+  bad.styles[STYLE_TEXT].fg = ColorToken(TOK_COUNT);
+  assert(!isStyleSheetValid(bad));
+  bad = defaultStyleSheet();
+  bad.styles[STYLE_TEXT].font = FontId(FONT_ID_COUNT);
+  assert(!isStyleSheetValid(bad));
+  bad = defaultStyleSheet();
+  bad.styles[STYLE_TEXT].text_size = 0;
+  assert(!isStyleSheetValid(bad));
+  bad = defaultStyleSheet();
+  bad.schema_version = 0;
+  assert(!isStyleSheetValid(bad));
+  assert(toRgb565(defaultStyleSheet().pressed) == 0x8410);
+  assert(toRgb565(defaultStyleSheet().active) == 0x0230);
+
   puts("theme tests passed");
 }

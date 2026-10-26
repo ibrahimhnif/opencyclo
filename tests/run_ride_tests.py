@@ -30,7 +30,7 @@ root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     work = Path(temp)
     for header in ["Arduino.h", "freertos/FreeRTOS.h", "freertos/semphr.h", "hardware/display.h",
-                   "ui/frame_present.h"]:
+                   "ui/frame_present.h", "ui/gfx.h"]:
         target = work / header
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('#include "ride_fakes.h"\n')
@@ -43,6 +43,14 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root / "tests/test_ride_session.cpp"), "-o", str(binary),
     ], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
+    resolved=work/"resolved_theme"
+    subprocess.run([
+        "c++","-std=c++11","-Wall","-Wextra","-Werror",
+        f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
+        str(root/"src/ui/engine/theme.cpp"),str(root/"src/ui/engine/resolved_theme.cpp"),
+        str(root/"tests/test_resolved_theme.cpp"),"-o",str(resolved),
+    ],check=True)
+    subprocess.run([str(resolved)],check=True)
     preview=work/"preview"
     subprocess.run([
         "c++", "-std=c++11", f"-I{work}", f"-I{root}/tests", f"-I{root}/src",

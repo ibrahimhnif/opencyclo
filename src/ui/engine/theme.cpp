@@ -10,6 +10,56 @@ const UiTheme& defaultTheme() {
   return kDefaultDarkTheme;
 }
 
+namespace {
+
+// {bg, fg, icon, border, border_w, radius, font, text_size,
+//  inset, icon_dx, icon_dy, text_dx, text_dy}
+constexpr ComponentStyle kText{TOK_BG, TOK_TEXT, TOK_TEXT, TOK_BG, 0, 0, FONT_SANS_BOLD_9, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kTextMuted{TOK_BG, TOK_LABEL, TOK_LABEL, TOK_BG, 0, 0, FONT_SANS_BOLD_9, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kCaption{TOK_BG, TOK_LABEL, TOK_LABEL, TOK_BG, 0, 0, FONT_GLCD, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kValueXl{TOK_BG, TOK_TEXT, TOK_TEXT, TOK_BG, 0, 0, FONT_SANS_BOLD_24, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kTileLabel{TOK_BG, TOK_LABEL, TOK_LABEL, TOK_HAIRLINE, 1, 0, FONT_SANS_BOLD_9, 1, 0, 0, 0, 4, 4};
+constexpr ComponentStyle kTileValue{TOK_BG, TOK_TEXT, TOK_TEXT, TOK_HAIRLINE, 1, 0, FONT_SANS_BOLD_12, 1, 0, 0, 0, 4, 24};
+constexpr ComponentStyle kHeroLabel{TOK_BG, TOK_LABEL, TOK_LABEL, TOK_BG, 0, 0, FONT_SANS_BOLD_9, 1, 0, 0, 0, 4, 4};
+constexpr ComponentStyle kHeroValue{TOK_BG, TOK_TEXT, TOK_TEXT, TOK_BG, 0, 0, FONT_SANS_BOLD_24, 1, 0, 0, 0, 4, 24};
+constexpr ComponentStyle kHeader{TOK_BG, TOK_TEXT, TOK_ACCENT, TOK_BG, 0, 0, FONT_SANS_BOLD_9, 1, 0, 0, 0, 48, 12};
+constexpr ComponentStyle kPanelTitle{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_SANS_BOLD_12, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kPanelText{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_SANS_BOLD_9, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kScreenTitle{TOK_BG, TOK_TEXT, TOK_TEXT, TOK_BG, 0, 0, FONT_GLCD, 2, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kScreenText{TOK_BG, TOK_TEXT, TOK_TEXT, TOK_BG, 0, 0, FONT_GLCD, 1, 0, 0, 0, 0, 0};
+constexpr ComponentStyle kButtonPrimary{TOK_ACCENT, TOK_BG, TOK_BG, TOK_ACCENT, 0, 8, FONT_SANS_BOLD_12, 1, 0, 12, 12, 48, 13};
+constexpr ComponentStyle kButtonSecondary{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_SANS_BOLD_12, 1, 0, 12, 12, 48, 13};
+constexpr ComponentStyle kButtonPagePrimary{TOK_ACCENT, TOK_BG, TOK_BG, TOK_ACCENT, 0, 8, FONT_SANS_BOLD_9, 1, 0, 8, 13, 40, 16};
+constexpr ComponentStyle kButtonPageSecondary{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_SANS_BOLD_9, 1, 0, 8, 13, 40, 16};
+constexpr ComponentStyle kButtonPower{TOK_PANEL, TOK_TEXT, TOK_TEXT, TOK_PANEL, 0, 8, FONT_GLCD, 2, 0, 12, 10, 48, 14};
+constexpr ComponentStyle kButtonMap{TOK_PANEL, TOK_TEXT, TOK_ACCENT, TOK_PANEL, 0, 8, FONT_GLCD, 1, 2, 5, 10, 34, 18};
+constexpr ComponentStyle kButtonMapActive{TOK_ACTIVE, TOK_TEXT, TOK_ACCENT, TOK_ACTIVE, 0, 8, FONT_GLCD, 1, 2, 5, 10, 34, 18};
+
+// Order must match StyleId.
+constexpr StyleSheet kDefaultStyleSheet{
+    UI_STYLE_SCHEMA_VERSION,
+    Rgb888{128, 128, 128},  // == RGB565 0x8410, the legacy pressed gray
+    Rgb888{0, 68, 128},     // == RGB565 0x0230, the legacy map-follow fill
+    {kText, kTextMuted, kCaption, kValueXl, kTileLabel, kTileValue, kHeroLabel, kHeroValue, kHeader,
+     kPanelTitle, kPanelText, kScreenTitle, kScreenText, kButtonPrimary, kButtonSecondary,
+     kButtonPagePrimary, kButtonPageSecondary, kButtonPower, kButtonMap, kButtonMapActive}};
+
+}  // namespace
+
+const StyleSheet& defaultStyleSheet() {
+  return kDefaultStyleSheet;
+}
+
+bool isStyleSheetValid(const StyleSheet& s) {
+  if (s.schema_version != UI_STYLE_SCHEMA_VERSION) return false;
+  for (const ComponentStyle& c : s.styles) {
+    if (c.bg >= TOK_COUNT || c.fg >= TOK_COUNT || c.icon >= TOK_COUNT || c.border >= TOK_COUNT) return false;
+    if (c.font >= FONT_ID_COUNT) return false;
+    if (c.text_size < 1 || c.text_size > 4) return false;
+  }
+  return true;
+}
+
 bool formatHexColor(Rgb888 c, char* out, size_t n) {
   if (out == nullptr || n < 8) return false;
   snprintf(out, n, "#%02X%02X%02X", c.r, c.g, c.b);
@@ -104,3 +154,4 @@ bool themeFromJson(const char* json, UiTheme& out) {
 // on-device.
 #include "storage/theme_config.h"
 uitheme::UiTheme g_theme = uitheme::kDefaultDarkTheme;
+std::atomic<uint32_t> g_theme_version{0};

@@ -19,6 +19,8 @@ enum Tone : uint8_t {
   TONE_SUCCESS,
   TONE_WARNING,
   TONE_DANGER,
+  TONE_MUTED,        // secondary text (label color)
+  TONE_STYLE = 255,  // no emphasis: use the style's own foreground
 };
 
 struct TileModel {

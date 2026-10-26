@@ -59,6 +59,95 @@ constexpr UiTheme kDefaultDarkTheme{UI_THEME_SCHEMA_VERSION,
 
 const UiTheme& defaultTheme();
 
+// ---- Style sheet --------------------------------------------------------
+// Components never name a color, font or offset: they draw from a named
+// style, and a style references color tokens. The default sheet reproduces
+// the literals the screens used before components, so the default render is
+// unchanged. Kept separate from UiTheme so stored NVS themes stay valid.
+
+enum ColorToken : uint8_t {
+  TOK_BG = 0,
+  TOK_PANEL,
+  TOK_TEXT,
+  TOK_LABEL,
+  TOK_HAIRLINE,
+  TOK_ACCENT,
+  TOK_SUCCESS,
+  TOK_WARNING,
+  TOK_DANGER,
+  TOK_PRESSED,  // StyleSheet::pressed
+  TOK_ACTIVE,   // StyleSheet::active
+  TOK_COUNT
+};
+
+// The compiled-in GFX fonts a style may pick.
+enum FontId : uint8_t {
+  FONT_GLCD = 0,
+  FONT_SANS_BOLD_9,
+  FONT_SANS_BOLD_12,
+  FONT_SANS_BOLD_24,
+  FONT_ID_COUNT
+};
+
+enum StyleId : uint8_t {
+  STYLE_TEXT = 0,
+  STYLE_TEXT_MUTED,
+  STYLE_CAPTION,
+  STYLE_VALUE_XL,
+  STYLE_TILE_LABEL,
+  STYLE_TILE_VALUE,
+  STYLE_HERO_LABEL,
+  STYLE_HERO_VALUE,
+  STYLE_HEADER,
+  STYLE_PANEL_TITLE,
+  STYLE_PANEL_TEXT,
+  STYLE_SCREEN_TITLE,
+  STYLE_SCREEN_TEXT,
+  STYLE_BUTTON_PRIMARY,
+  STYLE_BUTTON_SECONDARY,
+  STYLE_BUTTON_PAGE_PRIMARY,
+  STYLE_BUTTON_PAGE_SECONDARY,
+  STYLE_BUTTON_POWER,
+  STYLE_BUTTON_MAP,
+  STYLE_BUTTON_MAP_ACTIVE,
+  STYLE_COUNT
+};
+
+// icon_dx value: center the icon horizontally (used when a button has no text).
+constexpr int8_t ICON_CENTER = -1;
+
+// Offsets are relative to the component rect after `inset` is applied on the
+// left and right.
+struct ComponentStyle {
+  ColorToken bg;
+  ColorToken fg;
+  ColorToken icon;
+  ColorToken border;
+  uint8_t border_w;
+  uint8_t radius;
+  FontId font;
+  uint8_t text_size;
+  int8_t inset;
+  int8_t icon_dx;
+  int8_t icon_dy;
+  int8_t text_dx;
+  int8_t text_dy;
+};
+
+#define UI_STYLE_SCHEMA_VERSION 1u
+
+struct StyleSheet {
+  uint32_t schema_version;
+  Rgb888 pressed;  // held-button fill
+  Rgb888 active;   // toggled-on control fill (map follow)
+  ComponentStyle styles[STYLE_COUNT];
+};
+
+const StyleSheet& defaultStyleSheet();
+
+// Schema matches, every token/font is in range, text_size is 1..4.
+bool isStyleSheetValid(const StyleSheet& s);
+
 inline bool isThemeValid(const UiTheme& t) {
   if (t.schema_version != UI_THEME_SCHEMA_VERSION) return false;
   if (t.font_scale_pct < 50 || t.font_scale_pct > 200) return false;

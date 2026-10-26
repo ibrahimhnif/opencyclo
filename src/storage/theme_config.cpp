@@ -7,6 +7,7 @@ static Preferences themePrefs;
 
 void resetThemeToDefault() {
   g_theme = uitheme::kDefaultDarkTheme;
+  g_theme_version++;
 }
 
 void initThemeConfig() {
@@ -47,6 +48,7 @@ bool importThemeFromString(const char* jsonStr) {
     return false;
   }
   g_theme = staged;
+  g_theme_version++;
   saveThemeConfig();
   Serial.println("[THEME CONFIG] Imported custom theme from companion.");
   return true;
