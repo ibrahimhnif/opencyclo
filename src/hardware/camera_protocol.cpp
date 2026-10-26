@@ -5,10 +5,9 @@ namespace camera_proto {
 
 const CameraModeEntry CAMERA_MODES[] = {
     {"Video", SCOPE_VIDEO, 0},                                    // VIDEO_NORMAL
-    {"Freeframe", SCOPE_VIDEO, VIDEO_SUB_FREEFRAME_PROVISIONAL},
+    {"Freeframe", SCOPE_VIDEO, VIDEO_SUB_FREEFRAME},
     {"HDR", SCOPE_VIDEO, 3},                                      // VIDEO_HDR
     {"Timeshift", SCOPE_VIDEO, 4},                                // VIDEO_TIMESHIFT
-    {"Super", SCOPE_VIDEO, 5},                                    // VIDEO_SUPER
     {"Loop", SCOPE_VIDEO, 6},                                     // VIDEO_LOOP_RECORDING
     {"Fpv", SCOPE_VIDEO, 7},                                      // VIDEO_FPV
     {"Movie", SCOPE_VIDEO, 8},                                    // VIDEO_MOVIE
@@ -23,6 +22,10 @@ const CameraModeEntry CAMERA_MODES[] = {
     {"Starlapse", SCOPE_PHOTO, 7},                                // PHOTO_STAR_LAPSE
 };
 const size_t CAMERA_MODE_COUNT = sizeof(CAMERA_MODES) / sizeof(CAMERA_MODES[0]);
+
+const uint16_t STATUS_OPTIONS[] = {OPT_BATTERY_STATUS, OPT_STORAGE_STATE, OPT_PHOTO_SUB_MODE,
+                                   OPT_VIDEO_SUB_MODE};
+const size_t STATUS_OPTION_COUNT = sizeof(STATUS_OPTIONS) / sizeof(STATUS_OPTIONS[0]);
 
 namespace {
 
@@ -129,6 +132,183 @@ size_t pbSetOption(uint8_t* out, size_t cap, uint16_t optionType, int32_t value)
 
 size_t pbGetOptions(uint8_t* out, size_t cap, const uint16_t* optionTypes, size_t count) {
   return writePackedOptionTypes(out, cap, optionTypes, count);
+}
+
+namespace {
+
+bool readVarint(const uint8_t*& p, const uint8_t* end, uint64_t& value) {
+  value = 0;
+  for (int shift = 0; shift < 64 && p < end; shift += 7) {
+    const uint8_t byte = *p++;
+    value |= uint64_t(byte & 0x7f) << shift;
+    if (!(byte & 0x80)) return true;
+  }
+  return false;
+}
+
+// One protobuf field. Varint fields set `value`; length-delimited fields set
+// `data`/`size`. Fixed-width fields are skipped over but reported.
+struct PbField {
+  uint32_t number;
+  uint8_t wire;
+  uint64_t value;
+  const uint8_t* data;
+  size_t size;
+};
+
+// Advances `p` past one field. False on a malformed or truncated field.
+bool nextField(const uint8_t*& p, const uint8_t* end, PbField& f) {
+  uint64_t key = 0;
+  if (!readVarint(p, end, key)) return false;
+  f.number = uint32_t(key >> 3);
+  f.wire = uint8_t(key & 7);
+  f.value = 0;
+  f.data = nullptr;
+  f.size = 0;
+  switch (f.wire) {
+    case 0:
+      return readVarint(p, end, f.value);
+    case 1:
+      if (end - p < 8) return false;
+      p += 8;
+      return true;
+    case 2: {
+      uint64_t n = 0;
+      if (!readVarint(p, end, n) || n > uint64_t(end - p)) return false;
+      f.data = p;
+      f.size = size_t(n);
+      p += n;
+      return true;
+    }
+    case 5:
+      if (end - p < 4) return false;
+      p += 4;
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Finds the first length-delimited field `number`. The whole message must parse.
+bool findMessage(const uint8_t* body, size_t len, uint32_t number, const uint8_t*& data, size_t& size) {
+  const uint8_t* p = body;
+  const uint8_t* end = body + len;
+  bool found = false;
+  PbField f;
+  while (p < end) {
+    if (!nextField(p, end, f)) return false;
+    if (!found && f.wire == 2 && f.number == number) {
+      data = f.data;
+      size = f.size;
+      found = true;
+    }
+  }
+  return found;
+}
+
+// Reads proto3 varint fields 1..3 of a small message; absent fields are 0.
+bool readVarints3(const uint8_t* body, size_t len, uint64_t out[3]) {
+  out[0] = out[1] = out[2] = 0;
+  const uint8_t* p = body;
+  const uint8_t* end = body + len;
+  PbField f;
+  while (p < end) {
+    if (!nextField(p, end, f)) return false;
+    if (f.wire == 0 && f.number >= 1 && f.number <= 3) out[f.number - 1] = f.value;
+  }
+  return true;
+}
+
+int8_t clampPct(uint64_t v) { return int8_t(v > 100 ? 100 : v); }
+
+}  // namespace
+
+bool parseOptionsResponse(const uint8_t* body, size_t len, CameraStatus& status) {
+  const uint8_t* options = nullptr;
+  size_t optionsLen = 0;
+  if (!body || !findMessage(body, len, 2, options, optionsLen)) return false;
+  // Parse into a copy so a malformed message leaves `status` untouched.
+  CameraStatus next = status;
+  const uint8_t* p = options;
+  const uint8_t* end = options + optionsLen;
+  PbField f;
+  while (p < end) {
+    if (!nextField(p, end, f)) return false;
+    uint64_t v[3];
+    if (f.number == OPT_BATTERY_STATUS && f.wire == 2) {
+      if (!readVarints3(f.data, f.size, v)) return false;
+      next.charging = v[0] == 1;
+      next.battery_pct = clampPct(v[1]);
+    } else if (f.number == OPT_STORAGE_STATE && f.wire == 2) {
+      if (!readVarints3(f.data, f.size, v)) return false;
+      next.card_state = int8_t(v[0] > 5 ? 5 : v[0]);
+      next.free_bytes = v[1];
+      next.total_bytes = v[2];
+    } else if (f.number == OPT_PHOTO_SUB_MODE && f.wire == 0) {
+      next.photo_sub = int16_t(f.value);
+    } else if (f.number == OPT_VIDEO_SUB_MODE && f.wire == 0) {
+      next.video_sub = int16_t(f.value);
+    }
+  }
+  status = next;
+  return true;
+}
+
+static bool applyCaptureStatus(const uint8_t* body, size_t len, CameraStatus& status) {
+  uint64_t v[3];
+  if (!readVarints3(body, len, v)) return false;
+  status.capture_state = int8_t(v[0] > 127 ? 127 : v[0]);
+  status.capture_secs = uint32_t(v[1]);
+  return true;
+}
+
+bool parseCaptureStatusResponse(const uint8_t* body, size_t len, CameraStatus& status) {
+  const uint8_t* inner = nullptr;
+  size_t innerLen = 0;
+  if (!body || !findMessage(body, len, 1, inner, innerLen)) return false;
+  return applyCaptureStatus(inner, innerLen, status);
+}
+
+NotifyEffect applyNotification(uint16_t code, const uint8_t* body, size_t len, CameraStatus& status) {
+  if (!body) len = 0;
+  switch (code) {
+    case NOTIFY_CAPTURE_STATUS:
+      return applyCaptureStatus(body, len, status) ? NOTIFY_UPDATED : NOTIFY_IGNORED;
+    case NOTIFY_CAPTURE_STOPPED:
+      status.capture_state = 0;
+      status.capture_secs = 0;
+      return NOTIFY_UPDATED;
+    case NOTIFY_SUBMODE_CHANGE: {
+      uint64_t v[3];
+      if (!readVarints3(body, len, v)) return NOTIFY_IGNORED;
+      status.photo_sub = int16_t(v[0]);
+      status.video_sub = int16_t(v[1]);
+      return NOTIFY_UPDATED;
+    }
+    case NOTIFY_STORAGE_UPDATE:
+    case NOTIFY_BATTERY_UPDATE:
+      return NOTIFY_REFRESH_OPTIONS;
+    default:
+      return NOTIFY_IGNORED;
+  }
+}
+
+const char* cameraModeName(const CameraStatus& status) {
+  uint8_t scope;
+  int sub;
+  if (status.photo_sub >= 0 && status.photo_sub != SUB_MODE_NONE) {
+    scope = SCOPE_PHOTO;
+    sub = status.photo_sub;
+  } else if (status.video_sub >= 0 && status.video_sub != SUB_MODE_NONE) {
+    scope = SCOPE_VIDEO;
+    sub = status.video_sub;
+  } else {
+    return nullptr;
+  }
+  for (size_t i = 0; i < CAMERA_MODE_COUNT; ++i) {
+    if (CAMERA_MODES[i].scope == scope && CAMERA_MODES[i].subMode == sub) return CAMERA_MODES[i].label;
+  }
+  return nullptr;
 }
 
 bool parseFrameLength(const uint8_t* data, size_t len, uint32_t& total) {

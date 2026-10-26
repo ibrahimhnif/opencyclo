@@ -32,6 +32,7 @@ constexpr uint16_t CMD_STOP_CAPTURE = 5;
 constexpr uint16_t CMD_SET_OPTIONS = 7;
 constexpr uint16_t CMD_GET_OPTIONS = 8;
 constexpr uint16_t CMD_GET_CAPTURE_STATUS = 15;
+constexpr uint16_t CMD_HEADER_TYPE_MESSAGE = 0x04;  // payload[0] of a command/response
 
 constexpr uint16_t RESP_OK = 200;
 constexpr uint16_t RESP_ERROR = 500;
@@ -49,12 +50,57 @@ constexpr int MAIN_MODE_PHOTO = 1;
 // Which sub-mode enum a UI entry belongs to.
 enum CameraModeScope : uint8_t { SCOPE_VIDEO = 0, SCOPE_PHOTO = 1 };
 
-// FreeFrame Video is a real Ace Pro 2 mode ("acepro2_freeframe" is the camera's
-// own internal profile name) but has no dedicated value in the proto sub-mode
-// enums of SDK 2.1.5/2.2.2. Until its exact sub-mode value is captured on-device
-// (tools/insta360_probe.py), the Freeframe entry selects normal video. Change
-// this one constant once confirmed.
-constexpr uint8_t VIDEO_SUB_FREEFRAME_PROVISIONAL = 0;  // video normal
+// FreeFrame Video is video_sub_mode 5 on the Ace Pro 2: verified on-device by
+// insta360-ace-control (the camera answers 0x2053 "08 64 10 05"). Older
+// X-series cameras use 5 for "Super", which the Ace Pro 2 does not have.
+constexpr uint8_t VIDEO_SUB_FREEFRAME = 5;
+
+// insta360.messages.OptionType values read for the status indicator.
+constexpr uint16_t OPT_BATTERY_STATUS = 11;
+constexpr uint16_t OPT_STORAGE_STATE = 20;
+extern const uint16_t STATUS_OPTIONS[];  // battery, storage, photo/video sub-mode
+extern const size_t STATUS_OPTION_COUNT;
+
+// Unsolicited notification codes (>= 0x2000) handled by applyNotification().
+constexpr uint16_t NOTIFY_BATTERY_UPDATE = 0x2003;
+constexpr uint16_t NOTIFY_STORAGE_UPDATE = 0x2006;
+constexpr uint16_t NOTIFY_CAPTURE_STOPPED = 0x2009;
+constexpr uint16_t NOTIFY_CAPTURE_STATUS = 0x2010;
+constexpr uint16_t NOTIFY_SUBMODE_CHANGE = 0x2053;
+constexpr uint16_t NOTIFY_FIRST = 0x2000;
+
+// PhotoSubMode / VideoSubMode value meaning "not in this scope".
+constexpr int SUB_MODE_NONE = 100;
+
+// What the camera last told us. -1 = not reported yet this connection.
+struct CameraStatus {
+  int8_t battery_pct = -1;
+  bool charging = false;       // BatteryStatus.power_type == ADAPTER
+  int8_t card_state = -1;      // StorageState.CardState: 0 ok, 1 no card, 2 full, 3+ error
+  uint64_t free_bytes = 0;
+  uint64_t total_bytes = 0;
+  int8_t capture_state = -1;   // CameraCaptureState: 0 idle, else capturing
+  uint32_t capture_secs = 0;
+  int16_t photo_sub = -1;      // SUB_MODE_NONE when in a video mode
+  int16_t video_sub = -1;
+};
+
+// Fills battery/storage/sub-modes from a GetOptions (cmd 8) response body.
+// Fields the response lacks are left untouched. False if no Options message.
+bool parseOptionsResponse(const uint8_t* body, size_t len, CameraStatus& status);
+
+// Fills capture state/time from a GetCurrentCaptureStatus (cmd 15) response.
+bool parseCaptureStatusResponse(const uint8_t* body, size_t len, CameraStatus& status);
+
+enum NotifyEffect : uint8_t {
+  NOTIFY_IGNORED = 0,      // a code we don't track (face detect, WiFi, ...)
+  NOTIFY_UPDATED,          // `status` changed
+  NOTIFY_REFRESH_OPTIONS,  // battery/storage changed: send GetOptions again
+};
+NotifyEffect applyNotification(uint16_t code, const uint8_t* body, size_t len, CameraStatus& status);
+
+// CAMERA_MODES label for the active sub-mode, or nullptr when unknown.
+const char* cameraModeName(const CameraStatus& status);
 
 struct CameraModeEntry {
   const char* label;

@@ -2,6 +2,7 @@
 #define OPENCYCLO_HARDWARE_CAMERA_CONTROL_H
 
 #include <stdint.h>
+#include "camera_protocol.h"
 
 // Direct Insta360 camera control over BLE as a *central*: the ESP32 connects to
 // the camera's own control service (0000be80-.../be81/be82) and speaks the
@@ -36,8 +37,14 @@ void cameraControlForget();
 // Returns false when not connected.
 bool setCameraMode(int scope, int subMode);
 
-// Last function_mode value we asked for, or -1 if none this session.
+// Last sub-mode value the camera acknowledged, or -1 if none this session.
 int cameraControlCurrentMode();
+
+// Copies what the camera last reported (battery, storage, capture state,
+// active sub-mode), kept current by GetOptions on connect, a 30 s poll, and
+// the camera's notifications. Returns false (and an all-unknown status) when
+// not connected. Safe to call from the UI task.
+bool cameraControlStatus(camera_proto::CameraStatus& out);
 
 // Human-readable connection state for the camera widget header.
 const char* cameraControlStatusText();

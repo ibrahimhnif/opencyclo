@@ -48,6 +48,30 @@ int main(int argc,char**) {
     assert(!label("Recording"));
     assert(label(pairing?"Camera pairing":waking?"Waking (10s)":subscribed?"Connected":"Not connected"));
     if(argc>1){printf("SCREEN|%s\n",names[i]);for(auto& c:canvas.commands)puts(c.c_str());}
+    assert(!label("54%")&&label("Shutter follows mode"));  // no status reported yet
+  }
+  // Status indicator: what the camera reported over the direct link -- battery
+  // (top right), free storage and the recording timer (bottom row).
+  {
+    camera_proto::CameraStatus& s=fakeCameraStatus();
+    s.battery_pct=54;s.charging=true;s.card_state=0;s.free_bytes=13335003136ULL;
+    s.capture_state=1;s.capture_secs=65;s.photo_sub=100;s.video_sub=5;
+    pairing=false;waking=false;subscribed=true;
+    canvas.fillScreen(0);
+    renderWidget(WIDGET_CAMERA_REMOTE,slot,TelemetryState{},true);
+    assert(label("Connected")&&label("54%")&&label("SD 12.4G")&&label("REC 1:05"));
+    assert(!label("Shutter follows mode"));
+    if(argc>1){puts("SCREEN|camera_status");for(auto& c:canvas.commands)puts(c.c_str());}
+    s.capture_state=0;
+    canvas.fillScreen(0);
+    renderWidget(WIDGET_CAMERA_REMOTE,slot,TelemetryState{},true);
+    assert(label("Freeframe")&&!label("REC 1:05"));
+    // Dropping the link hides the indicator again.
+    subscribed=false;
+    canvas.fillScreen(0);
+    renderWidget(WIDGET_CAMERA_REMOTE,slot,TelemetryState{},true);
+    assert(!label("54%")&&!label("SD 12.4G")&&label("Shutter follows mode"));
+    s=camera_proto::CameraStatus();
   }
   // Options page render.
   tap(ui::captureRect(2,232));canvas.fillScreen(0);
@@ -55,9 +79,10 @@ int main(int argc,char**) {
   assert(label("Modes")&&label("Screen")&&label("Wake")&&label("Off")&&label("Back"));
   if(argc>1)puts("SCREEN|camera_options"),(void)0;
   // Modes page render. The picker was left on its second page above, so cycle
-  // all the way round (5 pages) back to the first before asserting labels.
+  // all the way round back to the first before asserting labels.
   tap(ui::optionRect(0,232));
-  for(int i=0;i<4;i++)tap(ui::modeNav(1,232));
+  const int pages=((int)camera_proto::CAMERA_MODE_COUNT+3)/4;
+  for(int i=0;i<pages-1;i++)tap(ui::modeNav(1,232));
   canvas.fillScreen(0);
   renderWidget(WIDGET_CAMERA_REMOTE,slot,TelemetryState{},true);
   assert(label("Video")&&label("Freeframe")&&label("Next")&&label("Back"));

@@ -92,35 +92,47 @@ follows `PhotoSubMode`. The picker's entries (`camera_proto::CAMERA_MODES`):
 
 | Label | Scope | Value | | Label | Scope | Value |
 | --- | --- | --- | --- | --- | --- | --- |
-| Video | video | 0 | | Pure | video | 11 |
-| Freeframe | video | *provisional 0* | | Timelapse | video | 2 |
-| HDR | video | 3 | | Dashcam | video | 14 |
-| Timeshift | video | 4 | | Photo | photo | 0 |
-| Super | video | 5 | | HDR Photo | photo | 1 |
+| Video | video | 0 | | Timelapse | video | 2 |
+| Freeframe | video | 5 | | Dashcam | video | 14 |
+| HDR | video | 3 | | Photo | photo | 0 |
+| Timeshift | video | 4 | | HDR Photo | photo | 1 |
 | Loop | video | 6 | | Interval | photo | 2 |
 | Fpv | video | 7 | | Burst | photo | 3 |
 | Movie | video | 8 | | Starlapse | photo | 7 |
 | Slowmo | video | 9 | | | | |
+| Pure | video | 11 | | | | |
 
 Verified live: `video_sub_mode` 0/3/4/5 all switch and read back correctly.
 
-## FreeFrame — the open item
+## FreeFrame
 
-FreeFrame Video is a real Ace Pro 2 mode ("acepro2_freeframe" is the camera's
-own internal profile name) but has **no value in the proto sub-mode enums** of
-SDK 2.1.5 or 2.2.2, and the SDK's `FunctionMode` Kotlin enum cannot select it
-either. Until its exact value is captured, the `Freeframe` entry selects normal
-video (`camera_proto::VIDEO_SUB_FREEFRAME_PROVISIONAL`).
+FreeFrame Video is `video_sub_mode` **5** on the Ace Pro 2
+(`camera_proto::VIDEO_SUB_FREEFRAME`), confirmed on-device by the
+insta360-ace-control project: after `SetOptions` the camera answers with the
+`0x2053` notification `08 64 10 05` (photo NONE, video 5). Older X-series
+cameras use 5 for "Super", which the Ace Pro 2 does not have, so the picker no
+longer lists Super.
 
-To find it (Phase A):
+## Status and notifications
 
-1. Run `python3 tools/insta360_probe.py --sweep` (BLE) while watching the camera
-   screen. The sweep sets `video_sub_mode` 0..24 and reads each back; a value the
-   camera accepts but that isn't in the table above is a candidate.
-2. Or capture the official app switching to FreeFrame (BLE HCI snoop or the WiFi
-   socket) and decode the `SetOptions` body.
-3. Once known, set `VIDEO_SUB_FREEFRAME_PROVISIONAL` in
-   `src/hardware/camera_protocol.h` to the confirmed value.
+Once connected, `camera_control.cpp` follows insta360-ace-control's session:
+wait for the camera's first heartbeat (or 1.5 s), send SYNC, heartbeat every
+1 s, then `GetOptions` for battery (11), storage (20) and the photo/video
+sub-modes (40/41) plus `GetCurrentCaptureStatus` (15). Status is re-read every
+30 s and whenever the camera sends a storage (`0x2006`) or battery (`0x2003`)
+notification. Responses are matched to requests by sequence.
+
+| Notification | Effect |
+| --- | --- |
+| `0x2010` capture status | recording state + elapsed seconds |
+| `0x2009` capture stopped | recording cleared |
+| `0x2053` sub-mode change | active photo/video sub-mode |
+| `0x2006` / `0x2003` | re-read battery and storage |
+
+The camera widget shows the battery (glyph + percent, top right) and, on the
+capture page, free storage and the recording timer or active mode (bottom
+row). `cameraControlStatus()` exposes the same data; the parsers are pure and
+host-tested in `tests/test_camera_protocol.cpp`.
 
 ## Firmware integration
 
