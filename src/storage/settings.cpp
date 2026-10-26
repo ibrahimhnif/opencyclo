@@ -29,6 +29,8 @@ void initSettings() {
   snprintf(g_settings.paired_csc_mac, sizeof(g_settings.paired_csc_mac), "%s", csc.c_str());
   snprintf(g_settings.paired_hr_mac, sizeof(g_settings.paired_hr_mac), "%s", hr.c_str());
   snprintf(g_settings.paired_power_mac, sizeof(g_settings.paired_power_mac), "%s", pow.c_str());
+  snprintf(g_settings.camera_mac, sizeof(g_settings.camera_mac), "%s", prefs.getString("cam_mac", "").c_str());
+  g_settings.camera_addr_type = prefs.getUChar("cam_type", 0);
 
   prefs.end();
 
@@ -55,6 +57,8 @@ void saveSettings() {
   prefs.putUChar("pow_type",g_settings.paired_power_addr_type);
   prefs.putUChar("hr_addr_t", g_settings.paired_hr_addr_type);
   prefs.putBytes("insta_wake", g_settings.insta360_wake_bytes, sizeof(g_settings.insta360_wake_bytes));
+  prefs.putString("cam_mac", g_settings.camera_mac);
+  prefs.putUChar("cam_type", g_settings.camera_addr_type);
   prefs.end();
 
   Serial.println("[SETTINGS] Saved NVS preferences!");

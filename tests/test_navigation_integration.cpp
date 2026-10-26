@@ -160,6 +160,8 @@ int main(int argc,char**){
   fakeMillis+=40;renderNavigation(waiting);assert(label("z15"));
   navigationGesture(90,20,90,20);
   fakeMillis+=40;renderNavigation(waiting);assert(label("Routes"));
+  // List-mode controls keep their text labels.
+  assert(label("Prev") && label("Map") && label("Next"));
   navigationGesture(120,284,120,284);
   navigationGesture(217,38,217,38);assert(rideOpens==1);
   openNavigation();navigationGesture(20,38,20,38);assert(!navigationOpen());

@@ -8,6 +8,8 @@
 #include "storage/logger_task.h"
 #include "storage/settings.h"
 #include "storage/layout_config.h"
+#include "storage/theme_config.h"
+#include "hardware/web_serial.h"
 #include "ui/ui_task.h"
 #include "hardware/power.h"
 #include "hardware/battery.h"
@@ -31,6 +33,7 @@ void setup() {
   // 2. Initialize NVS Settings & Layout Configuration Tree
   initSettings();
   initLayoutConfig();
+  initThemeConfig();
 
   // USB can wake a powered-off device into a charging-only UI. Cycling tasks
   // start only after ON (or a BOOT-button wake), never merely on USB insertion.
@@ -45,6 +48,7 @@ void setup() {
   startLoggerTask();
   startFusionTask();
   startUiTask();
+  startWebSerialTask();
 
   Serial.println("[SYSTEM] All tasks launched successfully.");
 }

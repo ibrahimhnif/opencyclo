@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCyclo firmware flashing</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #101418; color: #e8ecf1; font-family: system-ui, sans-serif; margin: 0; }
+  header { padding: 12px 16px; background: #161b21; display: flex; gap: 12px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0 16px 0 0; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  section { background: #161b21; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+  button { background: #00d2ff; border: 0; border-radius: 6px; padding: 8px 12px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #log { background: #0b0e11; border-radius: 6px; padding: 8px; height: 200px; overflow-y: auto; font: 11px monospace; white-space: pre-wrap; }
+  #progress { width: 100%; }
+  nav a { color: #00d2ff; font-size: 13px; }
+  .note { font-size: 12px; color: #a8b1bd; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenCyclo firmware flashing</h1>
+  <nav><a href="index.html">← Theme editor</a></nav>
+</header>
+<main>
+  <section>
+    <div class="row"><button id="connect">Connect USB</button><span id="chip">not connected</span></div>
+    <p class="note">Chrome or Edge on desktop. Use the binaries from
+      <code>.pio/build/esp32-s3-devkitc-1/</code> after <code>pio run</code>:
+      bootloader @ 0x0, partitions @ 0x8000, firmware @ 0x10000.</p>
+    <div class="row"><span>bootloader.bin @ 0x0</span><input type="file" id="bootloader"></div>
+    <div class="row"><span>partitions.bin @ 0x8000</span><input type="file" id="partitions"></div>
+    <div class="row"><span>firmware.bin @ 0x10000</span><input type="file" id="firmware"></div>
+    <div class="row">
+      <button id="flash" disabled>Flash</button>
+      <button id="erase" disabled>Erase flash</button>
+    </div>
+    <progress id="progress" value="0" max="100"></progress>
+  </section>
+  <pre id="log"></pre>
+</main>
+<script src="https://unpkg.com/esptool-js@0.7.0/bundle.js"></script>
+<script src="flash.js"></script>
+</body>
+</html>

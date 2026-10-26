@@ -31,8 +31,11 @@ framework, with a Flutter companion app and a 3D-printable enclosure.
   generator in `tools/`), free ride and GPX route navigation with turn cues,
   off-route and arrival guidance, GPS direction marker, and road width scaled by
   class and zoom.
-- **Camera remote** — Insta360 "GPS Remote" service: pair, shutter, mode,
-  screen, wake and power off from the device.
+- **Camera remote** — Insta360 control over BLE: the emulated "GPS Remote"
+  service (pair, shutter, screen, wake, power off) plus direct control of the
+  camera's own service for selecting any capture mode from a paged picker
+  (Video, FreeFrame, TimeShift, Pure, ...). See
+  [Insta360 camera control](docs/insta360-camera-control.md).
 - **Power** — BOOT button screen toggle, power-off/deep-sleep/restart menu,
   battery voltage and estimate, charging screen with an optional external USB
   detector.
@@ -41,6 +44,9 @@ framework, with a Flutter companion app and a 3D-printable enclosure.
   screenshot* pulls the latest one to the phone as PNG.
 - **Firmware update over BLE** — OTA from the app, with shutdown/restart
   exclusion while an update is running.
+- **Browser companion** — theme and layout editing with a live cyclocomp
+  preview over USB (Web Serial), plus firmware flashing from the web.
+  See [Browser companion](docs/browser-companion.md).
 
 ### Companion app (Flutter, Android and iOS, `app/`)
 
@@ -73,6 +79,8 @@ Full verified pinout is in the design doc and `src/config/pins.h`.
 - [Power and charging](docs/power-and-charging.md) — controls, limits,
   verification
 - [Ride display, sensor diagnostics and GPX export](docs/ride-sensors-and-export.md)
+- [Insta360 camera control](docs/insta360-camera-control.md) — BLE control
+  protocol, mode selection and the FreeFrame caveat
 - [GPX binary download](docs/gpx-fast-download.md) — ride export and
   screenshot download protocol
 - [GPX sync and explicit ride start](docs/gpx-sync-reliability.md)

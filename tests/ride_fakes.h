@@ -54,6 +54,9 @@ struct Canvas {
   }
 };
 extern Canvas canvas;
+// ui/gfx.h: components draw into the recording fake.
+using Gfx=Canvas;
+using GfxFont=const int*;
 
 // ui/frame_present.h: the ride menu ends its frame here; capture is not under test.
 inline void presentFrame() { canvas.pushSprite(0, 0); }

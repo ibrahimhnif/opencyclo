@@ -18,6 +18,7 @@ struct WidgetDescriptor {
 void initWidgetRegistry();
 const WidgetDescriptor* getWidgetDescriptor(WidgetType type);
 
+
 // Renders `type` into `slot` only if the widget supports slot.size_class;
 // otherwise draws a blank placeholder tile (background fill, no text) so an
 // invalid config can never produce overlapping/garbled text again.

@@ -15,6 +15,11 @@ inline HitRect optionRect(int index,int width){
   const int half=(width-24)/2;
   return {8+(index%2)*(half+8),100+(index/2)*58,half,48};
 }
+// Camera mode-picker navigation (0 = Back, 1 = Next page) on the modes page.
+inline HitRect modeNav(int index,int width){
+  const int half=(width-24)/2;
+  return {8+index*(half+8),40,half,48};
+}
 constexpr HitRect powerRect(int index){return {12,132+index*50,216,44};}
 // Map controls retain their original action order. Render and hit-test share
 // geometry; attribution is below these 44px targets, never part of a button.

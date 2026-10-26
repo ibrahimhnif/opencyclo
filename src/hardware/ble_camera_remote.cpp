@@ -84,6 +84,10 @@ static bool camPairingActive = false;
 static bool camWaking = false;
 static uint32_t camPairingStartMs = 0;
 static volatile bool camSubscribed = false;
+// Connection handle of the camera while it is linked to us as the GPS remote.
+// Used to drop that link during direct-control pairing -- the camera stops
+// advertising its own control service (be80) while a remote link is up.
+static uint16_t camPeerConnHandle = 0xFFFF;
 
 // See settings.h: manuf_data[0..13]/[20..25] are a fixed header/trailer
 // copied verbatim from the reference implementation (their exact meaning is
@@ -121,13 +125,22 @@ static WakeBytesCallbacks wakeBytesCallbacks;
 class CamRemoteCallbacks : public NimBLECharacteristicCallbacks {
   void onSubscribe(NimBLECharacteristic* pChr, ble_gap_conn_desc* desc, uint16_t subValue) override {
     (void)pChr;
-    (void)desc;
     camSubscribed = (subValue != 0);
+    if (desc && camSubscribed) camPeerConnHandle = desc->conn_handle;
     Serial.printf("[BLE CAM] Peer %s shutter notifications.\n",
                   camSubscribed ? "subscribed to" : "unsubscribed from");
   }
 };
 static CamRemoteCallbacks camRemoteCallbacks;
+
+void disconnectCameraRemotePeer() {
+  if (camPeerConnHandle != 0xFFFF && NimBLEDevice::getServer()) {
+    NimBLEDevice::getServer()->disconnect(camPeerConnHandle);
+    camPeerConnHandle = 0xFFFF;
+    camSubscribed = false;
+    Serial.println("[BLE CAM] Dropped camera remote link for direct-control pairing.");
+  }
+}
 
 void initBleCameraRemoteService(NimBLEServer* pServer) {
   NimBLEService* pService = pServer->createService(CAM_SERVICE_UUID);

@@ -2,6 +2,7 @@
 #include "core/telemetry_state.h"
 #include <cstdlib>
 #include "icons.h"
+#include "press_tracker.h"
 namespace rideui {
 enum class Screen { Ready, Recording, Paused, Confirm, Saving, Saved, NoFile, Error };
 enum class Action { None, Back, Start, Pause, Resume, Finish, Save, Cancel };
@@ -68,21 +69,17 @@ inline Action hit(const View& v,int x,int y) {
   if(secondaryRect.contains(x,y))return v.secondary.action;
   return Action::None;
 }
+// Ride-menu wrapper over the shared press rule, in rideui::Action terms.
 class Touch {
-  bool down=false,cancelled=false;int x0=0,y0=0;
-  Action held=Action::None;
+  ui::PressTracker tracker;
 public:
-  void cancel(){down=false;cancelled=false;held=Action::None;}
-  Action pressed()const{return down && !cancelled?held:Action::None;}
+  void cancel(){tracker.cancel();}
+  Action pressed()const{const int p=tracker.pressed();return p<0?Action::None:Action(p);}
   Action update(bool touched,int x,int y,const View& v) {
-    if(touched) {
-      if(!down){down=true;cancelled=false;x0=x;y0=y;held=hit(v,x,y);}
-      if(abs(x-x0)>6 || abs(y-y0)>6 || hit(v,x,y)!=held)cancelled=true;
-      return Action::None;
-    }
     // State changes during a press must not turn it into a different command.
-    Action result=down && !cancelled && held==hit(v,x0,y0)?held:Action::None;
-    cancel();return result;
+    const int r=tracker.update(touched,x,y,[&v](int px,int py){
+      const Action a=hit(v,px,py);return a==Action::None?-1:int(a);});
+    return r<0?Action::None:Action(r);
   }
 };
 }
