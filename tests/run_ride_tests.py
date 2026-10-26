@@ -38,18 +38,22 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         target = work / header
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('#include "ride_fakes.h"\n')
+    # Fake navigation entry point (the real header pulls in NimBLE).
+    nav=work/"navigation/navigation.h";nav.parent.mkdir(parents=True,exist_ok=True)
+    nav.write_text('void openNavigation();\n')
+    # Everything the ride menu links now that it draws with components and
+    # sends ride commands through actions.cpp.
+    RIDE_MENU_SOURCES=[str(root/"src/ui/ride_menu.cpp"),str(root/"src/ui/actions.cpp"),
+                       str(root/"tests/ui_action_stubs.cpp"),*UI_THEME_SOURCES,*COMPONENT_SOURCES]
     binary = work / "ride"
     subprocess.run([
         "c++", "-std=c++11", "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined",
         f"-I{work}", f"-I{root}/tests", f"-I{root}/src",
         str(root / "src/core/telemetry_state.cpp"),
-        str(root / "src/ui/ride_menu.cpp"),
+        *RIDE_MENU_SOURCES,
         str(root / "tests/test_ride_session.cpp"), "-o", str(binary),
     ], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
-    # Fake navigation entry point (the real header pulls in NimBLE).
-    nav=work/"navigation/navigation.h";nav.parent.mkdir(parents=True,exist_ok=True)
-    nav.write_text('void openNavigation();\n')
     actions=work/"actions"
     subprocess.run([
         "c++","-std=c++11","-Wall","-Wextra","-Werror",
@@ -77,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     preview=work/"preview"
     subprocess.run([
         "c++", "-std=c++11", f"-I{work}", f"-I{root}/tests", f"-I{root}/src",
-        str(root/"src/core/telemetry_state.cpp"),str(root/"src/ui/ride_menu.cpp"),
+        str(root/"src/core/telemetry_state.cpp"),*RIDE_MENU_SOURCES,
         str(root/"tests/test_ride_preview.cpp"),"-o",str(preview),
     ],check=True)
     check_golden("ride", preview, [])

@@ -3,66 +3,61 @@
 #include "ride_view.h"
 #include "hardware/display.h"
 #include <cmath>
+#include "ui/actions.h"
+#include "ui/components/button.h"
+#include "ui/components/label.h"
 
 namespace {
 using namespace rideui;
+using uitheme::StyleId;
 bool opened=false,confirm=false,dirty=true;
 Touch touch;
 uint32_t lastDraw=0;
 Screen lastScreen=Screen::Ready;
-constexpr uint16_t panel=ui::panel,muted=ui::muted,accent=ui::accent;
-uint16_t screenColor(Screen s) {
-  if(s==Screen::Recording || s==Screen::Saved)return ui::success;
-  if(s==Screen::Error)return ui::danger;
-  if(s==Screen::Paused || s==Screen::NoFile)return ui::warning;
-  return accent;
+wmodel::Tone screenTone(Screen s) {
+  if(s==Screen::Recording || s==Screen::Saved)return wmodel::TONE_SUCCESS;
+  if(s==Screen::Error)return wmodel::TONE_DANGER;
+  if(s==Screen::Paused || s==Screen::NoFile)return wmodel::TONE_WARNING;
+  return wmodel::TONE_ACCENT;
 }
-void small(const char* text,int x,int y,uint16_t color=muted) {
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(color,TFT_BLACK);
-  canvas.drawString(text,x,y);
+void text(const char* s,int x,int y,StyleId style,wmodel::Tone tone=wmodel::TONE_STYLE) {
+  ui::drawLabel(canvas,x,y,s,style,ui::activeTheme(),tone);
 }
 void button(const Button& b,const Rect& r,bool primary,Screen screen) {
   if(b.action==Action::None)return;
-  const uint16_t bg=touch.pressed()==b.action?0x8410:(primary?accent:panel);
-  canvas.fillRoundRect(r.x,r.y,r.w,r.h,8,bg);
-  canvas.setFont(&fonts::FreeSansBold12pt7b);
-  canvas.setTextColor(primary?TFT_BLACK:TFT_WHITE,bg);
-  ui::drawIcon(canvas,iconFor(b,screen),r.x+12,r.y+12,primary?TFT_BLACK:TFT_WHITE);
-  canvas.drawString(b.label,r.x+48,r.y+13);
+  ui::drawButton(canvas,{r.x,r.y,r.w,r.h},{b.label,iconFor(b,screen),true,touch.pressed()==b.action},
+    primary?uitheme::STYLE_BUTTON_PRIMARY:uitheme::STYLE_BUTTON_SECONDARY,ui::activeTheme());
 }
 void render(const TelemetryState& s,const View& v) {
   if(!dirty && v.screen==lastScreen && millis()-lastDraw<250)return;
   dirty=false;lastDraw=millis();lastScreen=v.screen;
-  canvas.fillScreen(TFT_BLACK);canvas.setTextSize(1);canvas.setTextPadding(0);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_WHITE,TFT_BLACK);
-  if(v.back)ui::drawIcon(canvas,ui::Icon::Back,10,10,TFT_WHITE);
-  canvas.drawString(v.title,46,12);
+  const auto& t=ui::activeTheme();
+  canvas.fillScreen(t.colors[uitheme::TOK_BG]);canvas.setTextSize(1);canvas.setTextPadding(0);
+  if(v.back)ui::drawIcon(canvas,ui::Icon::Back,10,10,t.colors[uitheme::TOK_TEXT]);
+  text(v.title,46,12,uitheme::STYLE_TEXT);
   const char* status=v.status;
   if(v.screen==Screen::Confirm)status="End ride / save GPX";
   else if(v.screen==Screen::Error)status="Ride stopped / retry";
-  small(status,12,44,screenColor(v.screen));
-  small("DISTANCE",16,68);
+  text(status,12,44,uitheme::STYLE_TEXT_MUTED,screenTone(v.screen));
+  text("DISTANCE",16,68,uitheme::STYLE_TEXT_MUTED);
   char number[24];
   float distance=std::isfinite(s.trip_distance_km)?s.trip_distance_km:0;
   snprintf(number,sizeof(number),"%.1f",double(distance<0?0:distance>9999?9999:distance));
-  canvas.setFont(&fonts::FreeSansBold24pt7b);canvas.setTextColor(TFT_WHITE,TFT_BLACK);
-  canvas.drawString(number,14,90);
-  small("km",205,121);
-  small("TIME",16,146);small("AVG",142,146);
+  text(number,14,90,uitheme::STYLE_VALUE_XL);
+  text("km",205,121,uitheme::STYLE_TEXT_MUTED);
+  text("TIME",16,146,uitheme::STYLE_TEXT_MUTED);text("AVG",142,146,uitheme::STYLE_TEXT_MUTED);
   unsigned long hours=s.ride_time_s/3600;
   if(hours>99)snprintf(number,sizeof(number),"%luh",hours);
   else snprintf(number,sizeof(number),"%02lu:%02lu:%02lu",hours,
     (unsigned long)(s.ride_time_s/60%60),(unsigned long)(s.ride_time_s%60));
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(TFT_WHITE,TFT_BLACK);
-  canvas.drawString(number,16,168);
+  text(number,16,168,uitheme::STYLE_TEXT);
   float average=std::isfinite(s.avg_speed_kmh)?s.avg_speed_kmh:0;
   snprintf(number,sizeof(number),"%.1f",double(average<0?0:average>999?999:average));
-  canvas.drawString(number,142,168);
+  text(number,142,168,uitheme::STYLE_TEXT);
   if(v.screen==Screen::Saving) {
-    canvas.fillRoundRect(12,198,216,106,8,panel);
-    canvas.setFont(&fonts::FreeSansBold12pt7b);canvas.setTextColor(TFT_WHITE,panel);
-    canvas.drawString("Saving GPX...",28,220);
-    canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.drawString("Keep device on",28,266);
+    canvas.fillRoundRect(12,198,216,106,t.styles[uitheme::STYLE_PANEL_TITLE].radius,t.colors[uitheme::TOK_PANEL]);
+    text("Saving GPX...",28,220,uitheme::STYLE_PANEL_TITLE);
+    text("Keep device on",28,266,uitheme::STYLE_PANEL_TEXT);
   } else {
     button(v.primary,primaryRect,true,v.screen);button(v.secondary,secondaryRect,false,v.screen);
   }
@@ -73,19 +68,19 @@ void render(const TelemetryState& s,const View& v) {
   else if(v.screen==Screen::NoFile)hint="Check SD card / enable SD logging";
   else if(v.screen==Screen::Saved)hint=s.ride_file;
   char footer[39];snprintf(footer,sizeof(footer),"%.38s",hint);
-  canvas.setFont(&fonts::Font0);canvas.setTextColor(muted,TFT_BLACK);
-  canvas.drawString(footer,6,310);
+  text(footer,6,310,uitheme::STYLE_CAPTION);
   presentFrame();
 }
+// Menu-local actions stay here; ride commands go through dispatchAction().
 void dispatch(Action action) {
   switch(action) {
     case Action::Back:opened=false;break;
     case Action::Cancel:confirm=false;break;
     case Action::Finish:confirm=true;break;
-    case Action::Save:if(requestFinishRide())confirm=false;break;
-    case Action::Start:
-    case Action::Resume:setManualRideState(RIDE_STATE_ACTIVE);break;
-    case Action::Pause:setManualRideState(RIDE_STATE_PAUSED);break;
+    case Action::Save:if(dispatchAction(ACT_RIDE_SAVE).ok)confirm=false;break;
+    case Action::Start:dispatchAction(ACT_RIDE_START);break;
+    case Action::Resume:dispatchAction(ACT_RIDE_RESUME);break;
+    case Action::Pause:dispatchAction(ACT_RIDE_PAUSE);break;
     default:break;
   }
 }
