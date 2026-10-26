@@ -46,6 +46,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
         ("screenshot", ["tests/test_screenshot.cpp", "src/storage/screenshot.cpp"], []),
         ("theme", ["tests/test_theme.cpp", "src/ui/engine/theme.cpp"], []),
         ("widget_model", ["tests/test_widget_model.cpp", "src/ui/engine/widget_model.cpp"], []),
+        ("press_tracker", ["tests/test_press_tracker.cpp"], []),
     ):
         binary = work / name
         subprocess.run([

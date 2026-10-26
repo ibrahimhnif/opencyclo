@@ -47,6 +47,17 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root / "tests/test_ride_session.cpp"), "-o", str(binary),
     ], check=True)
     subprocess.run([str(binary)], check=True, timeout=30)
+    # Fake navigation entry point (the real header pulls in NimBLE).
+    nav=work/"navigation/navigation.h";nav.parent.mkdir(parents=True,exist_ok=True)
+    nav.write_text('void openNavigation();\n')
+    actions=work/"actions"
+    subprocess.run([
+        "c++","-std=c++11","-Wall","-Wextra","-Werror",
+        f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
+        str(root/"src/core/telemetry_state.cpp"),str(root/"src/ui/actions.cpp"),
+        str(root/"tests/test_actions.cpp"),"-o",str(actions),
+    ],check=True)
+    subprocess.run([str(actions)],check=True)
     resolved=work/"resolved_theme"
     subprocess.run([
         "c++","-std=c++11","-Wall","-Wextra","-Werror",
