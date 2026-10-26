@@ -263,6 +263,44 @@ int main() {
     assert(cameraModeName(s) == nullptr);
   }
 
+  // Shutter over the direct link: stop while capturing, photo in a photo mode,
+  // otherwise start recording in the current video mode (also when unknown).
+  {
+    CameraStatus s;
+    assert(shutterCommand(s) == CMD_START_CAPTURE);
+    s.photo_sub = 0;
+    s.video_sub = SUB_MODE_NONE;
+    s.capture_state = 0;
+    assert(shutterCommand(s) == CMD_TAKE_PICTURE);
+    s.photo_sub = SUB_MODE_NONE;
+    s.video_sub = VIDEO_SUB_FREEFRAME;
+    assert(shutterCommand(s) == CMD_START_CAPTURE);
+    s.capture_state = 1;
+    assert(shutterCommand(s) == CMD_STOP_CAPTURE);
+    s.photo_sub = 2;  // interval photo running
+    assert(shutterCommand(s) == CMD_STOP_CAPTURE);
+  }
+
+  // A 200 to start/stop updates the recording state before 0x2010 arrives.
+  {
+    CameraStatus s;
+    applyCommandOk(CMD_START_CAPTURE, s);
+    assert(s.capture_state == 1 && s.capture_secs == 0);
+    s.capture_secs = 30;
+    applyCommandOk(CMD_STOP_CAPTURE, s);
+    assert(s.capture_state == 0 && s.capture_secs == 0);
+    applyCommandOk(CMD_TAKE_PICTURE, s);
+    assert(s.capture_state == 0);
+  }
+
+  // Power off: empty-body command 0x37 (experimental on the Ace Pro 2).
+  {
+    static const uint8_t want[] = {0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x37,
+                                   0x00, 0x02, 0x07, 0x00, 0x00, 0x80, 0x00, 0x00};
+    size_t n = buildCommand(buf, sizeof(buf), CMD_POWER_OFF, 7, nullptr, 0);
+    expect(buf, n, want, sizeof(want));
+  }
+
   puts("Insta360 control protocol: frames, SetOptions, status parsers and notifications byte-exact");
   return 0;
 }

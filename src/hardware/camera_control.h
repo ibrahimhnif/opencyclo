@@ -4,11 +4,12 @@
 #include <stdint.h>
 #include "camera_protocol.h"
 
-// Direct Insta360 camera control over BLE as a *central*: the ESP32 connects to
-// the camera's own control service (0000be80-.../be81/be82) and speaks the
-// reverse-engineered "OneDriver" protocol (see camera_protocol.h), which lets
-// us select arbitrary capture modes (FreeFrame, TimeShift, ...) that the
-// emulated GPS Remote in ble_camera_remote.cpp cannot reach.
+// Insta360 camera control over BLE as a *central*: the ESP32 scans for the
+// camera and connects to its own control service (0000be80-.../be81/be82),
+// speaking the reverse-engineered "OneDriver" protocol (see camera_protocol.h)
+// -- the same approach as the insta360-ace-control app. This is the only
+// camera path: OpenCyclo no longer emulates the "GPS Remote" peripheral, so
+// the camera never connects to us.
 //
 // Runs on the shared NimBLE dual-role stack, alongside the peripheral server
 // and the sensor clients (see ble_task.cpp / csc_sensors.cpp). All blocking
@@ -45,6 +46,15 @@ int cameraControlCurrentMode();
 // the camera's notifications. Returns false (and an all-unknown status) when
 // not connected. Safe to call from the UI task.
 bool cameraControlStatus(camera_proto::CameraStatus& out);
+
+// The Shutter button: stops a running capture, takes a photo in a photo mode,
+// otherwise starts recording (camera_proto::shutterCommand). False when not
+// connected and synced.
+bool cameraControlShutter();
+
+// Asks the camera to power off with command 0x37. EXPERIMENTAL: not verified
+// on the Ace Pro 2 (see camera_protocol.h CMD_POWER_OFF).
+bool cameraControlPowerOff();
 
 // Human-readable connection state for the camera widget header.
 const char* cameraControlStatusText();

@@ -311,6 +311,22 @@ const char* cameraModeName(const CameraStatus& status) {
   return nullptr;
 }
 
+uint16_t shutterCommand(const CameraStatus& status) {
+  if (status.capture_state > 0) return CMD_STOP_CAPTURE;
+  if (status.photo_sub >= 0 && status.photo_sub != SUB_MODE_NONE) return CMD_TAKE_PICTURE;
+  return CMD_START_CAPTURE;
+}
+
+void applyCommandOk(uint16_t cmd, CameraStatus& status) {
+  if (cmd == CMD_START_CAPTURE) {
+    status.capture_state = 1;
+    status.capture_secs = 0;
+  } else if (cmd == CMD_STOP_CAPTURE) {
+    status.capture_state = 0;
+    status.capture_secs = 0;
+  }
+}
+
 bool parseFrameLength(const uint8_t* data, size_t len, uint32_t& total) {
   if (len < 4) return false;
   total = uint32_t(data[0]) | (uint32_t(data[1]) << 8) | (uint32_t(data[2]) << 16) |

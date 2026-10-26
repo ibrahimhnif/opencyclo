@@ -1,15 +1,12 @@
 # Insta360 direct camera control
 
-OpenCyclo talks to an Insta360 Ace Pro 2 over two independent BLE channels:
+OpenCyclo scans for an Insta360 Ace Pro 2 and connects to the camera's own
+control service as a BLE central (`src/hardware/camera_control.cpp`) -- the
+same approach as the insta360-ace-control app. The camera never connects to
+OpenCyclo: the earlier emulated "GPS Remote" peripheral (and with it the
+screen-toggle and wake-beacon buttons) was removed.
 
-1. **Emulated "GPS Remote"** (`src/hardware/ble_camera_remote.cpp`) — the camera
-   connects to *us* and treats the device as its physical remote. Shutter,
-   screen toggle, power off and the wake beacon. Confirmed on real hardware.
-2. **Direct control** (`src/hardware/camera_control.cpp`) — *we* connect to the
-   camera's own control service as a BLE central and speak its protocol. This
-   selects capture modes the physical remote's Mode button cannot reach.
-
-This document covers channel 2. The protocol is a community reverse
+The protocol is a community reverse
 engineering of the official Android SDK (`com.arashivision.sdk:sdk-camera`),
 verified live against an Ace Pro 2.
 
@@ -22,11 +19,6 @@ control — no WiFi join, lower power. Both transports carry the *same* framing.
 | --- | --- | --- |
 | BLE | service `0000be80-0000-1000-8000-00805f9b34fb`, write `…be81`, notify `…be82` | What the firmware uses. |
 | WiFi | TCP `192.168.42.1:6666` | Camera AP; default password `88888888` on older models, per-device on newer ones (delivered over BLE). |
-
-The `be80` control service is a *different role* from the `ce80` service the
-firmware advertises as the GPS Remote: there the camera is the central, here we
-are. Both work at once — verified against a camera simultaneously connected to
-the emulated remote.
 
 ## Frame format
 
@@ -140,14 +132,18 @@ host-tested in `tests/test_camera_protocol.cpp`.
   `GetOptions` protobuf encoders and the mode table. No Arduino/NimBLE, unit
   tested on the host.
 - `src/hardware/camera_control.{h,cpp}` — the BLE central: pair (scan for
-  `be80`), connect, subscribe `be82`, SYNC + KEEPALIVE, ~2 s keepalive,
-  reconnect every 12 s, and `setCameraMode()`. Runs inside `bleTaskLoop()`; the
+  `be80` or a camera name), connect, subscribe `be82`, SYNC after the first
+  heartbeat, 1 s keepalive, reconnect to the saved camera every 12 s,
+  `setCameraMode()`, `cameraControlShutter()` and `cameraControlPowerOff()`. Runs inside `bleTaskLoop()`; the
   blocking connect happens in `tickCameraControl()`, never in a scan callback.
 - `src/hardware/ble_task.cpp` — calls `initCameraControl()` at setup,
   `tickCameraControl()` each loop, and feeds scan results to
   `cameraControlOnAdvertised()` (service UUID or camera name match).
 - `src/ui/engine/widget_registry.cpp` — the Camera widget's Options → Modes
-  page is the paged picker; Pair opens both channels.
+  page is the paged picker; Pair opens the scan; Shutter sends
+  `TAKE_PICTURE` (3) in a photo mode, otherwise `START_CAPTURE` (4) /
+  `STOP_CAPTURE` (5); Off sends `0x37` (experimental, unverified on the Ace
+  Pro 2).
 - `src/storage/settings.*` — `camera_mac` / `camera_addr_type` persist the
   paired camera.
 
@@ -163,8 +159,8 @@ python3 tests/run_ride_tests.py     # camera widget: dispatches + mode picker
 ```
 
 On hardware: the ESP32 connects to the camera as central (header reads "Camera
-connected"), and selecting a mode changes the camera's on-screen mode.
-Shutter/screen/wake still work through the GPS Remote channel.
+connected"), selecting a mode changes the camera's on-screen mode, and Shutter
+takes a photo or starts/stops recording.
 
 ## References
 

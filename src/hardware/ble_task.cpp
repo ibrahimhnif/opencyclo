@@ -1,7 +1,6 @@
 #include "ble_task.h"
 #include "ble_layout_sync.h"
 #include "ble_ota_handler.h"
-#include "ble_camera_remote.h"
 #include "camera_control.h"
 #include "core/telemetry_state.h"
 #include "storage/settings.h"
@@ -313,13 +312,6 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     abortBleOtaOnDisconnect();
     abortRouteTransfer();
     if (stopState.load() != 0) return;
-    // Direct-control pairing pauses advertising and drops the camera's remote
-    // link on purpose (camera_control.cpp); do not undo that here, or the
-    // camera re-attaches as a remote and never advertises its control service.
-    if (cameraControlIsPairing()) {
-      Serial.println("[BLE SERVER] Disconnect during camera pairing; advertising stays paused.");
-      return;
-    }
     Serial.println("[BLE SERVER] Mobile App disconnected. Restarting advertising...");
     NimBLEDevice::startAdvertising();
   }
@@ -360,7 +352,6 @@ void bleTaskLoop(void* pvParameters) {
   // Register OpenCyclo Communication & OTA Services
   initBleLayoutSyncService(pBLEServer);
   initBleOtaService(pBLEServer);
-  initBleCameraRemoteService(pBLEServer);
   initCameraControl();
 
   // Start BLE Peripheral Advertising
@@ -429,7 +420,6 @@ void bleTaskLoop(void* pvParameters) {
       lastPowerAttempt=millis();connectPower(g_settings.paired_power_mac,g_settings.paired_power_addr_type);
     }
     if(millis()-powerReceived>5000)currentPowerWatts=-1;
-    tickCameraPairing();
     tickCameraControl();
 
     if (g_ble_scanning) {

@@ -1,6 +1,5 @@
 #include "camera_control.h"
 #include "camera_protocol.h"
-#include "ble_camera_remote.h"
 #include "storage/settings.h"
 #include <NimBLEDevice.h>
 #include <mutex>
@@ -11,9 +10,7 @@
 
 namespace {
 
-// Camera's own control service -- distinct from the ce80 "GPS Remote" service
-// this firmware emulates in ble_camera_remote.cpp (there the camera is the
-// central; here we are).
+// Camera's own control service; OpenCyclo is the central.
 const NimBLEUUID CAM_SERVICE_UUID("0000be80-0000-1000-8000-00805f9b34fb");
 const NimBLEUUID CAM_WRITE_UUID("0000be81-0000-1000-8000-00805f9b34fb");
 const NimBLEUUID CAM_NOTIFY_UUID("0000be82-0000-1000-8000-00805f9b34fb");
@@ -184,6 +181,7 @@ void handleResponse(const camera_proto::ResponseHeader& header, const uint8_t* b
       camera_proto::parseCaptureStatusResponse(body, len, camStatus);
       break;
     default:
+      camera_proto::applyCommandOk(match->cmd, camStatus);
       break;
   }
 }
@@ -367,6 +365,23 @@ int cameraControlCurrentMode() {
   return currentMode;
 }
 
+bool cameraControlShutter() {
+  if (!cameraControlIsConnected() || !synced) return false;
+  uint16_t cmd;
+  {
+    std::lock_guard<std::mutex> lock(stateMtx);
+    cmd = camera_proto::shutterCommand(camStatus);
+  }
+  Serial.printf("[CAM] Shutter -> cmd %u\n", unsigned(cmd));
+  return sendRequest(cmd, nullptr, 0);
+}
+
+bool cameraControlPowerOff() {
+  if (!cameraControlIsConnected() || !synced) return false;
+  Serial.println("[CAM] Power off (experimental 0x37)");
+  return sendRequest(camera_proto::CMD_POWER_OFF, nullptr, 0);
+}
+
 bool cameraControlStatus(camera_proto::CameraStatus& out) {
   if (!cameraControlIsConnected()) {
     out = camera_proto::CameraStatus();
@@ -411,12 +426,7 @@ void tickCameraControl() {
     if (!pairPrepared) {
       pairPrepared = true;
       pairStartMs = millis();
-      // The camera stops advertising its own control service while it is linked
-      // to us as the GPS remote, so drop that link and pause our advertising --
-      // otherwise the camera reconnects to us instead of advertising be80.
-      NimBLEDevice::getAdvertising()->stop();
-      disconnectCameraRemotePeer();
-      Serial.println("[CAM] Paused advertising + dropped remote link for pairing.");
+      if (camClient && camClient->isConnected()) camClient->disconnect();
     }
     NimBLEScan* scan = NimBLEDevice::getScan();
     if (scan && !scan->isScanning()) {
@@ -429,9 +439,8 @@ void tickCameraControl() {
         std::lock_guard<std::mutex> lock(mtx);
         pairRequested = false;
       }
-      NimBLEDevice::getAdvertising()->start();
       setStatus("Not connected");
-      Serial.println("[CAM] Pairing timed out; advertising resumed.");
+      Serial.println("[CAM] Pairing timed out.");
     }
     return;
   }
@@ -439,8 +448,7 @@ void tickCameraControl() {
   if (havePending) {
     lastConnectAttemptMs = millis();
     pairPrepared = false;
-    bool ok = attemptConnect(mac, type);
-    NimBLEDevice::getAdvertising()->start();  // phone (and the remote) can find us again
+    const bool ok = attemptConnect(mac, type);
     if (ok) {
       snprintf(g_settings.camera_mac, sizeof(g_settings.camera_mac), "%s", mac);
       g_settings.camera_addr_type = type;

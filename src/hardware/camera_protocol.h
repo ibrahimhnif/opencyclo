@@ -32,6 +32,9 @@ constexpr uint16_t CMD_STOP_CAPTURE = 5;
 constexpr uint16_t CMD_SET_OPTIONS = 7;
 constexpr uint16_t CMD_GET_OPTIONS = 8;
 constexpr uint16_t CMD_GET_CAPTURE_STATUS = 15;
+// Power off. EXPERIMENTAL: the official enum names 0x37 GET_SYNC_CAPTURE_MODE
+// and the SDK documents closeCamera for X5+ only; not verified on the Ace Pro 2.
+constexpr uint16_t CMD_POWER_OFF = 0x37;
 constexpr uint16_t CMD_HEADER_TYPE_MESSAGE = 0x04;  // payload[0] of a command/response
 
 constexpr uint16_t RESP_OK = 200;
@@ -101,6 +104,15 @@ NotifyEffect applyNotification(uint16_t code, const uint8_t* body, size_t len, C
 
 // CAMERA_MODES label for the active sub-mode, or nullptr when unknown.
 const char* cameraModeName(const CameraStatus& status);
+
+// The one Shutter button over the direct link: STOP_CAPTURE while capturing,
+// TAKE_PICTURE in a photo mode, otherwise START_CAPTURE (records in the
+// camera's current video mode, also when the mode is not known yet).
+uint16_t shutterCommand(const CameraStatus& status);
+
+// Updates `status` when the camera answers 200 to `cmd`, so the UI reacts
+// before the 0x2010 capture-status notification arrives.
+void applyCommandOk(uint16_t cmd, CameraStatus& status);
 
 struct CameraModeEntry {
   const char* label;

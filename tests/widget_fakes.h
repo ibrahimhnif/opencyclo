@@ -40,23 +40,14 @@ inline float readBatteryVoltage(){return 4.0f;}
 inline void openPowerMenu(){}
 struct FakeSerial {void println(const char*){}};
 extern FakeSerial Serial;
-extern bool pairing,waking,subscribed,wakeReady;
-extern int cameraCalls[6];
-inline bool isCameraPairing(){return pairing;}
-inline bool isCameraWaking(){return waking;}
-inline bool isCameraSubscribed(){return subscribed;}
-inline bool hasCameraWakeBytes(){return wakeReady;}
-inline void startCameraPairing(){cameraCalls[0]++;}
-inline void triggerCameraShutter(){cameraCalls[1]++;}
-inline void triggerCameraMode(){cameraCalls[2]++;}
-inline void triggerCameraScreenToggle(){cameraCalls[3]++;}
-inline void wakeSleepingCamera(){cameraCalls[4]++;}
-inline void triggerCameraPowerOff(){cameraCalls[5]++;}
+extern bool pairing,subscribed;
 // Direct camera-control channel (hardware/camera_control.h), faked here.
 // Accessor statics (not externs) so every UI test TU can include this header
 // without needing to define the counters itself.
 inline int& cameraModeCalls(){static int calls=0;return calls;}
 inline int& cameraPairCalls(){static int calls=0;return calls;}
+inline int& cameraShutterCalls(){static int calls=0;return calls;}
+inline int& cameraPowerOffCalls(){static int calls=0;return calls;}
 inline int& lastCameraScope(){static int scope=-1;return scope;}
 inline int& lastCameraSubMode(){static int sub=-1;return sub;}
 inline bool setCameraMode(int scope,int subMode){++cameraModeCalls();lastCameraScope()=scope;lastCameraSubMode()=subMode;return true;}
@@ -65,6 +56,8 @@ inline bool cameraControlIsPairing(){return pairing;}
 inline void cameraControlPair(){++cameraPairCalls();}
 inline int cameraControlCurrentMode(){return lastCameraSubMode();}
 inline const char* cameraControlStatusText(){return "Not connected";}
+inline bool cameraControlShutter(){++cameraShutterCalls();return subscribed;}
+inline bool cameraControlPowerOff(){++cameraPowerOffCalls();return subscribed;}
 inline camera_proto::CameraStatus& fakeCameraStatus(){static camera_proto::CameraStatus status;return status;}
 inline bool cameraControlStatus(camera_proto::CameraStatus& out){
   out=subscribed?fakeCameraStatus():camera_proto::CameraStatus();return subscribed;}

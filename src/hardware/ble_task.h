@@ -5,9 +5,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// Shared with ble_camera_remote.cpp, which temporarily swaps the advertised
-// name to impersonate an Insta360 camera remote during pairing, then must
-// revert to exactly this identity afterward.
 #define OPENCYCLO_BLE_NAME "OpenCyclo-GPS"
 
 enum BleProfileType {
