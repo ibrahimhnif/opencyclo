@@ -9,12 +9,28 @@
 #include <stdlib.h>
 #include "navigation/navigation.h"
 #include "ui/frame_present.h"
+#include "ui/gesture.h"
 #include "ui/engine/resolved_theme.h"
 #include "storage/theme_config.h"
 
 static uint8_t currentPageIdx = 0;
 static uint8_t activePageDrawn = 255;
 static bool forceRedraw = true;
+
+static bool powerOverlay(bool touched, int16_t x, int16_t y, uint32_t now) { return updatePowerUi(touched, x, y, now); }
+static bool rideOverlay(bool touched, int16_t x, int16_t y, uint32_t) { return updateRideMenu(touched, x, y); }
+
+// Full-screen overlays, highest priority first. `cancel` drops a pending press
+// when a higher overlay takes the input; `delayMs` is that overlay's frame pace.
+struct Overlay {
+  bool (*update)(bool touched, int16_t x, int16_t y, uint32_t now);
+  void (*cancel)();
+  uint32_t delayMs;
+};
+static const Overlay kOverlays[] = {
+  {powerOverlay, nullptr, 50},
+  {rideOverlay, cancelRideMenuTouch, 10},
+};
 
 void startUiTask() {
   xTaskCreatePinnedToCore(
@@ -54,22 +70,25 @@ void uiTaskLoop(void* pvParameters) {
       continue;
     }
 
-    if (updatePowerUi(isTouched, x, y, now)) {
+    // Overlays get input first, in order. When one consumes it, every touch
+    // consumer below it is cancelled so a half-finished press can't fire later.
+    bool overlayConsumed = false;
+    for (size_t i = 0; i < sizeof(kOverlays) / sizeof(kOverlays[0]); i++) {
+      if (!kOverlays[i].update(isTouched, x, y, now)) continue;
       cancelSensorWidgetTouch();
       cancelNavigationTouch();
-      cancelRideMenuTouch();
+      for (size_t j = i + 1; j < sizeof(kOverlays) / sizeof(kOverlays[0]); j++) {
+        if (kOverlays[j].cancel) kOverlays[j].cancel();
+      }
       wasTouched = false;
       touchStartX = touchStartY = -1;
       forceRedraw = true;
-      vTaskDelay(pdMS_TO_TICKS(50));
-      continue;
+      vTaskDelay(pdMS_TO_TICKS(kOverlays[i].delayMs));
+      overlayConsumed = true;
+      break;
     }
+    if (overlayConsumed) continue;
 
-    if (updateRideMenu(isTouched,x,y)) {
-      cancelSensorWidgetTouch();
-      cancelNavigationTouch();wasTouched=false;touchStartX=touchStartY=-1;
-      forceRedraw=true;vTaskDelay(pdMS_TO_TICKS(10));continue;
-    }
     int sensorSwipe=0;
     bool sensorTouch=!navigationOpen() && g_ui_config.active_page_count>0 &&
       handleSensorPageStream(g_ui_config.pages[currentPageIdx],isTouched,x,y,sensorSwipe);
@@ -97,31 +116,27 @@ void uiTaskLoop(void* pvParameters) {
       // Touch released! Evaluate gesture (Swipe vs Single Tap)
       wasTouched = false;
 
-      if (now - lastTouchMs > 150 && touchStartX >= 0 && lastTouchX >= 0) {
+      if (now - lastTouchMs > ui::kGestureDebounceMs && touchStartX >= 0 && lastTouchX >= 0) {
         lastTouchMs = now;
-        int16_t deltaX = lastTouchX - touchStartX;
-        int16_t deltaY = lastTouchY - touchStartY;
-
         uint8_t totalPages = (g_ui_config.active_page_count > 0) ? g_ui_config.active_page_count : 1;
-
         // Map drags pan instead of changing dashboard pages.
-        // Gesture 1: SWIPE LEFT (Next Page)
-        if (deltaX < -35 && abs(deltaY) < 70) {
-          currentPageIdx = (currentPageIdx + 1) % totalPages;
-          Serial.printf("[UI GESTURE] Swiped Left -> Page %u/%u\n", currentPageIdx + 1, totalPages);
-          forceRedraw = true;
-        }
-        // Gesture 2: SWIPE RIGHT (Previous Page)
-        else if (deltaX > 35 && abs(deltaY) < 70) {
-          currentPageIdx = (currentPageIdx + totalPages - 1) % totalPages;
-          Serial.printf("[UI GESTURE] Swiped Right -> Page %u/%u\n", currentPageIdx + 1, totalPages);
-          forceRedraw = true;
-        }
-        // Gesture 3: SINGLE TAP / PRESS (Delegate to current page layout & widgets)
-        else if (abs(deltaX) < 20 && abs(deltaY) < 20) {
-          if (handlePageTouch(g_ui_config.pages[currentPageIdx], touchStartX, touchStartY)) {
+        switch (ui::classifyRelease(lastTouchX - touchStartX, lastTouchY - touchStartY)) {
+          case ui::Gesture::SwipeLeft:
+            currentPageIdx = (currentPageIdx + 1) % totalPages;
+            Serial.printf("[UI GESTURE] Swiped Left -> Page %u/%u\n", currentPageIdx + 1, totalPages);
             forceRedraw = true;
-          }
+            break;
+          case ui::Gesture::SwipeRight:
+            currentPageIdx = (currentPageIdx + totalPages - 1) % totalPages;
+            Serial.printf("[UI GESTURE] Swiped Right -> Page %u/%u\n", currentPageIdx + 1, totalPages);
+            forceRedraw = true;
+            break;
+          case ui::Gesture::Tap:
+            // Delegate to the current page layout & widgets.
+            if (handlePageTouch(g_ui_config.pages[currentPageIdx], touchStartX, touchStartY)) forceRedraw = true;
+            break;
+          default:
+            break;
         }
       }
 

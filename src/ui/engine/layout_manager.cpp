@@ -1,8 +1,7 @@
 #include "layout_manager.h"
 #include <stdio.h>
-#include "ui/ride_menu.h"
+#include "ui/actions.h"
 #include "ui/control_layout.h"
-#include "navigation/navigation.h"
 #include "ui/components/button.h"
 #include "ui/components/page_header.h"
 
@@ -37,16 +36,16 @@ void renderPage(const PageConfig& page,uint8_t pageIdx,uint8_t totalPages,const 
 }
 
 bool handlePageTouch(const PageConfig& page,int16_t x,int16_t y) {
-  if(ui::pageMap.contains(x,y)){openNavigation();return true;}
-  if(ui::pageRide.contains(x,y)){openRideMenu();return true;}
+  if(ui::pageMap.contains(x,y))return dispatchAction(ACT_OPEN_MAP).ok;
+  if(ui::pageRide.contains(x,y))return dispatchAction(ACT_OPEN_RIDE_MENU).ok;
   // The title and live status are informational, never invisible buttons.
   if(y<ui::headerHeight||y>=ui::statusY)return false;
   const auto& slots=getTemplateDefinition(page.template_id);
   if(slots.has_action_button){
     const auto& r=slots.action_button_rect;const int half=(r.w-8)/2;
     if(y>=r.y&&y<r.y+r.h){
-      if(x>=r.x&&x<r.x+half){openNavigation();return true;}
-      if(x>=r.x+half+8&&x<r.x+r.w){openRideMenu();return true;}
+      if(x>=r.x&&x<r.x+half)return dispatchAction(ACT_OPEN_MAP).ok;
+      if(x>=r.x+half+8&&x<r.x+r.w)return dispatchAction(ACT_OPEN_RIDE_MENU).ok;
     }
   }
   const uint8_t count=page.widget_count<slots.max_slots?page.widget_count:slots.max_slots;

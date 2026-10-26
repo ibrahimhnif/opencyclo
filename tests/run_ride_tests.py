@@ -44,7 +44,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     # Everything the ride menu links now that it draws with components and
     # sends ride commands through actions.cpp.
     RIDE_MENU_SOURCES=[str(root/"src/ui/ride_menu.cpp"),str(root/"src/ui/actions.cpp"),
-                       str(root/"tests/ui_action_stubs.cpp"),*UI_THEME_SOURCES,*COMPONENT_SOURCES]
+                       str(root/"tests/ui_action_stubs.cpp"),str(root/"tests/power_off_stub.cpp"),
+                       *UI_THEME_SOURCES,*COMPONENT_SOURCES]
     binary = work / "ride"
     subprocess.run([
         "c++", "-std=c++11", "-Wall", "-Wextra", "-Werror", "-fsanitize=undefined",
@@ -152,6 +153,7 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"src/ui/engine/widget_registry.cpp"),str(root/"src/ui/engine/widget_catalog.cpp"),
         str(root/"src/ui/engine/widget_model.cpp"),str(root/"src/ui/engine/theme.cpp"),
         str(root/"src/ui/engine/template_engine.cpp"),str(root/"src/ui/engine/layout_manager.cpp"),
+        str(root/"src/ui/actions.cpp"),str(root/"tests/power_off_stub.cpp"),str(root/"src/core/telemetry_state.cpp"),
         str(root/"src/hardware/camera_protocol.cpp"),
         str(root/"src/ui/engine/resolved_theme.cpp"),*COMPONENT_SOURCES,
         str(root/"tests/test_page_ui.cpp"),"-o",str(pages)],check=True)
