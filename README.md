@@ -31,10 +31,11 @@ framework, with a Flutter companion app and a 3D-printable enclosure.
   generator in `tools/`), free ride and GPX route navigation with turn cues,
   off-route and arrival guidance, GPS direction marker, and road width scaled by
   class and zoom.
-- **Camera remote** — Insta360 control over BLE: the emulated "GPS Remote"
-  service (pair, shutter, screen, wake, power off) plus direct control of the
-  camera's own service for selecting any capture mode from a paged picker
-  (Video, FreeFrame, TimeShift, Pure, ...). See
+- **Camera remote** — Insta360 control over BLE: OpenCyclo scans for the
+  camera and connects to its own control service — pick the camera from a scan
+  list, pick a capture mode (each with its own icon: Video, FreeFrame,
+  TimeShift, Pure, ...), then Record/Stop with a live REC timer or take a photo
+  and see the saved file; battery, free storage and power off. See
   [Insta360 camera control](docs/insta360-camera-control.md).
 - **Power** — BOOT button screen toggle, power-off/deep-sleep/restart menu,
   battery voltage and estimate, charging screen with an optional external USB

@@ -5,8 +5,7 @@
 Canvas canvas,tft;
 FakeSerial Serial;
 Settings g_settings;
-bool g_ble_scanning=false,pairing=false,waking=false,subscribed=false,wakeReady=false;
-int cameraCalls[6]{};
+bool g_ble_scanning=false,pairing=false,subscribed=false;
 bool label(const char* text){for(const auto& s:canvas.labels)if(s==text)return true;return false;}
 int main(int argc,char**){
   const TemplateSlot slot{{4,44,232,258},SIZE_FULL};int swipe=0;

@@ -32,6 +32,9 @@ constexpr uint16_t CMD_STOP_CAPTURE = 5;
 constexpr uint16_t CMD_SET_OPTIONS = 7;
 constexpr uint16_t CMD_GET_OPTIONS = 8;
 constexpr uint16_t CMD_GET_CAPTURE_STATUS = 15;
+// Power off. EXPERIMENTAL: the official enum names 0x37 GET_SYNC_CAPTURE_MODE
+// and the SDK documents closeCamera for X5+ only; not verified on the Ace Pro 2.
+constexpr uint16_t CMD_POWER_OFF = 0x37;
 constexpr uint16_t CMD_HEADER_TYPE_MESSAGE = 0x04;  // payload[0] of a command/response
 
 constexpr uint16_t RESP_OK = 200;
@@ -72,6 +75,19 @@ constexpr uint16_t NOTIFY_FIRST = 0x2000;
 // PhotoSubMode / VideoSubMode value meaning "not in this scope".
 constexpr int SUB_MODE_NONE = 100;
 
+// A camera found by a scan (camera_control.h), listed for the user to pick.
+constexpr size_t CAMERA_MAX_CANDIDATES = 6;
+struct CameraCandidate {
+  char name[24];
+  char mac[18];
+  uint8_t addr_type;
+  int8_t rssi;
+};
+
+enum PhotoState : uint8_t { PHOTO_IDLE = 0, PHOTO_PENDING, PHOTO_SAVED, PHOTO_FAILED };
+// A start/stop the camera has not answered yet.
+enum CaptureRequest : uint8_t { CAPTURE_NONE = 0, CAPTURE_STARTING, CAPTURE_STOPPING };
+
 // What the camera last told us. -1 = not reported yet this connection.
 struct CameraStatus {
   int8_t battery_pct = -1;
@@ -83,6 +99,9 @@ struct CameraStatus {
   uint32_t capture_secs = 0;
   int16_t photo_sub = -1;      // SUB_MODE_NONE when in a video mode
   int16_t video_sub = -1;
+  CaptureRequest capture_request = CAPTURE_NONE;
+  PhotoState photo_state = PHOTO_IDLE;
+  char last_file[40] = {};            // basename of the last photo/video saved
 };
 
 // Fills battery/storage/sub-modes from a GetOptions (cmd 8) response body.
@@ -102,10 +121,26 @@ NotifyEffect applyNotification(uint16_t code, const uint8_t* body, size_t len, C
 // CAMERA_MODES label for the active sub-mode, or nullptr when unknown.
 const char* cameraModeName(const CameraStatus& status);
 
+// Command lifecycle for the capture screen. Sent: a photo goes PENDING,
+// start/stop go STARTING/STOPPING. Ok (200): start/stop update the recording
+// state before 0x2010
+// arrives, and TakePictureResponse / StopCaptureResp name the saved file.
+// Failed (error code or timeout): a pending photo goes FAILED, a pending
+// start/stop is dropped.
+void applyCommandSent(uint16_t cmd, CameraStatus& status);
+void applyCommandOk(uint16_t cmd, const uint8_t* body, size_t len, CameraStatus& status);
+void applyCommandFailed(uint16_t cmd, CameraStatus& status);
+
+// Seconds recorded so far: what the camera last reported plus whole seconds
+// since then (`reportMs` = millis() when capture_secs was last set), so the
+// timer ticks every second between the camera's own 0x2010 reports.
+uint32_t liveCaptureSecs(const CameraStatus& status, uint32_t reportMs, uint32_t nowMs);
+
 struct CameraModeEntry {
-  const char* label;
-  uint8_t scope;    // SCOPE_VIDEO / SCOPE_PHOTO
-  uint8_t subMode;  // VideoSubMode / PhotoSubMode value
+  const char* label;        // full name (capture page title)
+  const char* short_label;  // <= 6 chars, unique (mode picker chip)
+  uint8_t scope;            // SCOPE_VIDEO / SCOPE_PHOTO
+  uint8_t subMode;          // VideoSubMode / PhotoSubMode value
 };
 extern const CameraModeEntry CAMERA_MODES[];
 extern const size_t CAMERA_MODE_COUNT;

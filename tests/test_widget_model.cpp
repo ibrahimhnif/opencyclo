@@ -78,7 +78,7 @@ int main() {
   modelCameraIndicator(54, true, 0, 13335003136ULL, 0, 0, "Video", cam);
   assert(cam.has_battery && !strcmp(cam.battery, "54%") && cam.battery_fill == 54 && cam.charging);
   assert(cam.battery_tone == TONE_SUCCESS);
-  assert(!strcmp(cam.storage, "SD 12.4G") && cam.storage_tone == TONE_MUTED);
+  assert(!strcmp(cam.storage, "12.4G free") && cam.storage_tone == TONE_MUTED);
   assert(!strcmp(cam.capture, "Video") && cam.capture_tone == TONE_MUTED);
 
   // Battery thresholds: <30 warning, <=15 danger; clamps to 100.
@@ -92,9 +92,9 @@ int main() {
   // Storage: large cards drop the decimal, under 1 GiB shows MiB in warning,
   // card faults are danger.
   modelCameraIndicator(-1, false, 0, 127831900160ULL, -1, 0, nullptr, cam);
-  assert(!strcmp(cam.storage, "SD 119G"));
+  assert(!strcmp(cam.storage, "119G free"));
   modelCameraIndicator(-1, false, 0, 850ULL * 1024 * 1024, -1, 0, nullptr, cam);
-  assert(!strcmp(cam.storage, "SD 850M") && cam.storage_tone == TONE_WARNING);
+  assert(!strcmp(cam.storage, "850M free") && cam.storage_tone == TONE_WARNING);
   modelCameraIndicator(-1, false, 1, 0, -1, 0, nullptr, cam);
   assert(!strcmp(cam.storage, "No SD") && cam.storage_tone == TONE_DANGER);
   modelCameraIndicator(-1, false, 2, 0, -1, 0, nullptr, cam);

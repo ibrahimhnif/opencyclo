@@ -30,10 +30,8 @@ struct Settings {
   // advertise as RANDOM. Defaults to PUBLIC for older saved addresses.
   uint8_t paired_hr_addr_type;
 
-  // Insta360 wake-a-sleeping-camera beacon: bytes 14-19 of the reference
-  // protocol's 26-byte manufacturer-data payload are unique to one physical
-  // camera unit (read off its own Settings -> Camera Info screen) -- see
-  // ble_camera_remote.cpp. All-zero means "not set yet."
+  // Unused since the emulated Insta360 "GPS Remote" (and its wake beacon) was
+  // removed; kept so the stored settings layout is unchanged.
   uint8_t insta360_wake_bytes[6];
 
   // Insta360 camera we control directly as a BLE central (see

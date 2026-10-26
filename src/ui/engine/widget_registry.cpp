@@ -15,9 +15,7 @@
 #include "hardware/battery.h"
 #include "hardware/ble_task.h"
 #include "hardware/ble_layout_sync.h"
-#include "hardware/ble_camera_remote.h"
-#include "hardware/camera_control.h"
-#include "hardware/camera_protocol.h"
+#include "ui/camera_widget.h"
 #include <stdio.h>
 
 // Every color comes from the active resolved theme, so a browser-pushed theme
@@ -446,149 +444,12 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
   return false;
 }
 
-// 16. CAMERA REMOTE
-//
-// Two channels to an Insta360 Ace Pro 2:
-// - The emulated "GPS Remote" accessory (ble_camera_remote.cpp, confirmed on
-//   real hardware): Shutter (photo in photo mode, record start/stop toggle in
-//   video mode), Screen Toggle (short press), Power Off (3s hold), and Wake
-//   Camera (beacons the camera-specific bytes set via a dedicated BLE
-//   characteristic -- see ble_camera_remote.h -- so a sleeping/off camera
-//   notices and reconnects; the Wake button is greyed if no wake bytes are
-//   set yet).
-// - The direct BLE camera-control channel (hardware/camera_control.cpp), which
-//   speaks the camera's own "OneDriver" protocol and can select arbitrary
-//   capture modes -- including FreeFrame, which the GPS Remote's physical Mode
-//   button cannot reach. That is the "Modes" picker. Pair starts that pairing
-//   (and deliberately does NOT open the GPS-Remote pairing window, or the
-//   camera would re-attach as a remote and stop advertising its control
-//   service).
-//
-// Row geometry is shared between render and touch, same discipline as the
-// BLE Manager / Settings List widgets above, so drawn buttons and tappable
-// bands can't drift apart.
-// Pages: Capture (Pair/Shutter/Options) -> Options (Back + Modes/Screen/Wake/
-// Off) -> Modes (Back/Next + a paged 4-up mode list).
-static int cameraPage=0;      // 0 = capture, 1 = options, 2 = mode picker
-static int cameraModePage=0;
-static int cameraSelected=-1;
-static void cameraButton(const Rect& b,ui::HitRect r,ui::Icon icon,const char* text,uint16_t bg,uint16_t fg=TFT_WHITE) {
-  r.x+=b.x;r.y+=b.y;
-  canvas.fillRoundRect(r.x,r.y,r.w,r.h,8,bg);
-  ui::drawIcon(canvas,icon,r.x+8,r.y+12,fg);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(fg,bg);
-  canvas.drawString(text,r.x+38,r.y+15);
-}
-// What the camera reported over the direct link: a battery glyph + percent
-// (top right) and free storage + recording timer / mode (bottom row, capture
-// page). Hidden until the camera has answered, so nothing stale is shown.
-static uint16_t cameraTone(wmodel::Tone tone) {
-  return ui::activeTheme().toneColor(tone,uitheme::STYLE_TEXT_MUTED);
-}
-static void drawCameraBattery(const Rect& b,const wmodel::CameraIndicatorModel& m) {
-  const int x=b.x+b.w-84,y=b.y+10;
-  const uint16_t level=m.charging?tok(uitheme::TOK_ACCENT):cameraTone(m.battery_tone);
-  canvas.fillRoundRect(x,y,24,12,2,tok(uitheme::TOK_LABEL));
-  canvas.fillRect(x+2,y+2,20,8,tok(uitheme::TOK_BG));
-  canvas.fillRect(x+24,y+3,3,6,tok(uitheme::TOK_LABEL));
-  const int fill=(20*m.battery_fill+50)/100;
-  if(fill>0)canvas.fillRect(x+2,y+2,fill,8,level);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(level,tok(uitheme::TOK_BG));
-  canvas.drawString(m.battery,x+32,b.y+8);
-}
-static bool drawCameraStatusRow(const Rect& b,const wmodel::CameraIndicatorModel& m) {
-  if(!m.storage[0]&&!m.capture[0])return false;
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  if(m.storage[0]){
-    canvas.setTextColor(cameraTone(m.storage_tone),tok(uitheme::TOK_BG));
-    canvas.drawString(m.storage,b.x+8,b.y+226);
-  }
-  if(m.capture[0]){
-    canvas.setTextColor(cameraTone(m.capture_tone),tok(uitheme::TOK_BG));
-    canvas.drawString(m.capture,b.x+120,b.y+226);
-  }
-  return true;
-}
+// 16. CAMERA -- drawn by ui/camera_widget.cpp (Scan -> Modes -> Capture).
 static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,bool force) {
   (void)state;(void)force;
-  canvas.fillRect(b.x,b.y,b.w,b.h,tok(uitheme::TOK_BG));canvas.setTextPadding(0);
-  const bool pairing=isCameraPairing()||cameraControlIsPairing(),waking=isCameraWaking();
-  const bool connected=isCameraSubscribed()||cameraControlIsConnected();
-  camera_proto::CameraStatus cam;
-  cameraControlStatus(cam);
-  wmodel::CameraIndicatorModel indicator;
-  wmodel::modelCameraIndicator(cam.battery_pct,cam.charging,cam.card_state,cam.free_bytes,
-                               cam.capture_state,cam.capture_secs,camera_proto::cameraModeName(cam),indicator);
-  if(indicator.has_battery)drawCameraBattery(b,indicator);
-  canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(pairing||waking?tok(uitheme::TOK_WARNING):connected?tok(uitheme::TOK_SUCCESS):tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
-  canvas.drawString(pairing?(cameraControlIsPairing()?"Camera pairing":"Pairing (30s)"):waking?"Waking (10s)":
-    connected?"Connected":"Not connected",b.x+8,b.y+8);
-  if(cameraPage==0) {
-    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Search,pairing?"Pairing...":"Pair",tok(uitheme::TOK_PANEL));
-    cameraButton(b,ui::captureRect(1,b.w),ui::Icon::Camera,"Shutter",tok(uitheme::TOK_ACCENT),TFT_BLACK);
-    cameraButton(b,ui::captureRect(2,b.w),ui::Icon::List,"Options",tok(uitheme::TOK_PANEL));
-  } else if(cameraPage==1) {
-    cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Back,"Back",tok(uitheme::TOK_PANEL));
-    const char* labels[]={"Modes","Screen","Wake","Off"};
-    const ui::Icon icons[]={ui::Icon::Mode,ui::Icon::Screen,ui::Icon::Wake,ui::Icon::Power};
-    for(int i=0;i<4;i++){
-      auto r=ui::optionRect(i,b.w);
-      const uint16_t fg=i==3?tok(uitheme::TOK_WARNING):i==2&&!hasCameraWakeBytes()?tok(uitheme::TOK_LABEL):TFT_WHITE;
-      cameraButton(b,r,icons[i],labels[i],tok(uitheme::TOK_PANEL),fg);
-    }
-  } else {
-    cameraButton(b,ui::modeNav(0,b.w),ui::Icon::Back,"Back",tok(uitheme::TOK_PANEL));
-    cameraButton(b,ui::modeNav(1,b.w),ui::Icon::List,"Next",tok(uitheme::TOK_PANEL));
-    for(int i=0;i<4;i++){
-      const int index=cameraModePage*4+i;
-      if(index>=(int)camera_proto::CAMERA_MODE_COUNT)break;
-      const bool sel=index==cameraSelected;
-      cameraButton(b,ui::optionRect(i,b.w),ui::Icon::Mode,camera_proto::CAMERA_MODES[index].label,
-                   sel?tok(uitheme::TOK_ACCENT):tok(uitheme::TOK_PANEL),sel?TFT_BLACK:TFT_WHITE);
-    }
-  }
-  char hint[40];
-  if(cameraPage==2){
-    int last=cameraModePage*4+4;if(last>(int)camera_proto::CAMERA_MODE_COUNT)last=(int)camera_proto::CAMERA_MODE_COUNT;
-    snprintf(hint,sizeof(hint),"Modes %d-%d of %d",cameraModePage*4+1,last,(int)camera_proto::CAMERA_MODE_COUNT);
-  } else snprintf(hint,sizeof(hint),cameraPage==0?"Shutter follows mode":"Camera controls");
-  if(cameraPage==0&&drawCameraStatusRow(b,indicator))return;
-  canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(tok(uitheme::TOK_LABEL),tok(uitheme::TOK_BG));
-  canvas.drawString(hint,b.x+8,b.y+226);
+  renderCameraWidget(b);
 }
-static bool touchWidgetCameraRemote(const Rect& b,int16_t x,int16_t y) {
-  x-=b.x;y-=b.y;
-  if(cameraPage==0){
-    if(ui::captureRect(0,b.w).contains(x,y)){cameraControlPair();return true;}
-    if(ui::captureRect(1,b.w).contains(x,y)){triggerCameraShutter();return true;}
-    if(ui::captureRect(2,b.w).contains(x,y)){cameraPage=1;return true;}
-  } else if(cameraPage==1){
-    if(ui::captureRect(0,b.w).contains(x,y)){cameraPage=0;return true;}
-    for(int i=0;i<4;i++)if(ui::optionRect(i,b.w).contains(x,y)){
-      if(i==0)cameraPage=2;
-      else if(i==1)triggerCameraScreenToggle();
-      else if(i==2)wakeSleepingCamera();
-      else triggerCameraPowerOff();
-      return true;
-    }
-  } else {
-    if(ui::modeNav(0,b.w).contains(x,y)){cameraPage=1;return true;}
-    if(ui::modeNav(1,b.w).contains(x,y)){
-      const int pages=((int)camera_proto::CAMERA_MODE_COUNT+3)/4;
-      cameraModePage=(cameraModePage+1)%pages;return true;
-    }
-    for(int i=0;i<4;i++)if(ui::optionRect(i,b.w).contains(x,y)){
-      const int index=cameraModePage*4+i;
-      if(index<(int)camera_proto::CAMERA_MODE_COUNT){
-        cameraSelected=index;
-        setCameraMode(camera_proto::CAMERA_MODES[index].scope,camera_proto::CAMERA_MODES[index].subMode);
-      }
-      return true;
-    }
-  }
-  return false;
-}
+static bool touchWidgetCameraRemote(const Rect& b,int16_t x,int16_t y) { return touchCameraWidget(b,x,y); }
 
 static const WidgetDescriptor s_descriptors[WIDGET_TYPE_COUNT] = {
   {WIDGET_NONE,            nullptr,              nullptr},

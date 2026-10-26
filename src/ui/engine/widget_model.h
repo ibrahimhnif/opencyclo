@@ -83,11 +83,13 @@ struct CameraIndicatorModel {
   Tone battery_tone;
   uint8_t battery_fill;  // 0..100, for the battery glyph
   bool charging;
-  char storage[12];      // "SD 12.4G" / "No SD" / "" when unknown
+  char storage[16];      // "12.4G free" / "No SD" / "" when unknown
   Tone storage_tone;
   char capture[16];      // "REC 1:05", else the mode name, else ""
   Tone capture_tone;
 };
+// "1:05" under an hour, "1:02:05" after.
+void formatDuration(uint32_t secs, char* out, size_t n);
 void modelCameraIndicator(int8_t batteryPct, bool charging, int8_t cardState, uint64_t freeBytes,
                           int8_t captureState, uint32_t captureSecs, const char* modeName,
                           CameraIndicatorModel& out);

@@ -45,9 +45,8 @@ void resetLayoutToDefaults() {
   g_ui_config.pages[3].widget_count = 1;
   g_ui_config.pages[3].widgets[0] = WIDGET_SETTINGS_LIST;
 
-  // Page 4: Camera (Full Container) -- Insta360 Ace Pro 2 remote trigger.
-  // Best-effort: verified against the older X3/RS protocol only, not this
-  // camera specifically. See ble_camera_remote.cpp.
+  // Page 4: Camera (Full Container) -- Insta360 Ace Pro 2 control over the
+  // camera's own BLE service. See hardware/camera_control.cpp.
   snprintf(g_ui_config.pages[4].title, sizeof(g_ui_config.pages[4].title), "camera");
   g_ui_config.pages[4].template_id = TEMPLATE_FULL_CONTAINER;
   g_ui_config.pages[4].widget_count = 1;

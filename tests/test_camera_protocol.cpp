@@ -263,6 +263,79 @@ int main() {
     assert(cameraModeName(s) == nullptr);
   }
 
+  // Command lifecycle: what the capture screen shows while a command is out,
+  // after the camera answers 200, and after an error/timeout.
+  {
+    CameraStatus s;
+    assert(s.photo_state == PHOTO_IDLE && s.capture_request == CAPTURE_NONE && s.last_file[0] == '\0');
+
+    // Photo: pending, then saved with the file name from TakePictureResponse
+    // (insta360-ace-control docs/ble-protocol.md 6.3).
+    applyCommandSent(CMD_TAKE_PICTURE, s);
+    assert(s.photo_state == PHOTO_PENDING);
+    static const char kImg[] = "/DCIM/Camera01/IMG_20261026_110241_254.jpg";
+    uint8_t photo[64];
+    photo[0] = 0x0a; photo[1] = uint8_t(2 + sizeof(kImg) - 1);
+    photo[2] = 0x0a; photo[3] = uint8_t(sizeof(kImg) - 1);
+    memcpy(photo + 4, kImg, sizeof(kImg) - 1);
+    applyCommandOk(CMD_TAKE_PICTURE, photo, 4 + sizeof(kImg) - 1, s);
+    assert(s.photo_state == PHOTO_SAVED && !strcmp(s.last_file, "IMG_20261026_110241_254.jpg"));
+    applyCommandSent(CMD_TAKE_PICTURE, s);
+    applyCommandFailed(CMD_TAKE_PICTURE, s);
+    assert(s.photo_state == PHOTO_FAILED);
+
+    // Video: start/stop show as in-flight at once, then the camera's answer
+    // sets recording and names the saved file.
+    applyCommandSent(CMD_START_CAPTURE, s);
+    assert(s.capture_request == CAPTURE_STARTING);
+    applyCommandOk(CMD_START_CAPTURE, nullptr, 0, s);
+    assert(s.capture_state == 1 && s.capture_secs == 0 && s.capture_request == CAPTURE_NONE);
+    assert(s.last_file[0] == '\0');
+    applyCommandSent(CMD_STOP_CAPTURE, s);
+    assert(s.capture_request == CAPTURE_STOPPING);
+    static const char kVid[] = "/DCIM/Camera01/VID_20261026_110301_255.mp4";
+    uint8_t video[64];
+    video[0] = 0x0a; video[1] = uint8_t(2 + sizeof(kVid) - 1);
+    video[2] = 0x0a; video[3] = uint8_t(sizeof(kVid) - 1);
+    memcpy(video + 4, kVid, sizeof(kVid) - 1);
+    applyCommandOk(CMD_STOP_CAPTURE, video, 4 + sizeof(kVid) - 1, s);
+    assert(s.capture_state == 0 && s.capture_secs == 0 && s.capture_request == CAPTURE_NONE);
+    assert(!strcmp(s.last_file, "VID_20261026_110301_255.mp4"));
+
+    // A failed start/stop clears the in-flight marker and keeps the state.
+    applyCommandSent(CMD_START_CAPTURE, s);
+    applyCommandFailed(CMD_START_CAPTURE, s);
+    assert(s.capture_request == CAPTURE_NONE && s.capture_state == 0);
+
+    // A stop with no body still stops; the old file name is kept.
+    s.capture_state = 1;
+    applyCommandOk(CMD_STOP_CAPTURE, nullptr, 0, s);
+    assert(s.capture_state == 0 && !strcmp(s.last_file, "VID_20261026_110301_255.mp4"));
+  }
+
+  // The recording timer keeps counting between camera reports: seconds last
+  // reported + whole seconds since that report; frozen when not recording.
+  {
+    CameraStatus s;
+    s.capture_state = 1;
+    s.capture_secs = 15;
+    assert(liveCaptureSecs(s, 10000, 10000) == 15);
+    assert(liveCaptureSecs(s, 10000, 10999) == 15);
+    assert(liveCaptureSecs(s, 10000, 12000) == 17);
+    assert(liveCaptureSecs(s, 0xfffffc18u, 1000) == 17);  // millis() wrap
+    s.capture_state = 0;
+    assert(liveCaptureSecs(s, 10000, 60000) == 15);
+  }
+
+
+  // Power off: empty-body command 0x37 (experimental on the Ace Pro 2).
+  {
+    static const uint8_t want[] = {0x10, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x37,
+                                   0x00, 0x02, 0x07, 0x00, 0x00, 0x80, 0x00, 0x00};
+    size_t n = buildCommand(buf, sizeof(buf), CMD_POWER_OFF, 7, nullptr, 0);
+    expect(buf, n, want, sizeof(want));
+  }
+
   puts("Insta360 control protocol: frames, SetOptions, status parsers and notifications byte-exact");
   return 0;
 }

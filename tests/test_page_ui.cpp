@@ -3,8 +3,8 @@
 #include "ui/control_layout.h"
 #include <cassert>
 Canvas canvas,tft;FakeSerial Serial;Settings g_settings;uint32_t fakeMillis=1;
-bool g_ble_scanning=false,pairing=false,waking=false,subscribed=true,wakeReady=true;
-int cameraCalls[6]{},mapOpens=0,rideOpens=0;
+bool g_ble_scanning=false,pairing=false,subscribed=true;
+int mapOpens=0,rideOpens=0;
 void openNavigation(){mapOpens++;}void openRideMenu(){rideOpens++;}
 int main(int argc,char**){
   PageConfig pages[]={
