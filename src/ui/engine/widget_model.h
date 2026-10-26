@@ -43,6 +43,22 @@ enum SpeedSourceHint : uint8_t {
   SPEED_HINT_BLE,
 };
 
+enum RideStateHint : uint8_t {
+  RIDE_HINT_IDLE = 0,
+  RIDE_HINT_ACTIVE,
+  RIDE_HINT_PAUSED,
+};
+
+// Dashboard bottom status line.
+struct StatusModel {
+  char gps[12];
+  Tone gps_tone;
+  char ride[8];
+  Tone ride_tone;
+  char battery[8];
+  char page[8];
+};
+
 void modelSpeed(float displayKmh, bool imperial, SpeedSourceHint src, HeroModel& out);
 void modelDistance(float tripKm, bool imperial, TileModel& out);
 void modelRideTime(uint32_t rideTimeS, TileModel& out);
@@ -50,6 +66,10 @@ void modelRideTime(uint32_t rideTimeS, TileModel& out);
 void modelCadence(int16_t rpm, TileModel& out);
 void modelHeartRate(int16_t bpm, TileModel& out);
 void modelPower(int16_t watts, TileModel& out);
+
+// fixQuality 1 = weak fix; satellites clamp to 99, battery to 100%.
+void modelStatus(bool fix, uint8_t fixQuality, uint8_t sats, RideStateHint ride,
+                 uint8_t batteryPct, uint8_t pageIdx, uint8_t totalPages, StatusModel& out);
 
 }  // namespace wmodel
 

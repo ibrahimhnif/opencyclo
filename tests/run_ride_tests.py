@@ -27,6 +27,9 @@ def check_golden(name, binary, args):
     golden_checked.append(name)
 
 root = Path(__file__).resolve().parents[1]
+# Theme resolution and view models every component-drawing build links.
+UI_THEME_SOURCES = [str(root/"src/ui/engine/theme.cpp"), str(root/"src/ui/engine/resolved_theme.cpp"),
+                    str(root/"src/ui/engine/widget_model.cpp")]
 with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     work = Path(temp)
     for header in ["Arduino.h", "freertos/FreeRTOS.h", "freertos/semphr.h", "hardware/display.h",
@@ -51,6 +54,14 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         str(root/"tests/test_resolved_theme.cpp"),"-o",str(resolved),
     ],check=True)
     subprocess.run([str(resolved)],check=True)
+    components=work/"components"
+    subprocess.run([
+        "c++","-std=c++11","-Wall","-Wextra","-Werror",
+        f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
+        *UI_THEME_SOURCES, *[str(p) for p in sorted((root/"src/ui/components").glob("*.cpp"))],
+        str(root/"tests/test_components.cpp"),"-o",str(components),
+    ],check=True)
+    subprocess.run([str(components)],check=True)
     preview=work/"preview"
     subprocess.run([
         "c++", "-std=c++11", f"-I{work}", f"-I{root}/tests", f"-I{root}/src",

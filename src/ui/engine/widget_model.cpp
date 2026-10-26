@@ -74,4 +74,19 @@ void modelPower(int16_t watts, TileModel& out) {
   copyLabel(out, "power", buf, TONE_WARNING);
 }
 
+void modelStatus(bool fix, uint8_t fixQuality, uint8_t sats, RideStateHint ride,
+                 uint8_t batteryPct, uint8_t pageIdx, uint8_t totalPages, StatusModel& out) {
+  if (fix) {
+    snprintf(out.gps, sizeof(out.gps), "GPS %u", unsigned(sats > 99 ? 99 : sats));
+  } else {
+    snprintf(out.gps, sizeof(out.gps), "%s", fixQuality == 1 ? "GPS weak" : "GPS --");
+  }
+  out.gps_tone = fix ? TONE_SUCCESS : TONE_WARNING;
+  snprintf(out.ride, sizeof(out.ride), "%s",
+           ride == RIDE_HINT_ACTIVE ? "REC" : ride == RIDE_HINT_PAUSED ? "PAUSE" : "IDLE");
+  out.ride_tone = ride == RIDE_HINT_ACTIVE ? TONE_SUCCESS : ride == RIDE_HINT_PAUSED ? TONE_WARNING : TONE_MUTED;
+  snprintf(out.battery, sizeof(out.battery), "%u%%", unsigned(batteryPct > 100 ? 100 : batteryPct));
+  snprintf(out.page, sizeof(out.page), "%u/%u", unsigned(pageIdx + 1), unsigned(totalPages));
+}
+
 }  // namespace wmodel
