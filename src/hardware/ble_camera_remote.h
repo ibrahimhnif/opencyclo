@@ -31,6 +31,10 @@ bool isCameraWaking();
 // subscribed to receive commands.
 bool isCameraSubscribed();
 
+// Drops the camera's link to us as the GPS remote so it re-advertises its own
+// control service (be80) for direct-control pairing (camera_control.cpp).
+void disconnectCameraRemotePeer();
+
 // Sends the verified shutter command: takes a photo in photo mode, toggles
 // record start/stop in video mode -- this is the camera's own single
 // physical shutter button, not two separate commands. See

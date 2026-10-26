@@ -2,6 +2,7 @@
 #include "ble_layout_sync.h"
 #include "ble_ota_handler.h"
 #include "ble_camera_remote.h"
+#include "camera_control.h"
 #include "core/telemetry_state.h"
 #include "storage/settings.h"
 #include <NimBLEDevice.h>
@@ -10,6 +11,7 @@
 #include "csc_sensors.h"
 #include "sensor_catalog.h"
 #include <mutex>
+#include <string.h>
 #include <algorithm>
 
 static std::atomic<int> stopState{0};
@@ -279,6 +281,19 @@ static void processSensorAction(){
 }
 class AdvertisedDeviceCallbacks: public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* device) override {
+    // Insta360 camera control service (see camera_control.cpp). Latched only
+    // while a pairing window is open, so a camera merely passing by isn't
+    // hijacked. Some cameras hide the service UUID in the scan response, so
+    // fall back to a name match.
+    static const NimBLEUUID cameraService("0000be80-0000-1000-8000-00805f9b34fb");
+    const char* cameraName = device->getName().c_str();
+    const bool cameraByName = strncmp(cameraName, "Ace", 3) == 0 || strncmp(cameraName, "Insta360", 8) == 0 ||
+                              strncmp(cameraName, "ONE ", 4) == 0 || strncmp(cameraName, "X4", 2) == 0 ||
+                              strncmp(cameraName, "X5", 2) == 0 || strncmp(cameraName, "GO ", 3) == 0;
+    if (device->isAdvertisingService(cameraService) || cameraByName) {
+      cameraControlOnAdvertised(cameraName, device->getAddress().toString().c_str(),
+                                device->getAddress().getType(), true);
+    }
     const uint16_t services[]={0x1816,0x180d,0x1818};
     const SensorKind kinds[]={SensorKind::Csc,SensorKind::Heart,SensorKind::Power};
     for(unsigned i=0;i<3;i++)if(device->isAdvertisingService(NimBLEUUID(services[i]))){
@@ -298,6 +313,13 @@ class ServerCallbacks : public NimBLEServerCallbacks {
     abortBleOtaOnDisconnect();
     abortRouteTransfer();
     if (stopState.load() != 0) return;
+    // Direct-control pairing pauses advertising and drops the camera's remote
+    // link on purpose (camera_control.cpp); do not undo that here, or the
+    // camera re-attaches as a remote and never advertises its control service.
+    if (cameraControlIsPairing()) {
+      Serial.println("[BLE SERVER] Disconnect during camera pairing; advertising stays paused.");
+      return;
+    }
     Serial.println("[BLE SERVER] Mobile App disconnected. Restarting advertising...");
     NimBLEDevice::startAdvertising();
   }
@@ -339,6 +361,7 @@ void bleTaskLoop(void* pvParameters) {
   initBleLayoutSyncService(pBLEServer);
   initBleOtaService(pBLEServer);
   initBleCameraRemoteService(pBLEServer);
+  initCameraControl();
 
   // Start BLE Peripheral Advertising
   NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
@@ -407,6 +430,7 @@ void bleTaskLoop(void* pvParameters) {
     }
     if(millis()-powerReceived>5000)currentPowerWatts=-1;
     tickCameraPairing();
+    tickCameraControl();
 
     if (g_ble_scanning) {
       if (!pBLEScan->isScanning()) {

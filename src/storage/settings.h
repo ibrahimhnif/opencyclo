@@ -35,6 +35,11 @@ struct Settings {
   // camera unit (read off its own Settings -> Camera Info screen) -- see
   // ble_camera_remote.cpp. All-zero means "not set yet."
   uint8_t insta360_wake_bytes[6];
+
+  // Insta360 camera we control directly as a BLE central (see
+  // hardware/camera_control.cpp). Empty = not paired.
+  char camera_mac[18];
+  uint8_t camera_addr_type;
 };
 
 extern Settings g_settings;

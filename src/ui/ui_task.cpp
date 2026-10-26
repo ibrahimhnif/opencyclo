@@ -146,6 +146,9 @@ void uiTaskLoop(void* pvParameters) {
 
     // Render active dynamic page from UiConfig -- every widget/layout draw
     // call targets the off-screen canvas sprite, not the panel directly.
+    // Re-resolving the theme each frame is what makes browser-pushed themes
+    // apply live (8 RGB565 conversions, negligible next to a full-frame blit).
+    applyActiveTheme();
     if (g_ui_config.active_page_count > 0) {
       renderPage(g_ui_config.pages[currentPageIdx], currentPageIdx, g_ui_config.active_page_count, state, forceRedraw);
     }

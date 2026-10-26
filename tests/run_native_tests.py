@@ -32,6 +32,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
         ("sensor_catalog", ["tests/test_sensor_catalog.cpp"], []),
         ("baro_calibration", ["tests/test_baro_calibration.cpp"], []),
         ("utc_time", ["tests/test_utc_time.cpp"], []),
+        ("camera_protocol", ["tests/test_camera_protocol.cpp",
+                            "src/hardware/camera_protocol.cpp"], []),
         # Vendor C uses valid {0} aggregate initialization; host C++ warns on it.
         ("bme280", ["tests/test_bme280.cpp", "src/hardware/bosch/bme280.c"],
          ["-x", "c++", "-Wno-missing-field-initializers"]),
@@ -42,6 +44,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-tests-") as work:
          ["-DPIN_USB_POWER_SENSE=2"]),
         ("gpx", ["tests/test_gpx_writer.cpp", "src/storage/gpx_writer.cpp"], []),
         ("screenshot", ["tests/test_screenshot.cpp", "src/storage/screenshot.cpp"], []),
+        ("theme", ["tests/test_theme.cpp", "src/ui/engine/theme.cpp"], []),
+        ("widget_model", ["tests/test_widget_model.cpp", "src/ui/engine/widget_model.cpp"], []),
     ):
         binary = work / name
         subprocess.run([

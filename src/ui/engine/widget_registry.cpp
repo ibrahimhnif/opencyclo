@@ -3,6 +3,9 @@
 #include "ui/scroll_gesture.h"
 #include "widget_registry.h"
 #include "widget_catalog.h"
+#include "theme.h"
+#include "widget_model.h"
+#include "storage/theme_config.h"
 #include "ui/power_menu.h"
 #include "ui/control_layout.h"
 #include "storage/settings.h"
@@ -11,44 +14,59 @@
 #include "hardware/ble_task.h"
 #include "hardware/ble_layout_sync.h"
 #include "hardware/ble_camera_remote.h"
+#include "hardware/camera_control.h"
+#include "hardware/camera_protocol.h"
 #include <stdio.h>
 
-static uint16_t COLOR_BG = TFT_BLACK;
+// Colors resolve from the shared theme store so the browser editor previews
+// the same tokens the panel renders. Defaults equal the legacy hardcoded
+// palette, so existing renders are unchanged until a custom theme is set.
+static uint16_t COLOR_BG = uitheme::toRgb565(uitheme::kBg);
 
-static uint16_t COLOR_HAIRLINE = tft.color565(28, 28, 28);
-static uint16_t COLOR_TEXT     = TFT_WHITE;
-static uint16_t COLOR_LABEL    = ui::muted;
-static uint16_t COLOR_GREEN    = ui::success;
-static uint16_t COLOR_AMBER    = ui::warning;
-static uint16_t COLOR_RED      = ui::danger;
-static uint16_t COLOR_CYAN     = ui::accent;
+static uint16_t COLOR_HAIRLINE = uitheme::toRgb565(uitheme::kHairline);
+static uint16_t COLOR_TEXT     = uitheme::toRgb565(uitheme::kText);
+static uint16_t COLOR_LABEL    = uitheme::toRgb565(uitheme::kLabel);
+static uint16_t COLOR_GREEN    = uitheme::toRgb565(uitheme::kSuccess);
+static uint16_t COLOR_AMBER    = uitheme::toRgb565(uitheme::kWarning);
+static uint16_t COLOR_RED      = uitheme::toRgb565(uitheme::kDanger);
+static uint16_t COLOR_CYAN     = uitheme::toRgb565(uitheme::kAccent);
+
+void applyActiveTheme() {
+  COLOR_BG = uitheme::toRgb565(g_theme.bg);
+  COLOR_HAIRLINE = uitheme::toRgb565(g_theme.hairline);
+  COLOR_TEXT = uitheme::toRgb565(g_theme.text);
+  COLOR_LABEL = uitheme::toRgb565(g_theme.label);
+  COLOR_GREEN = uitheme::toRgb565(g_theme.success);
+  COLOR_AMBER = uitheme::toRgb565(g_theme.warning);
+  COLOR_RED = uitheme::toRgb565(g_theme.danger);
+  COLOR_CYAN = uitheme::toRgb565(g_theme.accent);
+}
 
 // 1. SPEED (hero) — the one widget with its own layout, everything else is a "tile."
 static void renderWidgetSpeed(const Rect& b, const TelemetryState& state, bool force) {
   if (force) {
     canvas.fillRect(b.x, b.y, b.w, b.h, COLOR_BG);
   }
+  // Text comes from the shared view model; this function only draws.
+  wmodel::HeroModel m;
+  wmodel::modelSpeed(state.display_speed_kmh, g_settings.units == 1,
+                     state.speed_source == SPEED_SOURCE_BLE_CSC ? wmodel::SPEED_HINT_BLE : wmodel::SPEED_HINT_GPS, m);
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setTextColor(COLOR_LABEL, COLOR_BG);
   canvas.setTextPadding(b.w - 8);
-  char srcBuf[16];
-  snprintf(srcBuf, sizeof(srcBuf), "speed . %s", state.speed_source == SPEED_SOURCE_BLE_CSC ? "ble" : "gps");
-  canvas.drawString(srcBuf, b.x + 4, b.y + 4);
+  canvas.drawString(m.source, b.x + 4, b.y + 4);
   canvas.setTextPadding(0);
 
   canvas.setFont(&fonts::FreeSansBold24pt7b);
   canvas.setTextColor(COLOR_TEXT, COLOR_BG);
-  char buf[12];
-  float speed = (g_settings.units == 1) ? (state.display_speed_kmh * 0.621371f) : state.display_speed_kmh;
-  snprintf(buf, sizeof(buf), "%.1f", speed);
   canvas.setTextPadding(b.w - 70);
-  canvas.drawString(buf, b.x + 4, b.y + 24);
+  canvas.drawString(m.value, b.x + 4, b.y + 24);
   canvas.setTextPadding(0);
 
   canvas.setFont(&fonts::FreeSansBold9pt7b);
   canvas.setTextColor(COLOR_LABEL, COLOR_BG);
   canvas.setCursor(b.x + b.w - 44, b.y + b.h - 18);
-  canvas.print((g_settings.units == 1) ? "mph" : "km/h");
+  canvas.print(m.unit);
 }
 
 // Shared layout for every SMALL/MEDIUM "label above, value below, hairline
@@ -82,24 +100,16 @@ static void renderTile(const Rect& b, const char* label, const char* valueStr, u
 // 108px in FreeSans12pt7b, which is wider than a MEDIUM tile's 106px erase
 // padding and reaches to within 2px of the tile edge. The bare number is 71px.
 static void renderWidgetDistance(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[16];
-  float d = (g_settings.units == 1) ? (state.trip_distance_km * 0.621371f) : state.trip_distance_km;
-  snprintf(buf, sizeof(buf), "%.2f", d);
-  renderTile(b, (g_settings.units == 1) ? "dist (mi)" : "dist (km)", buf, COLOR_TEXT, force);
+  wmodel::TileModel m;
+  wmodel::modelDistance(state.trip_distance_km, g_settings.units == 1, m);
+  renderTile(b, m.label, m.value, COLOR_TEXT, force);
 }
 
 // 3. RIDE TIME
 static void renderWidgetRideTime(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[16];
-  uint32_t hrs = state.ride_time_s / 3600;
-  uint32_t mins = (state.ride_time_s % 3600) / 60;
-  uint32_t secs = state.ride_time_s % 60;
-  if (hrs > 0) {
-    snprintf(buf, sizeof(buf), "%02u:%02u:%02u", hrs, mins, secs);
-  } else {
-    snprintf(buf, sizeof(buf), "%02u:%02u", mins, secs);
-  }
-  renderTile(b, "ride time", buf, COLOR_TEXT, force);
+  wmodel::TileModel m;
+  wmodel::modelRideTime(state.ride_time_s, m);
+  renderTile(b, m.label, m.value, COLOR_TEXT, force);
 }
 
 // 4. CADENCE
@@ -109,10 +119,9 @@ static void renderWidgetRideTime(const Rect& b, const TelemetryState& state, boo
 // pushed it over. There's no headroom to widen the budget without also
 // shrinking the tile's side margins.
 static void renderWidgetCadence(const Rect& b, const TelemetryState& state, bool force) {
-  char buf[8];
-  if (state.cadence_rpm >= 0) snprintf(buf, sizeof(buf), "%d", state.cadence_rpm);
-  else snprintf(buf, sizeof(buf), "0");
-  renderTile(b, "cad", buf, COLOR_CYAN, force);
+  wmodel::TileModel m;
+  wmodel::modelCadence(state.cadence_rpm, m);
+  renderTile(b, m.label, m.value, COLOR_CYAN, force);
 }
 
 // 5. HEART RATE
@@ -537,25 +546,30 @@ static bool touchWidgetSettingsList(const Rect& b, int16_t x, int16_t y) {
 
 // 16. CAMERA REMOTE
 //
-// Impersonates the Insta360 "GPS Remote" accessory over BLE to trigger an
-// Insta360 Ace Pro 2 -- confirmed working on real hardware (see
-// ble_camera_remote.cpp for the protocol source). Five verified commands:
-// Shutter (photo in photo mode, record start/stop toggle in video mode),
-// Mode (cycles Photo/Video/Time Shift -- same as the physical remote, does
-// NOT reach every camera mode; e.g. FreeFrame is touchscreen-only even on
-// Insta360's own remote), Screen Toggle (short press), Power Off (3s hold),
-// and Wake Camera (beacons the camera-specific bytes set via a dedicated
-// BLE characteristic -- see ble_camera_remote.h -- so a sleeping/off camera
-// notices and reconnects on its own; the button is greyed distinctly if no
-// wake bytes have been set yet).
+// Two channels to an Insta360 Ace Pro 2:
+// - The emulated "GPS Remote" accessory (ble_camera_remote.cpp, confirmed on
+//   real hardware): Shutter (photo in photo mode, record start/stop toggle in
+//   video mode), Screen Toggle (short press), Power Off (3s hold), and Wake
+//   Camera (beacons the camera-specific bytes set via a dedicated BLE
+//   characteristic -- see ble_camera_remote.h -- so a sleeping/off camera
+//   notices and reconnects; the Wake button is greyed if no wake bytes are
+//   set yet).
+// - The direct BLE camera-control channel (hardware/camera_control.cpp), which
+//   speaks the camera's own "OneDriver" protocol and can select arbitrary
+//   capture modes -- including FreeFrame, which the GPS Remote's physical Mode
+//   button cannot reach. That is the "Modes" picker. Pair starts that pairing
+//   (and deliberately does NOT open the GPS-Remote pairing window, or the
+//   camera would re-attach as a remote and stop advertising its control
+//   service).
 //
 // Row geometry is shared between render and touch, same discipline as the
 // BLE Manager / Settings List widgets above, so drawn buttons and tappable
 // bands can't drift apart.
-// Pair, shutter and a 2 x 2 options grid fit the existing FULL widget.
-// Visual rectangles are also the hit-test source; all six dispatches below
-// still call the original camera functions with no protocol/state changes.
-static bool cameraOptions=false;
+// Pages: Capture (Pair/Shutter/Options) -> Options (Back + Modes/Screen/Wake/
+// Off) -> Modes (Back/Next + a paged 4-up mode list).
+static int cameraPage=0;      // 0 = capture, 1 = options, 2 = mode picker
+static int cameraModePage=0;
+static int cameraSelected=-1;
 static void cameraButton(const Rect& b,ui::HitRect r,ui::Icon icon,const char* text,uint16_t bg,uint16_t fg=TFT_WHITE) {
   r.x+=b.x;r.y+=b.y;
   canvas.fillRoundRect(r.x,r.y,r.w,r.h,8,bg);
@@ -565,44 +579,71 @@ static void cameraButton(const Rect& b,ui::HitRect r,ui::Icon icon,const char* t
 }
 static void renderWidgetCameraRemote(const Rect& b,const TelemetryState& state,bool force) {
   (void)state;(void)force;
-  // Two small presentation states, no new camera state/acknowledgement.
   canvas.fillRect(b.x,b.y,b.w,b.h,COLOR_BG);canvas.setTextPadding(0);
-  const bool pairing=isCameraPairing(),waking=isCameraWaking();
+  const bool pairing=isCameraPairing()||cameraControlIsPairing(),waking=isCameraWaking();
+  const bool connected=isCameraSubscribed()||cameraControlIsConnected();
   canvas.setFont(&fonts::FreeSansBold9pt7b);
-  canvas.setTextColor(pairing||waking?COLOR_AMBER:isCameraSubscribed()?COLOR_GREEN:COLOR_LABEL,COLOR_BG);
-  canvas.drawString(pairing?"Pairing (30s)":waking?"Waking (10s)":
-    isCameraSubscribed()?"Connected":"Not connected",b.x+8,b.y+8);
-  if(!cameraOptions) {
+  canvas.setTextColor(pairing||waking?COLOR_AMBER:connected?COLOR_GREEN:COLOR_LABEL,COLOR_BG);
+  canvas.drawString(pairing?(cameraControlIsPairing()?"Camera pairing":"Pairing (30s)"):waking?"Waking (10s)":
+    connected?"Connected":"Not connected",b.x+8,b.y+8);
+  if(cameraPage==0) {
     cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Search,pairing?"Pairing...":"Pair",ui::panel);
     cameraButton(b,ui::captureRect(1,b.w),ui::Icon::Camera,"Shutter",COLOR_CYAN,TFT_BLACK);
     cameraButton(b,ui::captureRect(2,b.w),ui::Icon::List,"Options",ui::panel);
-  } else {
+  } else if(cameraPage==1) {
     cameraButton(b,ui::captureRect(0,b.w),ui::Icon::Back,"Back",ui::panel);
-    const char* labels[]={"Mode","Screen","Wake","Off"};
+    const char* labels[]={"Modes","Screen","Wake","Off"};
     const ui::Icon icons[]={ui::Icon::Mode,ui::Icon::Screen,ui::Icon::Wake,ui::Icon::Power};
     for(int i=0;i<4;i++){
       auto r=ui::optionRect(i,b.w);
       const uint16_t fg=i==3?COLOR_AMBER:i==2&&!hasCameraWakeBytes()?COLOR_LABEL:TFT_WHITE;
       cameraButton(b,r,icons[i],labels[i],ui::panel,fg);
     }
+  } else {
+    cameraButton(b,ui::modeNav(0,b.w),ui::Icon::Back,"Back",ui::panel);
+    cameraButton(b,ui::modeNav(1,b.w),ui::Icon::List,"Next",ui::panel);
+    for(int i=0;i<4;i++){
+      const int index=cameraModePage*4+i;
+      if(index>=(int)camera_proto::CAMERA_MODE_COUNT)break;
+      const bool sel=index==cameraSelected;
+      cameraButton(b,ui::optionRect(i,b.w),ui::Icon::Mode,camera_proto::CAMERA_MODES[index].label,
+                   sel?COLOR_CYAN:ui::panel,sel?TFT_BLACK:TFT_WHITE);
+    }
   }
+  char hint[40];
+  if(cameraPage==2){
+    int last=cameraModePage*4+4;if(last>(int)camera_proto::CAMERA_MODE_COUNT)last=(int)camera_proto::CAMERA_MODE_COUNT;
+    snprintf(hint,sizeof(hint),"Modes %d-%d of %d",cameraModePage*4+1,last,(int)camera_proto::CAMERA_MODE_COUNT);
+  } else snprintf(hint,sizeof(hint),cameraPage==0?"Shutter follows mode":"Camera controls");
   canvas.setFont(&fonts::FreeSansBold9pt7b);canvas.setTextColor(COLOR_LABEL,COLOR_BG);
-  canvas.drawString(cameraOptions?(hasCameraWakeBytes()?"Camera controls":"Wake needs setup"):"Shutter follows mode",b.x+8,b.y+226);
+  canvas.drawString(hint,b.x+8,b.y+226);
 }
 static bool touchWidgetCameraRemote(const Rect& b,int16_t x,int16_t y) {
   x-=b.x;y-=b.y;
-  if(!cameraOptions){
-    if(ui::captureRect(0,b.w).contains(x,y)){startCameraPairing();return true;}
+  if(cameraPage==0){
+    if(ui::captureRect(0,b.w).contains(x,y)){cameraControlPair();return true;}
     if(ui::captureRect(1,b.w).contains(x,y)){triggerCameraShutter();return true;}
-    if(ui::captureRect(2,b.w).contains(x,y)){cameraOptions=true;return true;}
-  } else {
-    if(ui::captureRect(0,b.w).contains(x,y)){cameraOptions=false;return true;}
+    if(ui::captureRect(2,b.w).contains(x,y)){cameraPage=1;return true;}
+  } else if(cameraPage==1){
+    if(ui::captureRect(0,b.w).contains(x,y)){cameraPage=0;return true;}
     for(int i=0;i<4;i++)if(ui::optionRect(i,b.w).contains(x,y)){
-      switch(i){
-        case 0:triggerCameraMode();break;
-        case 1:triggerCameraScreenToggle();break;
-        case 2:wakeSleepingCamera();break;
-        case 3:triggerCameraPowerOff();break;
+      if(i==0)cameraPage=2;
+      else if(i==1)triggerCameraScreenToggle();
+      else if(i==2)wakeSleepingCamera();
+      else triggerCameraPowerOff();
+      return true;
+    }
+  } else {
+    if(ui::modeNav(0,b.w).contains(x,y)){cameraPage=1;return true;}
+    if(ui::modeNav(1,b.w).contains(x,y)){
+      const int pages=((int)camera_proto::CAMERA_MODE_COUNT+3)/4;
+      cameraModePage=(cameraModePage+1)%pages;return true;
+    }
+    for(int i=0;i<4;i++)if(ui::optionRect(i,b.w).contains(x,y)){
+      const int index=cameraModePage*4+i;
+      if(index<(int)camera_proto::CAMERA_MODE_COUNT){
+        cameraSelected=index;
+        setCameraMode(camera_proto::CAMERA_MODES[index].scope,camera_proto::CAMERA_MODES[index].subMode);
       }
       return true;
     }

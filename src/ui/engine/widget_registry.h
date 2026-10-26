@@ -18,6 +18,11 @@ struct WidgetDescriptor {
 void initWidgetRegistry();
 const WidgetDescriptor* getWidgetDescriptor(WidgetType type);
 
+// Re-resolves the cached RGB565 colors from the active theme (g_theme).
+// Call once per frame before drawing so a browser-pushed theme applies live
+// without a reboot or reflash.
+void applyActiveTheme();
+
 // Renders `type` into `slot` only if the widget supports slot.size_class;
 // otherwise draws a blank placeholder tile (background fill, no text) so an
 // invalid config can never produce overlapping/garbled text again.

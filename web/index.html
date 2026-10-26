@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCyclo browser companion</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #101418; color: #e8ecf1; font-family: system-ui, sans-serif; margin: 0; }
+  header { padding: 12px 16px; background: #161b21; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 16px 0 0; }
+  main { display: grid; grid-template-columns: 300px 1fr 300px; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+  section { background: #161b21; border-radius: 8px; padding: 12px; }
+  h2 { font-size: 13px; margin: 0 0 8px; color: #a8b1bd; text-transform: uppercase; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 13px; }
+  .row span:first-child { flex: 1; }
+  button { background: #00d2ff; border: 0; border-radius: 6px; padding: 8px 12px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.active { outline: 2px solid #fff; }
+  #pages button { display: block; width: 100%; margin: 4px 0; background: #232a33; color: #fff; font-weight: 400; text-align: left; }
+  #pages button.active { background: #004c5e; }
+  select, input[type="text"], input:not([type]) { background: #232a33; color: #fff; border: 1px solid #333c46; border-radius: 4px; padding: 4px 6px; }
+  input[type="range"] { flex: 1; }
+  #preview { width: 240px; height: 320px; image-rendering: pixelated; border: 1px solid #333c46; border-radius: 8px; }
+  .previewCol { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  #log { background: #0b0e11; border-radius: 6px; padding: 8px; height: 120px; overflow-y: auto; font: 11px monospace; white-space: pre-wrap; grid-column: 1 / -1; }
+  #devInfo { font-size: 12px; color: #a8b1bd; }
+  nav a { color: #00d2ff; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenCyclo browser companion</h1>
+  <button id="connect">Connect USB</button>
+  <button id="disconnect" disabled>Disconnect</button>
+  <span id="devInfo">not connected</span>
+  <nav><a href="flash.html">Firmware flashing →</a></nav>
+</header>
+<main>
+  <section>
+    <h2>Theme</h2>
+    <div id="themeControls"></div>
+    <div class="row">
+      <button id="pushTheme">Apply theme to device</button>
+    </div>
+    <div class="row">
+      <button id="exportTheme">Export JSON</button>
+      <input type="file" id="importTheme" accept=".json">
+    </div>
+  </section>
+  <section class="previewCol">
+    <h2>Live preview (240×320)</h2>
+    <canvas id="preview"></canvas>
+    <h2>Sample ride data</h2>
+    <div id="sampleControls" style="width:100%"></div>
+  </section>
+  <section>
+    <h2>Pages</h2>
+    <div id="pages"></div>
+    <h2>Page editor</h2>
+    <div id="pageEditor"></div>
+    <div class="row">
+      <button id="pushLayout">Apply layout to device</button>
+    </div>
+    <div class="row">
+      <button id="resetAll">Factory reset device UI</button>
+    </div>
+  </section>
+  <pre id="log"></pre>
+</main>
+<script type="module" src="editor.js"></script>
+</body>
+</html>

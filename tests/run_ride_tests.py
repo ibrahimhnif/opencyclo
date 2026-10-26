@@ -32,7 +32,8 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         subprocess.run([sys.executable,str(root/"tests/render_ride_preview.py"),sys.argv[1]],
                        input=commands,text=True,check=True)
     for header in ["hardware/display.h", "hardware/battery.h", "hardware/ble_task.h",
-                   "hardware/ble_camera_remote.h", "hardware/ble_layout_sync.h",
+                   "hardware/ble_camera_remote.h", "hardware/camera_control.h",
+                   "hardware/ble_layout_sync.h",
                    "storage/settings.h", "ui/power_menu.h"]:
         target=work/header
         target.parent.mkdir(parents=True,exist_ok=True)
@@ -43,6 +44,9 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
         str(root/"src/ui/engine/widget_registry.cpp"),
         str(root/"src/ui/engine/widget_catalog.cpp"),
+        str(root/"src/ui/engine/widget_model.cpp"),
+        str(root/"src/ui/engine/theme.cpp"),
+        str(root/"src/hardware/camera_protocol.cpp"),
         str(root/"tests/test_camera_ui.cpp"),"-o",str(camera),
     ],check=True)
     subprocess.run([str(camera)],check=True)
@@ -52,6 +56,9 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
         str(root/"src/ui/engine/widget_registry.cpp"),
         str(root/"src/ui/engine/widget_catalog.cpp"),
+        str(root/"src/ui/engine/widget_model.cpp"),
+        str(root/"src/ui/engine/theme.cpp"),
+        str(root/"src/hardware/camera_protocol.cpp"),
         str(root/"tests/test_sensor_ui.cpp"),"-o",str(sensor_ui),
     ],check=True)
     subprocess.run([str(sensor_ui)],check=True)
@@ -68,7 +75,9 @@ with tempfile.TemporaryDirectory(prefix="opencyclo-ride-tests-") as temp:
     subprocess.run(["c++","-std=c++11","-Wall","-Wextra","-Werror",
         f"-I{work}",f"-I{root}/tests",f"-I{root}/src",
         str(root/"src/ui/engine/widget_registry.cpp"),str(root/"src/ui/engine/widget_catalog.cpp"),
+        str(root/"src/ui/engine/widget_model.cpp"),str(root/"src/ui/engine/theme.cpp"),
         str(root/"src/ui/engine/template_engine.cpp"),str(root/"src/ui/engine/layout_manager.cpp"),
+        str(root/"src/hardware/camera_protocol.cpp"),
         str(root/"tests/test_page_ui.cpp"),"-o",str(pages)],check=True)
     subprocess.run([str(pages)],check=True)
     if len(sys.argv)>1:
